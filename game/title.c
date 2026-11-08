@@ -3,13 +3,17 @@
 #include "hud.h"
 #include "fx.h"
 #include "gte.h"
+#include "tim.h"
+#include "logo_tim.h"
+
+static TimInfo logo;
 
 static int sel, confirm_t = -1, fade_in, choice = -1, tap_item = -1;
 static const char *MENU[MENU_COUNT] = { "PLAY", "CONTROLS" };
 #define MENU_Y0 128
 #define MENU_DY 30
 
-void title_init(void) { title_reset(); }
+void title_init(void) { tim_upload(logo_tim, LOGO_TIM_SIZE, &logo); title_reset(); }
 
 void title_reset(void) { sel = 0; confirm_t = -1; fade_in = 32; choice = -1; tap_item = -1; }
 
@@ -45,13 +49,24 @@ void title_draw(FrameBuf *fb, int t)
     int i;
     embers_draw(fb, t, 20);
 
-    /* logo: big fiery DEADBIRD with a pulsing glow plate behind it */
+    /* logo: the DEADBIRD artwork as an 8bpp texture, two 160 px halves drawn 1:1, gently pulsing */
     {
-        int glow = 60 + (isin(t * 40) * 30 >> 12);
-        quad_g(fb, 20, 14, 300, 34, RGB(0, 0, 0), RGB(glow, glow / 5, 0), SEMI_ADD, 10);
-        quad_g(fb, 20, 34, 300, 60, RGB(glow, glow / 5, 0), RGB(0, 0, 0), SEMI_ADD, 10);
-        text_hell(fb, "DEADBIRD", 160, 16, 5, t, 4);
-        text_center(fb, "- HELLFIRE -", 160, 72, 1, 150 + (isin(t * 70) * 40 >> 12), 4);
+        int half, k, y0 = 4 + (isin(t * 24) * 2 >> 12);
+        int b = 128 + (isin(t * 37) * 14 >> 12);
+        for (half = 0; half < 2; half++) {
+            POLY *p = prim_alloc(fb);
+            int x0 = half * (LOGO_W / 2), v0 = half * 128;
+            if (!p) break;
+            memset(p, 0, sizeof(*p));
+            p->code = PF_TEX | PF_QUAD;
+            p->tpage = logo.tpage; p->clut = logo.clut;
+            p->v[0].x = (s16)x0;                p->v[0].y = (s16)y0;            p->v[0].u = 0;               p->v[0].v = (u8)v0;
+            p->v[1].x = (s16)(x0 + LOGO_W / 2); p->v[1].y = (s16)y0;            p->v[1].u = (u8)(LOGO_W / 2); p->v[1].v = (u8)v0;
+            p->v[2].x = (s16)x0;                p->v[2].y = (s16)(y0 + LOGO_H); p->v[2].u = 0;               p->v[2].v = (u8)(v0 + LOGO_H);
+            p->v[3].x = (s16)(x0 + LOGO_W / 2); p->v[3].y = (s16)(y0 + LOGO_H); p->v[3].u = (u8)(LOGO_W / 2); p->v[3].v = (u8)(v0 + LOGO_H);
+            for (k = 0; k < 4; k++) { p->v[k].r = (u8)b; p->v[k].g = (u8)(b * 15 / 16); p->v[k].b = (u8)(b * 15 / 16); }
+            ot_add(fb, 4, p);
+        }
     }
 
     /* menu: stacked down from the centre; selected row burns */
