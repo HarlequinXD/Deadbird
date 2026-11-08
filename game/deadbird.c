@@ -19,12 +19,16 @@
 #undef DEMON_MESH_NO_DATA
 #include "demon_tim.h"
 #include "demon_mesh.h"
+#include "chainsaw_mesh.h"
+#include "chainsaw_tim.h"
 
 
 static FrameBuf frames[2];
 static int cur, disp_x, disp_y;
-static Model demon;
-static TimInfo tim;
+static Model demon, saw_body, saw_chain[SAW_CHAIN_FRAMES];
+static TimInfo tim, saw_tim;
+static int chain_ph;                   /* chainsaw chain: strip frame = chain_ph >> 4 */
+static int land_shake_t = 99, land_shake_amp;   /* camera jolt when she lands */
 static Player pl;
 static int gs, gs_t, frame_count, shake, rumble;
 static s32 cam_yaw, cam_dist, cam_h, cam_side, cam_clip = 2900;
@@ -118,12 +122,23 @@ static void go_title(void)
 
 void game_init(void)
 {
+    int b;
     gpu_init();
     tim_upload(demon_tim, DEMON_TIM_SIZE, &tim);
     demon.verts = (const DVERT *)demon_verts; demon.nverts = DEMON_NVERTS;
     demon.prims = (const DPRIM *)demon_prims; demon.nprims = DEMON_NPRIMS;
     demon.bones = (const DBONE *)demon_bones; demon.nbones = DEMON_NBONES;
     demon.tpage = tim.tpage; demon.clut = tim.clut;
+    /* arm chainsaw: body + the chain as 4 one-bone models (one per strip frame), sharing vertices */
+    tim_upload(chainsaw_tim, CHAINSAW_TIM_SIZE, &saw_tim);
+    saw_body.verts = (const DVERT *)saw_verts; saw_body.nverts = SAW_NVERTS;
+    saw_body.prims = (const DPRIM *)saw_prims; saw_body.nprims = SAW_NPRIMS;
+    saw_body.bones = (const DBONE *)saw_bones; saw_body.nbones = 1;
+    saw_body.tpage = saw_tim.tpage; saw_body.clut = saw_tim.clut;
+    for (b = 0; b < SAW_CHAIN_FRAMES; b++) {
+        saw_chain[b] = saw_body;
+        saw_chain[b].bones = (const DBONE *)&saw_bones[1 + b];
+    }
     player_init(&demon);
     hud_init();
     title_init();
@@ -178,6 +193,11 @@ static void simulate(u32 pad)
     read_move(pad, &myaw, &mmag);
     player_update(&pl, pad, myaw, mmag);
     if (pl.land_t == 1 && pl.land_amp > 1500) rumble = pl.land_amp >> 4;      /* thump on a hard landing */
+    if (pl.land_t == 1 && pl.land_amp > 1000) {                               /* screen shake on landing */
+        land_shake_t = 0;
+        land_shake_amp = pl.land_amp * 110 >> 12;                             /* up to ~11 cm of camera jolt */
+    } else if (land_shake_t < 99) land_shake_t++;
+    chain_ph += 5 + pl.speed / 6;                                             /* chain idles, revs when she runs */
     player_pose(&pl, &demon);
     level_update();
     fx_update();
@@ -282,6 +302,13 @@ static void draw_world(FrameBuf *fb, PROJ *pr)
     cam_h += (want_h - cam_h) / 8;
     cam_side += (want_s - cam_side) / 8;
     if (shake > 0) { sx = (int)(fx_rand() % 41) - 20; sy = (int)(fx_rand() % 31) - 15; shake--; }
+    if (land_shake_t < 22) {
+        /* landing jolt: camera kicks down then rings out, with a little sideways rattle */
+        int k = 22 - land_shake_t;                                            /* 22 .. 1 */
+        s32 a = land_shake_amp * k * k / (22 * 22);
+        sy += (int)(a * icos(land_shake_t * 600) >> 12);
+        sx += (int)((a / 3) * isin(land_shake_t * 1500) >> 12);
+    }
 
     mat_rot_x(&rx, 150); mat_rot_y(&ry, -cam_yaw - (debug_side_cam ? 1024 : 0)); mat_mul(&rx, &ry, &view);
     /* look-at point: chest height */
@@ -315,6 +342,14 @@ static void draw_world(FrameBuf *fb, PROJ *pr)
     blob_shadow(fb, &view, pr, pl.x, level_ground(pl.x, pl.z, pl.y), pl.z);
     for (b = 0; b < DEMON_NBONES; b++) mat_mul(&view, &pl.world[b], &cam[b]);
     model_draw_mats(&demon, cam, &ctx, fb);
+    {   /* chainsaw strapped to her right fist */
+        MATRIX mount, sawm;
+        mat_identity(&mount);
+        mat_translate(&mount, DEMON_MOUNT_X, DEMON_MOUNT_Y, DEMON_MOUNT_Z);
+        mat_mul(&cam[DEMON_MOUNT_BONE], &mount, &sawm);
+        model_draw_mats(&saw_body, &sawm, &ctx, fb);
+        model_draw_mats(&saw_chain[(chain_ph >> 4) & (SAW_CHAIN_FRAMES - 1)], &sawm, &ctx, fb);
+    }
     fx_draw(fb, &view, pr);
 }
 

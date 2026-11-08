@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Deadbird arm chainsaw (PS1 model)</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b0304;color:#e9c9a0;font:12px/1.3 "Courier New",monospace;overflow:hidden;touch-action:none;-webkit-user-select:none;user-select:none}
+  canvas#c{position:fixed;inset:0;width:100%;height:100%;image-rendering:pixelated;image-rendering:crisp-edges;display:block}
+  #hud{position:fixed;left:10px;top:10px;right:10px;pointer-events:none;text-shadow:1px 1px 0 #000}
+  #hud b{color:#ff5a2a;font-size:14px;letter-spacing:1px}
+  #stats{opacity:.85;margin-top:4px}
+  #bar{position:fixed;left:0;right:0;bottom:0;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;padding:10px 8px calc(10px + env(safe-area-inset-bottom))}
+  button{font:inherit;font-size:12px;color:#e9c9a0;background:#2a0b0b;border:2px solid #6b2117;border-radius:0;padding:7px 10px;box-shadow:2px 2px 0 #000}
+  button.on{background:#7a1f12;color:#fff;border-color:#ff5a2a}
+  #texwrap{position:fixed;inset:0;background:rgba(5,1,1,.94);display:none;align-items:center;justify-content:center;flex-direction:column;gap:8px}
+  #texwrap img{width:min(94vw,768px);image-rendering:pixelated;border:2px solid #6b2117;background:#301030}
+  #texwrap.show{display:flex}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"><b>ARM CHAINSAW</b><div id="stats"></div><div style="opacity:.6;margin-top:2px">drag to orbit · pinch / wheel to zoom</div></div>
+<div id="bar">
+  <button id="bSpin" class="on">SPIN</button>
+  <button id="bRev" class="on">REV</button>
+  <button id="bArm" class="on">ARM</button>
+  <button id="bJit" class="on">VERTEX JITTER</button>
+  <button id="bAff" class="on">AFFINE UV</button>
+  <button id="bLow" class="on">240p</button>
+  <button id="bWire">WIRE</button>
+  <button id="bTex">TEXTURE</button>
+</div>
+<div id="texwrap"><img id="texImg" alt="Baked 256x192 8bpp CLUT texture"><div>256×192 · 8bpp CLUT · rows 0–47: 4 chain frames · tap to close</div></div>
+<script>
+const MESH = __MESH__;
+const TEXURI = "__TEX__";
+const cv = document.getElementById('c');
+const gl = cv.getContext('webgl', {antialias:false}) || cv.getContext('experimental-webgl');
+document.getElementById('stats').textContent =
+  MESH.faces + ' polys + ' + MESH.chain_faces + ' chain polys (×' + MESH.frames + ' frames) · ' + MESH.tw + '×' + MESH.th + ' 8bpp TIM · baked light + dither';
+document.getElementById('texImg').src = TEXURI;
+
+const VS = `
+attribute vec3 p; attribute vec2 t; attribute float ch;
+uniform mat4 mvp; uniform vec2 res; uniform float jit, aff, dv;
+varying vec2 vt; varying float vw;
+void main(){
+  vec4 c = mvp*vec4(p,1.0);
+  if(jit>0.5){ vec2 n = c.xy/c.w; n = floor((n*0.5+0.5)*res+0.5)/res*2.0-1.0; c.xy = n*c.w; }
+  gl_Position = c;
+  float w = aff>0.5 ? c.w : 1.0;
+  vec2 uv = t + vec2(0.0, ch*dv);
+  vt = uv/vec2(${MESH.tw}.0, ${MESH.th}.0)*w; vw = w;
+}`;
+const FS = `
+precision mediump float;
+uniform sampler2D tex; uniform float wire;
+varying vec2 vt; varying float vw;
+void main(){
+  if(wire>0.5){ gl_FragColor = vec4(1.0,0.35,0.15,1.0); return; }
+  vec4 c = texture2D(tex, vt/vw);
+  if(c.a < 0.5) discard;            // CLUT index 0 = transparent (gaps between the cutters)
+  gl_FragColor = vec4(c.rgb,1.0);
+}`;
+// forearm stub (flat shaded, 15-bit + dither like the PS1)
+const VSA = `attribute vec3 p; attribute vec3 nn; uniform mat4 mvp; varying float l;
+void main(){ vec3 L=normalize(vec3(0.3,0.8,-0.5)); l = 0.32+0.75*max(dot(normalize(nn),L),0.0); gl_Position=mvp*vec4(p,1.0);} `;
+const FSA = `precision mediump float; varying float l;
+void main(){ vec3 c = vec3(0.42,0.33,0.36)*l;
+  vec2 f = mod(floor(gl_FragCoord.xy),4.0); float d = mod(f.x*2.0+f.y*3.0,4.0)/4.0 + mod(f.x+f.y*2.0,2.0)/8.0 - 0.45;
+  gl_FragColor = vec4(floor(c*31.0+d)/31.0,1.0);} `;
+const VS2 = `attribute vec3 p; uniform mat4 mvp; varying vec2 g; void main(){ g=p.xz; gl_Position=mvp*vec4(p,1.0);} `;
+const FS2 = `precision mediump float; varying vec2 g;
+void main(){
+  float r = length(g);
+  vec2 cell = floor(g*8.0);
+  float chk = mod(cell.x+cell.y,2.0);
+  vec3 c = mix(vec3(0.10,0.11,0.12), vec3(0.13,0.14,0.15), chk);
+  c *= mix(0.35,1.0,smoothstep(0.08,0.45,length((g-vec2(0.15,0.0))*vec2(0.7,1.6))));
+  c *= 1.0 - smoothstep(0.6,1.4,r);
+  vec2 f = mod(floor(gl_FragCoord.xy),4.0);
+  float d = mod(f.x*2.0+f.y*3.0, 4.0)/4.0 + mod(f.x+f.y*2.0,2.0)/8.0 - 0.45;
+  gl_FragColor = vec4(floor(c*31.0 + d)/31.0,1.0);
+}`;
+function prog(v,f){const P=gl.createProgram();for(const[s,t]of[[v,gl.VERTEX_SHADER],[f,gl.FRAGMENT_SHADER]]){const S=gl.createShader(t);gl.shaderSource(S,s);gl.compileShader(S);if(!gl.getShaderParameter(S,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(S);gl.attachShader(P,S);}gl.linkProgram(P);return P;}
+const P1 = prog(VS,FS), P2 = prog(VS2,FS2), PA = prog(VSA,FSA);
+const n = MESH.pos.length/3;
+function buf(a){const b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array(a),gl.STATIC_DRAW);return b;}
+const bp = buf(MESH.pos), bt = buf(MESH.uv), bc = buf(MESH.chain);
+const we=[]; for(let i=0;i<n;i+=3){for(const[a,c]of[[0,1],[1,2],[2,0]]){we.push(...MESH.pos.slice((i+a)*3,(i+a)*3+3),...MESH.pos.slice((i+c)*3,(i+c)*3+3));}}
+const bw = buf(we);
+const FLOOR=-0.13, G=1.6; const bg=buf([-G,FLOOR,-G, G,FLOOR,-G, G,FLOOR,G, -G,FLOOR,-G, G,FLOOR,G, -G,FLOOR,G]);
+
+// forearm + fist stub: tapered octagon from the elbow to the knuckles (mount at the origin)
+const AD=[0.9997,0,-0.0344];   // back along the arm (towards the elbow)
+const ap=[], an=[];
+(function(){
+  const segs=[[ -0.045,0.036,0.032],[0.0,0.040,0.036],[0.03,0.034,0.030],[0.12,0.042,0.040],[0.24,0.050,0.047],[0.33,0.052,0.050]];
+  const N=8, up=[0,1,0], sd=[0.0344,0,0.9997];
+  const ring=(s)=>{const r=[];for(let k=0;k<N;k++){const a=2*Math.PI*(k+0.5)/N, cu=Math.cos(a)*s[1], cs=Math.sin(a)*s[2];
+    r.push([AD[0]*s[0]+up[0]*cu+sd[0]*cs, AD[1]*s[0]+up[1]*cu+sd[1]*cs, AD[2]*s[0]+up[2]*cu+sd[2]*cs, Math.cos(a), Math.sin(a)]);}return r;};
+  for(let i=0;i+1<segs.length;i++){const A=ring(segs[i]),B=ring(segs[i+1]);
+    for(let k=0;k<N;k++){const q=[A[k],A[(k+1)%N],B[(k+1)%N],B[k]];
+      for(const j of[0,1,2,0,2,3]){const v=q[j]; ap.push(v[0],v[1],v[2]); an.push(up[0]*v[3]+sd[0]*v[4], up[1]*v[3]+sd[1]*v[4], up[2]*v[3]+sd[2]*v[4]);}}}
+  const C=ring(segs[0]); for(let k=1;k+1<N;k++)for(const v of[C[0],C[k],C[k+1]]){ap.push(v[0],v[1],v[2]);an.push(-AD[0],-AD[1],-AD[2]);}
+})();
+const bap=buf(ap), ban=buf(an);
+
+const tx = gl.createTexture(); const im = new Image();
+im.onload=()=>{gl.bindTexture(gl.TEXTURE_2D,tx);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,im);
+ for(const k of[gl.TEXTURE_MIN_FILTER,gl.TEXTURE_MAG_FILTER])gl.texParameteri(gl.TEXTURE_2D,k,gl.NEAREST);
+ gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);};
+im.src = TEXURI;
+
+let fb, fbt, fbd, FW=0, FH=0;
+function makeFB(w,h){ if(w===FW&&h===FH) return; FW=w;FH=h;
+  if(fb){gl.deleteFramebuffer(fb);gl.deleteTexture(fbt);gl.deleteRenderbuffer(fbd);}
+  fbt=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,fbt);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,w,h,0,gl.RGBA,gl.UNSIGNED_BYTE,null);
+  for(const k of[gl.TEXTURE_MIN_FILTER,gl.TEXTURE_MAG_FILTER])gl.texParameteri(gl.TEXTURE_2D,k,gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  fbd=gl.createRenderbuffer();gl.bindRenderbuffer(gl.RENDERBUFFER,fbd);gl.renderbufferStorage(gl.RENDERBUFFER,gl.DEPTH_COMPONENT16,w,h);
+  fb=gl.createFramebuffer();gl.bindFramebuffer(gl.FRAMEBUFFER,fb);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,fbt,0);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.RENDERBUFFER,fbd);}
+const PB = prog(`attribute vec2 p; varying vec2 u; void main(){u=p*0.5+0.5; gl_Position=vec4(p,0.0,1.0);}`,
+  `precision mediump float; uniform sampler2D s; varying vec2 u; void main(){gl_FragColor=texture2D(s,u);}`);
+const bq=buf([-1,-1,1,-1,1,1,-1,-1,1,1,-1,1]);
+
+function mul(a,b){const o=new Array(16);for(let i=0;i<4;i++)for(let j=0;j<4;j++){let s=0;for(let k=0;k<4;k++)s+=a[k*4+j]*b[i*4+k];o[i*4+j]=s;}return o;}
+function persp(f,asp,n,fa){const t=1/Math.tan(f/2);return[t/asp,0,0,0, 0,t,0,0, 0,0,(fa+n)/(n-fa),-1, 0,0,2*fa*n/(n-fa),0];}
+function rotY(a){const c=Math.cos(a),s=Math.sin(a);return[c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1];}
+function rotX(a){const c=Math.cos(a),s=Math.sin(a);return[1,0,0,0, 0,c,s,0, 0,-s,c,0, 0,0,0,1];}
+function trans(x,y,z){return[1,0,0,0, 0,1,0,0, 0,0,1,0, x,y,z,1];}
+
+const st={spin:true,rev:true,arm:true,jit:true,aff:true,low:true,wire:false};
+let yaw=2.4,pitch=0.38,dist=0.95,last=performance.now(),idle=0,chainT=0;
+function tog(id,key){const b=document.getElementById(id);b.onclick=()=>{st[key]=!st[key];b.classList.toggle('on',st[key]);};}
+tog('bSpin','spin');tog('bRev','rev');tog('bArm','arm');tog('bJit','jit');tog('bAff','aff');tog('bLow','low');tog('bWire','wire');
+const tw=document.getElementById('texwrap');
+document.getElementById('bTex').onclick=()=>tw.classList.add('show'); tw.onclick=()=>tw.classList.remove('show');
+
+const ptrs=new Map(); let pinch0=0, dist0=0;
+cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(ptrs.size===2){const[a,b]=[...ptrs.values()];pinch0=Math.hypot(a.x-b.x,a.y-b.y);dist0=dist;}});
+cv.addEventListener('pointermove',e=>{if(!ptrs.has(e.pointerId))return;const p=ptrs.get(e.pointerId);
+  if(ptrs.size===1){yaw+=(e.clientX-p.x)*0.01;pitch=Math.max(-0.12,Math.min(1.3,pitch+(e.clientY-p.y)*0.006));idle=0;}
+  p.x=e.clientX;p.y=e.clientY;
+  if(ptrs.size===2){const[a,b]=[...ptrs.values()];const d=Math.hypot(a.x-b.x,a.y-b.y);dist=Math.max(0.35,Math.min(2.5,dist0*pinch0/d));}});
+const up=e=>ptrs.delete(e.pointerId); cv.addEventListener('pointerup',up); cv.addEventListener('pointercancel',up);
+cv.addEventListener('wheel',e=>{e.preventDefault();dist=Math.max(0.35,Math.min(2.5,dist*(1+e.deltaY*0.001)));},{passive:false});
+
+function attr(P,name,b,size){const l=gl.getAttribLocation(P,name);gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.enableVertexAttribArray(l);gl.vertexAttribPointer(l,size,gl.FLOAT,false,0,0);return l;}
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000); last=now; idle+=dt;
+  if(st.spin && idle>1.2) yaw+=dt*0.5;
+  // the game steps the chain one strip frame per 60 Hz tick when revving, every 4th tick at idle
+  chainT += dt*60/(st.rev?1:4);
+  const fr = Math.floor(chainT) % MESH.frames;
+  const dpr=window.devicePixelRatio||1, W=Math.round(cv.clientWidth*dpr), H=Math.round(cv.clientHeight*dpr);
+  if(cv.width!==W||cv.height!==H){cv.width=W;cv.height=H;}
+  const rh = st.low ? 240 : Math.min(H,720), rw = Math.max(1,Math.round(rh*W/H));
+  makeFB(rw,rh);
+  const asp=rw/rh, fov = asp<1 ? 0.95/Math.max(asp,0.5)*0.6 : 0.62;
+  const proj=persp(fov,asp,0.02,10);
+  const view=mul(trans(0,0,-dist),mul(rotX(pitch),mul(rotY(-yaw),trans(0.13,-0.03,0))));
+  const mvp=mul(proj,view);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,fb); gl.viewport(0,0,rw,rh);
+  gl.clearColor(0.03,0.025,0.035,1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+  gl.enable(gl.DEPTH_TEST);
+  gl.useProgram(P2); gl.disable(gl.CULL_FACE);
+  gl.uniformMatrix4fv(gl.getUniformLocation(P2,'mvp'),false,mvp);
+  attr(P2,'p',bg,3); gl.drawArrays(gl.TRIANGLES,0,6);
+  if(st.arm){ gl.useProgram(PA); gl.uniformMatrix4fv(gl.getUniformLocation(PA,'mvp'),false,mvp);
+    attr(PA,'p',bap,3); attr(PA,'nn',ban,3); gl.drawArrays(gl.TRIANGLES,0,ap.length/3); }
+  gl.useProgram(P1); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); gl.frontFace(gl.CCW);
+  gl.uniformMatrix4fv(gl.getUniformLocation(P1,'mvp'),false,mvp);
+  gl.uniform2f(gl.getUniformLocation(P1,'res'),rw/2,rh/2);
+  gl.uniform1f(gl.getUniformLocation(P1,'jit'),st.jit?1:0);
+  gl.uniform1f(gl.getUniformLocation(P1,'aff'),st.aff?1:0);
+  gl.uniform1f(gl.getUniformLocation(P1,'dv'),fr*MESH.rows);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tx); gl.uniform1i(gl.getUniformLocation(P1,'tex'),0);
+  attr(P1,'p',bp,3); const lt=attr(P1,'t',bt,2); const lc=attr(P1,'ch',bc,1);
+  gl.uniform1f(gl.getUniformLocation(P1,'wire'),0); gl.drawArrays(gl.TRIANGLES,0,n);
+  if(st.wire){ gl.disableVertexAttribArray(lt); gl.vertexAttrib2f(lt,0,0); gl.disableVertexAttribArray(lc); gl.vertexAttrib1f(lc,0);
+    attr(P1,'p',bw,3); gl.uniform1f(gl.getUniformLocation(P1,'wire'),1); gl.disable(gl.DEPTH_TEST); gl.drawArrays(gl.LINES,0,we.length/3); }
+  gl.bindFramebuffer(gl.FRAMEBUFFER,null); gl.viewport(0,0,W,H); gl.disable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
+  gl.useProgram(PB); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,fbt); gl.uniform1i(gl.getUniformLocation(PB,'s'),0);
+  attr(PB,'p',bq,2); gl.drawArrays(gl.TRIANGLES,0,6);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
