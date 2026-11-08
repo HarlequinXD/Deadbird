@@ -43,6 +43,9 @@ Done:
 Still to do:
 
 - Test in DuckStation / PCSX-Redux, then on hardware.
-- Speed: vertex transforms still run in C on the CPU. Swapping `model.c`/`level.c` inner loops to
-  GTE macros (`gte_ldv0`, `gte_rtps`, `gte_stsxy`, `gte_nclip`) with scratchpad buffers is the big win.
+- Speed, done so far: level and character vertices go through the real GTE (`engine/gte_hw.h`,
+  `PSX_GTE`); the GPU draws one frame while the CPU builds the next; no 64-bit maths or divides in
+  the per-face loop; PS1 fog is 7-14.5 m. SELECT shows the frame rate. Next if needed: keep
+  per-chunk vertex buffers in the 1 KB scratchpad, and write GPU packets directly instead of
+  converting engine `POLY`s.
 - The level and textures are linked into the EXE (~0.9 MB). Streaming them from CD would free RAM.
