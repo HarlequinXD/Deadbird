@@ -18,7 +18,9 @@
 #define GUARD    3                 /* guard band: x,y within +-3z keeps screen coords inside 11 bits */
 #define MAXCV    1400
 
-static TimInfo page_tim[2];
+static TimInfo page_tim[LAB_NPAGES];
+static const unsigned char *const page_data[LAB_NPAGES] = { lab_tim0, lab_tim1, lab_tim2, lab_tim3, lab_tim4 };
+static const int page_size[LAB_NPAGES] = { LAB_TIM0_SIZE, LAB_TIM1_SIZE, LAB_TIM2_SIZE, LAB_TIM3_SIZE, LAB_TIM4_SIZE };
 static int uploaded, polys_drawn, frame_t, flat;
 
 void level_debug_flat(int on) { flat = on; }
@@ -26,8 +28,8 @@ void level_debug_flat(int on) { flat = on; }
 void level_init(void)
 {
     if (!uploaded) {
-        tim_upload(lab_tim0, LAB_TIM0_SIZE, &page_tim[0]);
-        tim_upload(lab_tim1, LAB_TIM1_SIZE, &page_tim[1]);
+        int k;
+        for (k = 0; k < LAB_NPAGES; k++) tim_upload(page_data[k], page_size[k], &page_tim[k]);
         uploaded = 1;
     }
     frame_t = 0;
@@ -271,7 +273,7 @@ static void emit(FrameBuf *fb, const LabFace *f, const s16 *x, const s16 *y, con
     if (!p) return;
     p->code = PF_TEX | PF_GOURAUD | (n == 4 ? PF_QUAD : 0);
     if (f->flags & (F_ADD | F_HALF)) p->code |= PF_SEMI;
-    p->tpage = get_tpage(TP_8BIT, (f->flags & F_ADD) ? SEMI_ADD : SEMI_HALF, 384 + f->page * 128, 0);
+    p->tpage = get_tpage(TP_8BIT, (f->flags & F_ADD) ? SEMI_ADD : SEMI_HALF, lab_page_xy[f->page][0], lab_page_xy[f->page][1]);
     p->clut = get_clut(0, 485 + f->page);
     for (k = 0; k < n; k++) {
         p->v[k].x = x[k]; p->v[k].y = y[k]; p->v[k].u = u[k]; p->v[k].v = v[k];

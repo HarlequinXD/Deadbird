@@ -1,8 +1,9 @@
 # Deadbird
 
-A **third-person action game** built on a **true PS1-style engine**. You play Deadbird in a hellish test
-level. The engine is written so it can run on a real PlayStation later. For now it ships on
-**Android**, using a fast software model of the PS1's graphics chip.
+A **third-person action game** built on a **true PS1-style engine**. You play Deadbird, a shinigami,
+through the plant where her kind are drained for power. The engine is written so it can run on a
+real PlayStation later. For now it ships on **Android** and **Windows PC** (with full Xbox
+controller support), using a fast software model of the PS1's graphics chip.
 
 ## The game
 
@@ -42,16 +43,23 @@ level. The engine is written so it can run on a real PlayStation later. For now 
   9. *Turbine Hall* - generators with spinning fans, raised control platform
   10. *Reactor Core* - the soul reactor (copper coil, pulsing plasma), ring of consoles
   The route test walks it end to end: about 35 s sprinting, 1.5 min walking - before enemies.
-- **PS1-style level rendering**: 32 procedural 64x64 sci-fi texture tiles on two 8bpp CLUT
-  pages (panels, rivets, hazard stripes, grates, screens, coils, glass, plasma...) painted with
-  baked bevels, grime and corner occlusion, quantised with 4x4 ordered dither
-  (`docs/lab_page_a.png`, `docs/lab_page_b.png`). About 10,400 textured quads with **baked
+- **Textures with the detail painted in** (`tools/lab_textures.py`, sheet in
+  `docs/lab_textures.png`): 74 procedural 64x64 tiles on five 8bpp CLUT pages at a fixed
+  **32 texels per metre** - one tile covers 2 x 2 m. Walls are built in 2 m bands: a base band
+  (kickplates, painted pipes and valves, vents, hazard paint), a middle band (panels, posters,
+  "AUTHORIZED PERSONNEL ONLY", wall monitors, room stencils like DOCK 07 / CHECKPOINT /
+  REACTOR CORE 5, cell warnings, claw marks) and a top band (circuitry, I-beam + cable tray).
+  Every doorway gets painted chevron jambs and an EXIT lintel. Each room has its own wall set;
+  floors and ceilings have hazard lines, arrows, grates, drains, guide-light strips and painted
+  cable trays. No floating decal polygons - details are part of the wall texture. Baked
+  bevels, grime and occlusion in the paint; PS1 4x4 ordered dither.
+- **PS1-style level rendering**: about 8,300 textured quads (1 m polygons) with **baked
   vertex lighting**: 139 coloured lights, shadow rays against every solid object, ambient
   occlusion under props and in corners; the GPU gouraud-shades and dithers it. At run time:
   only the rooms visible from the camera's room (its halls and the rooms beyond them), chunk
   frustum culling, near-plane + guard-band polygon clipping, distance fog, pulsing
   screens / plasma / alarm lights, additive light halos, rising energy rings, spinning fans.
-  Typically 750-1,300 level polygons on screen; level data about 450 KB + 128 KB of textures. Tour: `docs/lab_tour.png`.
+  Typically 550-1,100 level polygons on screen; level data about 350 KB + 330 KB of textures (VRAM). Tour: `docs/lab_tour.png`.
 - **Camera**: third-person follow camera that drifts back behind you as you move; swing it with
   L1/R1 (< >) or by dragging a finger on the right side of the screen. Indoors it pulls in in
   front of walls, machines and the ceiling.
@@ -84,6 +92,7 @@ engine/            portable PS1 engine (C99, fixed point, no malloc)
 game/              Deadbird itself (platform independent): flow, player movement + keyframed animation, level, HUD, fx, title
 assets/            demon.tim (256x256 8bpp CLUT), demon_mesh.h (488 tris, 16 parts)
 platform/android/  NativeActivity + GLES2 present + touch pad (Gradle project)
+platform/windows/  Win32 + GDI present, XInput (Xbox controller) + keyboard
 platform/headless/ PC test build that renders frames to BMP (used by CI)
 tools/             asset generators (build_demon.py, build_lab.py + lab_textures.py), viewer, bin2c
 docs/PS1_PORT.md   plan for the real PS1 build (PSn00bSDK)
@@ -91,7 +100,15 @@ docs/PS1_PORT.md   plan for the real PS1 build (PSn00bSDK)
 
 ## Controls
 
-On-screen PS1 pad (Android) or a PS1 pad:
+**Xbox controller (Windows)**: left stick move (push far to run) · right stick camera ·
+**A** jump / confirm · **B**, **X** or **RT** sprint · **LB / RB** swing camera · **START** pause ·
+**BACK** quit to title from pause · D-pad / left stick for menus · rumbles on hard landings.
+Any of the four controller slots, plugged in before or after starting.
+
+**Keyboard (Windows)**: WASD / arrows move · SHIFT sprint · SPACE jump · Q / E camera ·
+ENTER / ESC pause · F11 or ALT+ENTER fullscreen.
+
+**Touch (Android)** - on-screen PS1 pad:
 
 - **D-pad**: move relative to the camera (menus: up/down; tap a menu row to pick it)
 - **Left thumb**: floating analog stick · **R** (○ / □) sprint · **J** (✕) jump · **< >** (L1 / R1) swing camera · **II** (START) pause
@@ -100,6 +117,11 @@ On-screen PS1 pad (Android) or a PS1 pad:
 
 **Android APK**: GitHub Actions builds it on every push (`Actions → build → Deadbird-debug-apk`).
 To build locally: `gradle -p platform/android assembleDebug` with the Android SDK + NDK installed.
+
+**Windows EXE**: GitHub Actions builds it on every push (`Actions → build → Deadbird-windows`,
+a single `Deadbird.exe`, no installer or DLLs needed). To build yourself: MinGW-w64
+(`make -C platform/windows`, natively in MSYS2 or cross-compiled from Linux) or Visual Studio
+(`platform/windows/build_msvc.bat` from an x64 Native Tools prompt).
 
 **PC headless test**:
 ```

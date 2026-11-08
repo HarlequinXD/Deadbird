@@ -20,17 +20,17 @@
 #include "demon_tim.h"
 #include "demon_mesh.h"
 
-enum { GS_TITLE, GS_CONTROLS, GS_PLAY, GS_PAUSE };
 
 static FrameBuf frames[2];
 static int cur, disp_x, disp_y;
 static Model demon;
 static TimInfo tim;
 static Player pl;
-static int gs, gs_t, frame_count, shake;
+static int gs, gs_t, frame_count, shake, rumble;
 static s32 cam_yaw, cam_dist, cam_h, cam_side, cam_clip = 2900;
 static u32 prev_pad, cur_pad;
 static int stick_on, stick_ox, stick_oy, stick_x, stick_y;   /* floating touch stick (screen px) */
+static int an_lx, an_ly, an_rx;                               /* gamepad sticks, -4096..4096 */
 #define STICK_R 34
 static int debug_side_cam;
 static int touch_ui;
@@ -66,6 +66,8 @@ void game_set_stick(int active, int ox, int oy, int x, int y)
 void game_cam_drag(int dx) { if (gs == GS_PLAY) { cam_yaw = (cam_yaw + dx * 12) & 4095; } }
 void game_touch_tap(int x, int y) { if (gs == GS_TITLE) title_tap(x, y); }
 void game_set_touch_ui(int on) { touch_ui = on; }
+int  game_rumble(void) { return rumble; }
+void game_set_analog(int lx, int ly, int rx, int ry) { an_lx = lx; an_ly = ly; an_rx = rx; (void)ry; }
 void game_display_area(int *x, int *y) { *x = disp_x; *y = disp_y; }
 int  game_phase(void) { return gs; }
 void game_debug_side_cam(int on) { debug_side_cam = on; }
@@ -136,7 +138,8 @@ static void camera_update(u32 pad)
     s32 dyaw = ((pl.yaw - cam_yaw + 2048) & 4095) - 2048;
     if (pad & BTN_CAM_L) cam_yaw -= 40;
     if (pad & BTN_CAM_R) cam_yaw += 40;
-    if (!(pad & (BTN_CAM_L | BTN_CAM_R)) && pl.speed > 4 && dyaw > -1300 && dyaw < 1300)
+    cam_yaw += an_rx * 56 >> 12;                       /* right stick: full tilt ~ 300 degrees a second */
+    if (!(pad & (BTN_CAM_L | BTN_CAM_R)) && !an_rx && pl.speed > 4 && dyaw > -1300 && dyaw < 1300)
         cam_yaw += dyaw / (pl.speed > 40 ? 28 : 48);
     cam_yaw &= 4095;
 }
@@ -151,6 +154,11 @@ static void read_move(u32 pad, int *yaw, int *mag)
         dx = stick_x - stick_ox; dz = stick_oy - stick_y;
         len = (s32)isqrt((u32)(dx * dx + dz * dz));
         if (len > 5) *mag = (int)(len >= STICK_R ? ONE : len * ONE / STICK_R);
+    }
+    if (!*mag && (an_lx || an_ly)) {
+        dx = an_lx; dz = an_ly;
+        len = (s32)isqrt((u32)(dx * dx + dz * dz));
+        *mag = (int)(len > ONE ? ONE : len);
     }
     if (!*mag) {
         dx = ((pad & PAD_RIGHT) != 0) - ((pad & PAD_LEFT) != 0);
@@ -167,6 +175,7 @@ static void simulate(u32 pad)
     camera_update(pad);
     read_move(pad, &myaw, &mmag);
     player_update(&pl, pad, myaw, mmag);
+    if (pl.land_t == 1 && pl.land_amp > 1500) rumble = pl.land_amp >> 4;      /* thump on a hard landing */
     player_pose(&pl, &demon);
     level_update();
     fx_update();
@@ -329,13 +338,23 @@ static void draw_controls(FrameBuf *fb)
         { "",             "CAMERA FOLLOWS YOU" },
         { "II",           "PAUSE" },
     };
+    static const char *pad_lines[][2] = {               /* Xbox controller / keyboard (PC) */
+        { "LEFT STICK",   "MOVE - PUSH FAR TO RUN" },
+        { "B  X  RT",     "HOLD TO SPRINT" },
+        { "A",            "JUMP" },
+        { "RIGHT STICK",  "TURN THE CAMERA" },
+        { "LB  RB",       "SWING THE CAMERA" },
+        { "KEYS",         "WASD SPACE SHIFT Q E" },
+        { "START",        "PAUSE" },
+    };
+    const char *(*L)[2] = touch_ui ? lines : pad_lines;
     int i;
     quad_g(fb, 18, 34, 302, 214, RGB(30, 4, 6), RGB(8, 1, 2), NO_SEMI, 8);
     quad_g(fb, 16, 32, 304, 216, RGB(160, 40, 20), RGB(60, 8, 4), NO_SEMI, 9);
     text_hell(fb, "CONTROLS", 160, 42, 2, frame_count, 6);
     for (i = 0; i < 7; i++) {
-        text(fb, lines[i][0], 28, 74 + i * 18, 1, 230, 6);
-        text(fb, lines[i][1], 128, 74 + i * 18, 1, 140, 6);
+        text(fb, L[i][0], 28, 74 + i * 18, 1, 230, 6);
+        text(fb, L[i][1], 128, 74 + i * 18, 1, 140, 6);
     }
     if ((frame_count >> 4) & 1) text_center(fb, "PRESS ANY BUTTON", 160, 200, 1, 160, 6);
 }
@@ -350,6 +369,7 @@ void game_frame(u32 pad)
     cur_pad = pad;
     prev_pad = pad;
     frame_count++;
+    rumble = rumble * 3 / 4;
     flow(pad, press);
 
     ot_clear(fb);
@@ -367,8 +387,8 @@ void game_frame(u32 pad)
         if (gs == GS_PAUSE) {
             quad_g(fb, 0, 0, 320, 240, RGB(90, 100, 100), RGB(90, 100, 100), SEMI_SUB, 4);
             text_hell(fb, "PAUSED", 160, 80, 3, frame_count, 2);
-            text_center(fb, "II  RESUME", 160, 130, 1, 200, 2);
-            text_center(fb, "J  QUIT TO TITLE", 160, 146, 1, 200, 2);
+            text_center(fb, touch_ui ? "II  RESUME" : "START  RESUME", 160, 130, 1, 200, 2);
+            text_center(fb, touch_ui ? "J  QUIT TO TITLE" : "A  QUIT TO TITLE", 160, 146, 1, 200, 2);
         }
         if (touch_ui) draw_touch(fb);
     }

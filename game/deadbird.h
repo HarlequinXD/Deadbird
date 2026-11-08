@@ -13,6 +13,14 @@ void game_display_area(int *x, int *y);
 void game_set_touch_ui(int on);
 /* floating analog stick in screen pixels: origin where the thumb landed, current position */
 void game_set_stick(int active, int ox, int oy, int x, int y);
+/* gamepad analog sticks (Xbox controller etc.), each axis -4096..4096: left stick moves
+   (ly > 0 = forward), right stick swings the camera (rx > 0 = turn right). Dead zones are the
+   platform's job; pass 0,0 when centred. */
+void game_set_analog(int lx, int ly, int rx, int ry);
+/* controller rumble wanted this frame, 0..255 (hard landings) */
+int  game_rumble(void);
+/* flow states returned by game_phase() */
+enum { GS_TITLE, GS_CONTROLS, GS_PLAY, GS_PAUSE };
 /* look finger dragged horizontally by dx screen pixels: swings the camera */
 void game_cam_drag(int dx);
 /* a finger went down at a screen point (menus) */

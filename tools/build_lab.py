@@ -23,8 +23,6 @@ import numpy as np
 import lab_textures as TX
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TA = {n: i for i, n in enumerate(TX.NAMES_A)}
-TB = {n: i for i, n in enumerate(TX.NAMES_B)}
 
 # face flags (must match game/lab.c)
 F_QUAD, F_ADD, F_HALF, F_DOUBLE, F_PULSE, F_FLOOR, F_EMIT = 1, 2, 4, 8, 16, 32, 64
@@ -52,9 +50,7 @@ def tile_uv(page, tile, u0=0, v0=0, u1=63, v1=63):
 
 
 def tid(name):
-    if name in TA:
-        return 0, TA[name]
-    return 1, TB[name]
+    return TX.INDEX[name]
 
 
 def add_quad(o, U, V_, tex, flags=0, anim=0, emit=None, uvr=None, nd=None):
@@ -163,9 +159,10 @@ def cyl_collide(x, z, r, h):
 
 
 # ------------------------------------------------------------------ rooms and halls
-DOOR_H = 3000            # corridors are exactly door height, so doorways line up
+DOOR_H = 4000            # halls are exactly door height, so doorways line up
 WALL_T = 240
-
+TEX_M = 2000             # one 64-texel tile covers 2 m (32 texels per metre)
+SUB = 1000               # polygons are 1 m, so the baked lighting has 1 m resolution
 
 def area(name, x0, z0, x1, z1, H, kind):
     areas.append(dict(name=name, rect=(x0, z0, x1, z1), H=H, kind=kind, links=set()))
@@ -174,37 +171,100 @@ def area(name, x0, z0, x1, z1, H, kind):
     return CUR[0]
 
 
-def build_shell(ai, floor_tex=None, upper='wall_panel', ceil_light_every=3, floor_cell=768):
-    """floor, ceiling and walls (with a doorway wherever a corridor meets a wall) of area ai"""
+ROOM_STYLE = {
+    'Loading Dock':        (['base_plain', 'base_pipes', 'base_plain', 'base_hazard'],
+                            ['dock_plate', 'dock_number', 'dock_plate', 'mid_poster_danger', 'dock_plate', 'mid_arrow']),
+    'Security Checkpoint': (['base_plain', 'base_vent'],
+                            ['checkpoint_panel', 'mid_panel', 'mid_authorized', 'mid_panel', 'mid_monitor']),
+    'Processing Hall':     (['base_pipes', 'base_plain', 'base_vent'],
+                            ['processing_panel', 'mid_vpipes', 'mid_panel', 'mid_poster_power']),
+    'Extraction Hall':     (['base_plain', 'base_pipes', 'base_vent', 'base_plain'],
+                            ['extraction_panel', 'mid_panel', 'mid_poster_power', 'mid_vpipes', 'mid_monitor', 'mid_poster_danger']),
+    'Containment Block':   (['cell_wall'], ['cell_wall', 'cell_warning', 'cell_wall', 'mid_poster_danger']),
+    'Research Lab':        (['lab_panel'], ['lab_panel', 'lab_poster', 'lab_panel', 'mid_monitor']),
+    'Server Vault':        (['base_plain', 'base_vent'], ['vault_panel', 'vault_panel', 'mid_authorized']),
+    'Pipe Gallery':        (['gallery_pipes'], ['gallery_pipes', 'mid_vpipes', 'gallery_pipes', 'mid_poster_danger']),
+    'Turbine Hall':        (['base_pipes', 'base_hazard', 'base_plain'], ['turbine_panel', 'mid_vpipes', 'turbine_panel', 'mid_poster_danger']),
+    'Reactor Core':        (['reactor_plate', 'base_hazard'], ['reactor_plate', 'reactor_warning', 'reactor_plate', 'mid_poster_danger']),
+}
+
+
+def tex_cell(o, R, D, a, b, h0, h1, tu0, hv0, tile, flags=0, emit=None, sub=SUB):
+    """one textured patch of a vertical or horizontal surface, cut into <= sub-sized quads.
+    o: origin; R: unit 'right' (u direction); D: unit 'down' (v direction); patch covers
+    u in [a,b] and v in [h0,h1] (distances along R and D). The texture's top-left sits at
+    (tu0, hv0), so texel density is always TEX_M per tile."""
+    nu = max(1, int(math.ceil((b - a) / sub - 1e-6)))
+    nv = max(1, int(math.ceil((h1 - h0) / sub - 1e-6)))
+    page, t = tid(tile)
+    tx, ty = (t % 4) * 64, (t // 4) * 64
+    def U_(p): return int(round(min(63, max(0, (p - tu0) / TEX_M * 63))))
+    def V_(p): return int(round(min(63, max(0, (p - hv0) / TEX_M * 63))))
+    for j in range(nv):
+        v0 = h0 + (h1 - h0) * j / nv; v1 = h0 + (h1 - h0) * (j + 1) / nv
+        for i in range(nu):
+            u0 = a + (b - a) * i / nu; u1 = a + (b - a) * (i + 1) / nu
+            p0 = o + R * u0 + D * v0
+            uv = [(tx + U_(u0), ty + V_(v0)), (tx + U_(u1), ty + V_(v0)), (tx + U_(u0), ty + V_(v1)), (tx + U_(u1), ty + V_(v1))]
+            faces.append(dict(p=[p0, p0 + R * (u1 - u0), p0 + D * (v1 - v0), p0 + R * (u1 - u0) + D * (v1 - v0)],
+                              uv=uv, page=page, flags=flags | F_QUAD, anim=0, emit=emit, area=CUR[0]))
+
+
+def columns(L, anchor):
+    """split a span of length L into texture columns of TEX_M; anchor 'start', 'end' or 'centre'
+    decides where the partial column goes. Returns (a, b, texture_left_edge) triples."""
+    if anchor == 'end':
+        out, e = [], L
+        while e > 1:
+            out.append((max(0, e - TEX_M), e, e - TEX_M)); e -= TEX_M
+        return out[::-1]
+    off = 0 if anchor == 'start' else -((TEX_M - (L % TEX_M)) / 2 if L % TEX_M else 0)
+    out, s = [], off
+    while s < L - 1:
+        out.append((max(0, s), min(L, s + TEX_M), s)); s += TEX_M
+    return out
+
+
+def floor_rect(x0, z0, x1, z1, y, texf, up=True, sub=SUB, flags=F_FLOOR, emit_tiles=()):
+    """floor (up=True) or ceiling at height y, tiled 2 m, centred, cut into sub-sized quads"""
+    R = V(1, 0, 0)
+    D = V(0, 0, 1) if not up else V(0, 0, -1)
+    o = V(x0, y, z0 if not up else z1)
+    W, Dd = x1 - x0, z1 - z0
+    cu, cv = columns(W, 'centre'), columns(Dd, 'centre')
+    for j, (c, d_, tv0) in enumerate(cv):
+        for i, (a, b, tu0) in enumerate(cu):
+            tile = texf(i, j, len(cu), len(cv))
+            em = (150, 160, 170) if tile in emit_tiles else None
+            tex_cell(o, R, D, a, b, c, d_, tu0, tv0, tile, (flags | F_EMIT) if em else flags, em, sub)
+
+
+def build_shell(ai, floor_tex=None, ceil_tex=None):
+    """floor, ceiling and walls of area ai - every wall detail is in the textures"""
     a = areas[ai]
     x0, z0, x1, z1 = a['rect']
     H = a['H']
     CUR[0] = ai
-    corridor_ = a['kind'] == 'hall'
-    # floor
-    def ftex(i, j, nu, nv):
-        if floor_tex:
-            return floor_tex(i, j, nu, nv)
-        edge = i in (0, nu - 1) or j in (0, nv - 1)
-        return 'floor_grate' if edge and (i + j) % 3 == 0 else 'floor_plate'
-    grid(V(x0, 0, z0), V(x1 - x0, 0, 0), V(0, 0, z1 - z0), 600 if corridor_ else floor_cell, None, F_FLOOR,
-         nd=V(0, -1, 0), texf=ftex, maxn=40)
-    # ceiling: dark plates with light panels
-    cc = 1000 if corridor_ else 1400
-    nu = max(1, int(round((x1 - x0) / cc))); nv = max(1, int(round((z1 - z0) / cc)))
-    for j in range(nv):
-        for i in range(nu):
-            lit = (i % ceil_light_every == ceil_light_every // 2 and j % ceil_light_every == ceil_light_every // 2) if not corridor_ \
-                else ((i + j) % 3 == 1 and (nu == 1 or nv == 1))
-            t = 'ceiling_light' if lit else 'dark_metal'
-            o = V(x0 + (x1 - x0) * i / nu, -H, z0 + (z1 - z0) * j / nv)
-            add_quad(o, V((x1 - x0) / nu, 0, 0), V(0, 0, (z1 - z0) / nv), t,
-                     F_EMIT if lit else 0, 0, (150, 160, 170) if lit else None, nd=V(0, 1, 0))
-    # walls
+    hall = a['kind'] == 'hall'
+    if hall:
+        mid_col = lambda i, j, nu, nv: (i if a['axis'] == 'z' else j) == ((nu if a['axis'] == 'z' else nv) // 2)
+        floor_rect(x0, z0, x1, z1, 0, floor_tex or (lambda i, j, nu, nv: 'floor_strip' if mid_col(i, j, nu, nv) and a['axis'] == 'z'
+                                                     else 'floor_plate'))
+        floor_rect(x0, z0, x1, z1, -H, ceil_tex or (lambda i, j, nu, nv: ('ceiling_light' if (i + j) % 3 == 0 else 'ceiling_cables')
+                                                    if mid_col(i, j, nu, nv) else 'ceiling_panel'),
+                   up=False, sub=TEX_M, flags=0, emit_tiles=('ceiling_light',))
+        if a['axis'] == 'x':          # the light strip runs along the hall
+            pass
+    else:
+        floor_rect(x0, z0, x1, z1, 0, floor_tex or (lambda i, j, nu, nv: 'floor_grate' if (i in (0, nu - 1) or j in (0, nv - 1)) and (i + j) % 3 == 0
+                                                     else 'floor_plate'))
+        floor_rect(x0, z0, x1, z1, -H, ceil_tex or (lambda i, j, nu, nv: 'ceiling_light' if (i % 3 == 1 and j % 3 == 1) else 'ceiling_panel'),
+                   up=False, sub=TEX_M, flags=0, emit_tiles=('ceiling_light',))
     sides = {'S': (V(x0, 0, z0), V(1, 0, 0), x1 - x0, V(0, 0, 1)),
              'N': (V(x0, 0, z1), V(1, 0, 0), x1 - x0, V(0, 0, -1)),
              'W': (V(x0, 0, z0), V(0, 0, 1), z1 - z0, V(1, 0, 0)),
              'E': (V(x1, 0, z0), V(0, 0, 1), z1 - z0, V(-1, 0, 0))}
+    style = ROOM_STYLE.get(a['name'], (['base_plain'], ['mid_panel']))
     for s, (o, d, L, n) in sides.items():
         if s in a.get('open', ()):
             continue
@@ -216,7 +276,7 @@ def build_shell(ai, floor_tex=None, upper='wall_panel', ceil_light_every=3, floo
         for k in range(0, len(cuts), 2):
             p, q = cuts[k], cuts[k + 1]
             if q - p > 1:
-                wall_strip(o + d * p, d * (q - p), 0, H, n, upper, not corridor_)
+                wall_section(o, d, p, q, H, n, style, hall, door_p=(k > 0), door_q=(k + 2 < len(cuts)), seed=k * 3 + len(s))
                 w0 = o + d * p - n * WALL_T
                 w1 = o + d * q
                 colliders.append((min(w0[0], w1[0]), min(w0[2], w1[2]), max(w0[0], w1[0]), max(w0[2], w1[2]), 9000))
@@ -225,42 +285,72 @@ def build_shell(ai, floor_tex=None, upper='wall_panel', ceil_light_every=3, floo
             w0 = o + d * c0 - n * WALL_T
             w1 = o + d * c1
             if H > DOOR_H:
-                wall_strip(o + d * c0, d * (c1 - c0), DOOR_H, H, n, upper, False)
+                wall_section(o, d, c0, c1, H, n, style, hall, lintel=True)
                 occluders.append((min(w0[0], w1[0]), -H - 10, min(w0[2], w1[2]), max(w0[0], w1[0]), -DOOR_H, max(w0[2], w1[2])))
             door_frame(o + d * c0, d * (c1 - c0), n)
 
 
-def wall_strip(o, U, ya, yb, n, upper, trim):
-    """wall from height ya to yb (positive heights) along U at base o, facing n"""
-    lo = min(yb, 700)
-    if ya < lo:
-        grid(o + V(0, -lo, 0), U, V(0, lo - ya, 0), 768, 'wall_lower', nd=n)
-    top = yb
-    mid0 = max(ya, lo)
-    if trim and top - mid0 > 900:
-        p_top = min(top - 300, 3200)
-        def wtex(i, j, nu, nv):
-            return 'wall_vent' if (i % 5 == 2 and j == nv - 1) else upper
-        grid(o + V(0, -p_top, 0), U, V(0, p_top - mid0, 0), 900, upper, nd=n, texf=wtex, maxn=40)
-        if top - 300 > p_top:
-            grid(o + V(0, -(top - 300), 0), U, V(0, top - 300 - p_top, 0), 1500, 'circuit', nd=n, maxn=40)
-        grid(o + V(0, -top, 0), U, V(0, 300, 0), 1000, 'beam', nd=n, maxn=40)
-    elif top > mid0:
-        grid(o + V(0, -top, 0), U, V(0, top - mid0, 0), 800, upper, nd=n, maxn=40)
+def wall_section(o, d, p, q, H, n, style, hall, door_p=False, door_q=False, lintel=False, seed=0):
+    """wall from p to q along d (base point o), facing n, in 2 m texture bands:
+         0-2 m base (kickplate, painted pipes, vents, hazard paint)
+         2-4 m middle (panels, posters, signs, monitors, room stencils)
+         4 m+  top (circuitry, I-beam and cable tray under the ceiling)
+       Columns touching a doorway get the painted door surround; above a door, the lintel."""
+    right = np.cross(-n, V(0, -1, 0))
+    flip = np.dot(right, d) < 0
+    # in 'right' coordinates the segment runs from s0 to s1
+    base = o + d * (q if flip else p)
+    L = q - p
+    door_left, door_right = (door_q, door_p) if flip else (door_p, door_q)
+    anchor = 'end' if door_right and not door_left else 'start'
+    cols = columns(L, anchor)
+    D = V(0, 1, 0)
+    top_o = base + V(0, -H, 0)                   # top-left corner of the wall (v measured down from the ceiling)
+    def row(h0, h1, tile, anch, a, b, tu0):
+        # heights h measured up from the floor -> v measured down from the ceiling
+        v0, v1 = H - h1, H - h0
+        hv0 = (H - h0 - TEX_M) if anch == 'bottom' else (H - h1)
+        tex_cell(top_o, right, D, a, b, v0, v1, tu0, hv0, tile)
+    for ci, (a, b, tu0) in enumerate(cols):
+        if lintel:
+            rows = []
+        elif hall:
+            rows = [(0, 2000, 'hall_wall', 'bottom'), (2000, min(H, 4000), 'hall_wall_top', 'bottom')]
+        else:
+            k = ci + seed
+            bt = style[0][k % len(style[0])]
+            mt = style[1][k % len(style[1])]
+            if door_left and ci == 0:
+                bt = mt = 'door_jamb_r'
+            if door_right and ci == len(cols) - 1:
+                bt = mt = 'door_jamb_l'
+            rows = [(0, 2000, bt, 'bottom'), (2000, 4000, mt, 'bottom')]
+        if not hall:
+            if H <= 6000:
+                rows.append((4000, H, 'door_lintel' if lintel else 'top_beam', 'bottom' if lintel else 'top'))
+            else:
+                rows.append((4000, 6000, 'door_lintel' if lintel else 'top_circuit', 'bottom'))
+                if H - 6000 > TEX_M:
+                    rows.append((6000, H - TEX_M, 'top_circuit', 'bottom'))
+                    rows.append((H - TEX_M, H, 'top_beam', 'top'))
+                else:
+                    rows.append((6000, H, 'top_beam', 'top'))
+        for (h0, h1, tile, anch) in rows:
+            if h1 - h0 > 1:
+                row(h0, h1, tile, anch, a, b, tu0)
 
 
 def door_frame(o, U, n):
-    """bulkhead reveal through the wall thickness + hazard lintel"""
+    """the opening's reveal through the wall thickness (bulkhead plates) and its soffit"""
     L = np.linalg.norm(U)
     d = U / L
     back = -n * WALL_T
     add_quad(o + V(0, -DOOR_H, 0), back, V(0, DOOR_H, 0), 'bulkhead', nd=d)
     add_quad(o + U + V(0, -DOOR_H, 0), back, V(0, DOOR_H, 0), 'bulkhead', nd=-d)
     add_quad(o + V(0, -DOOR_H, 0), U, back, 'hazard', nd=V(0, 1, 0))
-    add_quad(o + V(0, -DOOR_H - 240, 0) + n * 4, U, V(0, 240, 0), 'hazard', nd=n)
 
 
-def hall_between(name, ra, rb, centre, width=2400):
+def hall_between(name, ra, rb, centre, width=3000):
     """a straight hall linking two rooms that face each other; doorways are cut automatically"""
     A, B = areas[ra]['rect'], areas[rb]['rect']
     if A[2] <= B[0] or B[2] <= A[0]:          # side by side in x -> hall runs along x
@@ -286,31 +376,19 @@ def hall_between(name, ra, rb, centre, width=2400):
     return hi_
 
 
-def dress_hall(hi, style='pipes'):
-    """pipes, cable tray, light strip; lights along the length"""
+def dress_hall(hi):
+    """halls are plain boxes - the pipes, cable trays and guide lights are painted on; just light them"""
     a = areas[hi]
     CUR[0] = hi
     x0, z0, x1, z1 = a['rect']
-    H = a['H']
     L = (x1 - x0) if a['axis'] == 'x' else (z1 - z0)
-    if a['axis'] == 'x':
-        for zz, yy, r in ((z0 + 170, -2300, 100), (z0 + 170, -2560, 80), (z1 - 170, -2300, 100)):
-            cylinder(V(x0, yy, zz), r, 0, x1 - x0, 6, 'pipe', axis='x')
-        grid(V(x0, -H + 20, (z0 + z1) / 2 - 300), V(x1 - x0, 0, 0), V(0, 0, 600), 800, 'cables', nd=V(0, 1, 0))
-        grid(V(x0, -2, (z0 + z1) / 2 - 100), V(x1 - x0, 0, 0), V(0, 0, 200), 800, 'floor_light', F_EMIT | F_FLOOR,
-             emit=(130, 140, 140), nd=V(0, -1, 0))
-        n = max(1, int(L / 3000))
-        for k in range(n):
-            lights.append((V(x0 + (k + 0.5) * L / n, -2700, (z0 + z1) / 2), V(0.7, 0.9, 0.95), 4200))
-    else:
-        for xx, yy, r in ((x0 + 170, -2300, 100), (x0 + 170, -2560, 80), (x1 - 170, -2300, 100)):
-            cylinder(V(xx, yy, z0), r, 0, z1 - z0, 6, 'pipe', axis='z')
-        grid(V((x0 + x1) / 2 - 300, -H + 20, z0), V(600, 0, 0), V(0, 0, z1 - z0), 800, 'cables', nd=V(0, 1, 0))
-        grid(V((x0 + x1) / 2 - 100, -2, z0), V(200, 0, 0), V(0, 0, z1 - z0), 800, 'floor_light', F_EMIT | F_FLOOR,
-             emit=(130, 140, 140), nd=V(0, -1, 0))
-        n = max(1, int(L / 3000))
-        for k in range(n):
-            lights.append((V((x0 + x1) / 2, -2700, z0 + (k + 0.5) * L / n), V(0.7, 0.9, 0.95), 4200))
+    n = max(1, int(L / 3000))
+    for k in range(n):
+        if a['axis'] == 'x':
+            p = V(x0 + (k + 0.5) * L / n, -3600, (z0 + z1) / 2)
+        else:
+            p = V((x0 + x1) / 2, -3600, z0 + (k + 0.5) * L / n)
+        lights.append((p, V(0.75, 0.9, 0.95), 4800))
 
 
 def ceiling_lights(ai, col, R, step=4000, h=None):
@@ -346,12 +424,6 @@ def rail_z(z0, z1, x, base):
     z0, z1 = min(z0, z1), max(z0, z1)
     box(x - 30, -base - 900, z0, x + 30, -base, z1, 'beam', 'beam', cell=1200, occl=False, collide=False)
     colliders.append((x - 40, z0, x + 40, z1, base + 900))
-
-
-def sign_on(x, z, nd, w=1000):
-    nd = V(*nd)
-    U = np.cross(V(0, -1, 0), nd) * w
-    add_quad(V(x, -2700, z) + nd * 4 - U / 2, U, V(0, 1000, 0), 'sign', nd=nd)
 
 
 def machine(x0, z0, x1, z1, h, face):
@@ -469,7 +541,7 @@ CONT = area('Containment Block',   -28000,  -2000, -15000,   8000, 4800, 'room')
 LAB = area('Research Lab',         -27000,  14000, -16000,  22000, 4200, 'room')
 VAULT = area('Server Vault',       -10000,  13000,      0,  23000, 4500, 'room')
 GALL = area('Pipe Gallery',          6000,   2000,  11000,  26000, 6000, 'room')
-TURB = area('Turbine Hall',          6500, -18000,  22500,  -4000, 7500, 'room')
+TURB = area('Turbine Hall',          6300, -18000,  22500,  -4000, 7500, 'room')
 CORE = area('Reactor Core',         14000,      0,  29000,  16000, 9000, 'room')
 
 H1 = hall_between('Dock Hall', DOCK, CHECK, -25000)
@@ -480,7 +552,7 @@ H5 = hall_between('Lab Hall', CONT, LAB, -21600)
 H6 = hall_between('Vault Hall', LAB, VAULT, 18000)
 H7 = hall_between('Gallery Hall', VAULT, GALL, 18000)
 H8 = hall_between('Shortcut Hall', EXTR, GALL, 4000)
-H9 = hall_between('Turbine Hall Stair', TURB, GALL, 8000)
+H9 = hall_between('Turbine Hall Stair', TURB, GALL, 7900)
 H10 = hall_between('Core Hall', TURB, CORE, 21000)
 
 SPAWN = (-19000, -26500, 0)
@@ -513,21 +585,23 @@ def route_points():
 
 
 def dock_floor(i, j, nu, nv):
-    if j in (2, nv - 3) and 2 <= i <= nu - 3:
-        return 'hazard'
-    return 'floor_grate' if (i in (0, nu - 1) or j in (0, nv - 1)) and (i + j) % 3 == 0 else 'floor_plate'
+    if j == 1 and 1 <= i <= nu - 2:
+        return 'floor_hazard'
+    if i == nu - 1 and j in (2, 3):
+        return 'floor_arrow'
+    return 'floor_edge' if j == nv - 1 else 'floor_dock'
 
 
-build_shell(DOCK, dock_floor, ceil_light_every=4)
+build_shell(DOCK, dock_floor)
 build_shell(CHECK)
 build_shell(PROC, lambda i, j, nu, nv: 'floor_grate' if j == nv // 2 else ('floor_grate' if (i in (0, nu - 1) or j in (0, nv - 1)) and (i + j) % 3 == 0 else 'floor_plate'))
 build_shell(EXTR)
-build_shell(CONT)
-build_shell(LAB)
-build_shell(VAULT, lambda i, j, nu, nv: 'floor_grate' if i % 4 == 1 else 'floor_plate')
-build_shell(GALL, lambda i, j, nu, nv: 'floor_grate' if i == nu // 2 or i == nu // 2 - 1 else 'floor_plate')
-build_shell(TURB, ceil_light_every=4)
-build_shell(CORE, lambda i, j, nu, nv: 'floor_grate' if (i + j) % 2 == 0 and 4 <= i <= nu - 5 and 4 <= j <= nv - 5 else 'floor_plate', ceil_light_every=4)
+build_shell(CONT, lambda i, j, nu, nv: 'floor_drain' if (i * 7 + j * 3) % 11 == 0 else 'floor_cell')
+build_shell(LAB, lambda i, j, nu, nv: 'floor_lab')
+build_shell(VAULT, lambda i, j, nu, nv: 'floor_grate' if i in (0, 2, 3) and j != 2 else ('floor_arrow' if j == 2 and i == 1 else 'floor_plate'))
+build_shell(GALL, lambda i, j, nu, nv: 'floor_grate' if i == 2 else ('floor_strip' if i == 1 else 'floor_plate'))
+build_shell(TURB, lambda i, j, nu, nv: 'floor_hazard' if j == nv - 1 else ('floor_grate' if i % 3 == 1 else 'floor_plate'))
+build_shell(CORE, lambda i, j, nu, nv: 'floor_reactor' if 1 <= i <= nu - 2 and 1 <= j <= nv - 2 and abs(i - nu / 2 + 0.5) < 3 and abs(j - nv / 2 + 0.5) < 3 else ('floor_hazard' if (i in (0, nu - 1) or j in (0, nv - 1)) else 'floor_plate'))
 for h in (H1, H2, H3, H4, H5, H6, H7, H8, H9, H10):
     build_shell(h)
     dress_hall(h)
@@ -537,14 +611,13 @@ CUR[0] = DOCK
 box(-25800, -2600, -22800, -20000, 0, -20200, 'dark_metal', 'crate', cell=1300)          # container
 box(-25800, -5200, -22800, -21500, -2600, -20200, 'dark_metal', 'crate', cell=1300, collide=False)   # stacked
 box(-17400, -2600, -22800, -13200, 0, -20200, 'dark_metal', 'crate', cell=1300)
-box(-26000, -520, -29000, -23200, 0, -24000, 'floor_grate', 'wall_lower', cell=900)       # loading platform
+box(-26000, -520, -29000, -23200, 0, -24000, 'floor_grate', 'plate_side', cell=900)       # loading platform
 stairs(-23200, -27500, -22100, -25500, 520, 'x', up_positive=False)
 rail_z(-29000, -27500, -23200, 520)
 rail_z(-25500, -24000, -23200, 520)
 for (x, z) in ((-14500, -29400), (-13700, -29400), (-14200, -28700), (-12400, -29600)):
     crate(x, z, 700, 700)
 canister(-25200, -23400); canister(-24600, -23400)
-sign_on(-12000 + 0, -27200, (-1, 0, 0))
 ceiling_lights(DOCK, (0.8, 0.82, 0.88), 8500, 4600)
 lights.append((V(-12300, -3300, -25000), V(1.3, 0.15, 0.1), 2600))
 sprites.append((-12350, -3300, -25000, 260, 255, 40, 30, 5, DOCK))
@@ -559,7 +632,6 @@ lights.append((V(-2000, -3200, -23400), V(1.2, 0.2, 0.15), 3200))
 console(-5000, -27200, math.pi, 'screen_graph')
 console(1000, -27200, math.pi, 'screen_vitals')
 console(1200, -22900, 0.0, 'screen_graph')
-sign_on(0, -22000, (0, 0, -1))
 ceiling_lights(CHECK, (0.75, 0.8, 0.85), 7000, 4000)
 
 # ---------------- Processing Hall: machines down both long walls, overhead pipes
@@ -592,7 +664,7 @@ for k in range(12):
     p1 = V(TX0 + math.cos(a1) * r0, -3, TZ0 + math.sin(a1) * r0)
     p2 = V(TX0 + math.cos(a0) * r1, -3, TZ0 + math.sin(a0) * r1)
     p3 = V(TX0 + math.cos(a1) * r1, -3, TZ0 + math.sin(a1) * r1)
-    f = dict(p=[p0, p1, p2, p3], uv=tile_uv(0, TA['floor_light']), page=0, flags=F_QUAD | F_EMIT | F_FLOOR | F_PULSE,
+    f = dict(p=[p0, p1, p2, p3], uv=tile_uv(*tid('floor_light')), page=tid('floor_light')[0], flags=F_QUAD | F_EMIT | F_FLOOR | F_PULSE,
              anim=2, emit=(140, 150, 150), area=EXTR)
     if np.dot(np.cross(p2 - p0, p1 - p0), V(0, -1, 0)) < 0:
         f['p'] = [p1, p0, p3, p2]
@@ -608,7 +680,7 @@ extraction_pod(-8300, 7500, math.pi / 2, 4)
 extraction_pod(4300, -1500, -math.pi / 2, 3)
 extraction_pod(4300, 7500, -math.pi / 2, 4)
 CW_H = 1040
-box(-6000, -CW_H, 8000, 2000, 0, 10000, 'floor_grate', 'wall_lower', cell=900)
+box(-6000, -CW_H, 8000, 2000, 0, 10000, 'floor_grate', 'plate_side', cell=900)
 stairs(-8200, 8400, -6000, 10000, CW_H, 'x')
 rail_x(-6000, 2000, 8000, CW_H)
 rail_z(8000, 10000, 2000, CW_H)
@@ -619,7 +691,7 @@ ceiling_lights(EXTR, (0.8, 0.84, 0.92), 8500, 4700)
 
 # ---------------- Containment Block: barred cells under red light along both long walls
 CUR[0] = CONT
-for cx in (-26300, -24000, -19000, -16700):
+for cx in (-26300, -24200, -19000, -16700):
     for side in (-1, 1):
         zw = 8000 if side > 0 else -2000
         zf = zw - side * 1600
@@ -676,18 +748,15 @@ ceiling_lights(VAULT, (0.5, 0.6, 0.8), 6500, 4500)
 
 # ---------------- Pipe Gallery: giant pipes along the east wall, high pipes on the west
 CUR[0] = GALL
-for (yy, r) in ((-900, 800), (-2900, 500)):
+for (yy, r) in ((-860, 760), (-2900, 500)):
     cylinder(V(11000 - r - 60, yy, 2000), r, 0, 24000, 10, 'pipe', axis='z')
-colliders.append((11000 - 1720, 2000, 11000, 26000, 1700))
-occluders.append((11000 - 1720, -1700, 2000, 11000, 0, 26000))
-for yy in (-3900, -4600, -5200):
-    cylinder(V(6000 + 260, yy, 2000), 200, 0, 24000, 6, 'pipe', axis='z')
+colliders.append((11000 - 1600, 2000, 11000, 26000, 1620))
+occluders.append((11000 - 1600, -1620, 2000, 11000, 0, 26000))
 for zz in range(4000, 26000, 4000):
     box(9100, -5600, zz - 120, 11000, -5300, zz + 120, 'beam', 'beam', cell=1200, collide=False, occl=False)
 for k in range(6):
     lights.append((V(8000, -5000, 3500 + k * 4200), V(0.75, 0.8, 0.7), 6500))
     lights.append((V(10000, -300, 3500 + k * 4200), V(0.2, 0.9, 0.7), 2200))
-sign_on(6000, 9000, (1, 0, 0))
 
 # ---------------- Turbine Hall: three generators with fans, control platform, big pipes
 CUR[0] = TURB
@@ -696,20 +765,19 @@ for gx in (10500, 15500):
     fans.append((gx, -1700, -14595, 'z', 1100, 1 if gx < 14000 else -1))
     cylinder(V(gx, -3400, -16300), 450, 0, -4100, 8, 'pipe')
     lights.append((V(gx, -1700, -13600), V(1.1, 0.55, 0.25), 3600))
-box(18000, -1040, -18000, 22500, 0, -12000, 'floor_grate', 'wall_lower', cell=900)       # control platform
+box(18000, -1040, -18000, 22500, 0, -12000, 'floor_grate', 'plate_side', cell=900)       # control platform
 stairs(18000, -12000, 20000, -10400, 1040, 'z', up_positive=False)
 rail_x(20000, 22500, -12000, 1040)
 rail_z(-18000, -12000, 18000, 1040)
 for zz in (-17000, -15000, -13200):
     console(21700, zz, math.pi / 2, 'screen_graph', y=-1040)
-cylinder(V(6500, -6200, -11000), 400, 0, 16000, 8, 'pipe', axis='x')
+cylinder(V(6300, -6200, -11000), 400, 0, 16200, 8, 'pipe', axis='x')
 ceiling_lights(TURB, (0.72, 0.72, 0.78), 9000, 5000)
-sign_on(6500, -9000, (1, 0, 0))
 
 # ---------------- Reactor Core: the soul reactor, conduits, ring of consoles
 CUR[0] = CORE
 RC = (21500, 8500)
-box(RC[0] - 2200, -300, RC[1] - 2200, RC[0] + 2200, 0, RC[1] + 2200, 'hazard', 'wall_lower', cell=1100)
+box(RC[0] - 2200, -300, RC[1] - 2200, RC[0] + 2200, 0, RC[1] + 2200, 'hazard', 'plate_side', cell=1100)
 cylinder(V(RC[0], -300, RC[1]), 1300, 0, -5200, 12, 'coil', rep=4)
 for k, yb in enumerate((-1300, -2600, -3900)):
     cylinder(V(RC[0], yb, RC[1]), 1370, 0, -320, 12, 'energy', F_EMIT | F_PULSE, 6 + k % 2, emit=(170, 170, 170))
@@ -931,11 +999,14 @@ def level_map(rp):
 def main():
     from PIL import Image
     pages = []
-    for k, funcs in enumerate((TX.PAGE_A, TX.PAGE_B)):
+    sheet = Image.new('RGB', (256 * 3, 256 * 2))
+    for k, funcs in enumerate(TX.PAGES):
         p, m = TX.build_page(funcs)
         idx, clut, rgb = TX.quantise(p, m)
-        pages.append(tim_bytes(idx, clut, 384 + k * 128, 0, 485 + k))
-        Image.fromarray(rgb.astype(np.uint8)).save(os.path.join(ROOT, 'docs', f'lab_page_{"ab"[k]}.png'))
+        vx, vy = TX.PAGE_VRAM[k]
+        pages.append(tim_bytes(idx, clut, vx, vy, 485 + k))
+        sheet.paste(Image.fromarray(rgb.astype(np.uint8)), ((k % 3) * 256, (k // 3) * 256))
+    sheet.save(os.path.join(ROOT, 'docs', 'lab_textures.png'))
     vout, fout, cout = export()
     vis = pvs()
     vw = views()
@@ -1004,6 +1075,8 @@ def main():
     for (n, x, y, z, yaw, pitch) in vw:
         w('  {"%s",%d,%d,%d,%d,%d},' % (n, x, y, z, yaw, pitch))
     w('};')
+    w(f'#define LAB_NPAGES {len(pages)}')
+    w('static const s16 lab_page_xy[LAB_NPAGES][2] = { ' + ' '.join('{%d,%d},' % xy for xy in TX.PAGE_VRAM) + ' };')
     for k, t in enumerate(pages):
         w(f'#define LAB_TIM{k}_SIZE {len(t)}')
         w(f'static const unsigned char lab_tim{k}[{len(t)}] = {{')

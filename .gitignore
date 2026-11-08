@@ -11,3 +11,5 @@ platform/android/local.properties
 platform/headless/stresstest
 platform/headless/labview
 __pycache__/
+platform/windows/Deadbird.exe
+*.exe

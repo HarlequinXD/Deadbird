@@ -6,7 +6,6 @@
 #include "deadbird.h"
 #include "gpu.h"
 
-enum { GS_TITLE, GS_CONTROLS, GS_PLAY, GS_PAUSE };
 
 static void write_bmp(const char *dir, const char *name)
 {
