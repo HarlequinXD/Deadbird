@@ -42,7 +42,9 @@ typedef struct { s16 x, y, w, h; } RECT;
 
 /* ordering table + packet buffer for one frame */
 #define OT_LEN     1024
-#define PRIM_MAX   4096
+#ifndef PRIM_MAX
+#define PRIM_MAX   4096      /* the PS1 build passes a smaller value to fit 2 MB */
+#endif
 typedef struct {
     POLY *ot[OT_LEN];
     POLY  prims[PRIM_MAX];

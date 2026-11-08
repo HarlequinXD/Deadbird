@@ -13,3 +13,4 @@ platform/headless/labview
 __pycache__/
 platform/windows/Deadbird.exe
 *.exe
+platform/psx/build/

@@ -57,3 +57,41 @@ jobs:
         with:
           name: Deadbird-windows
           path: platform/windows/Deadbird.exe
+
+  ps1:
+    name: PS1 disc image
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PSn00bSDK (prebuilt release + GCC mipsel toolchain)
+        run: |
+          sudo apt-get update -y && sudo apt-get install -y --no-install-recommends ninja-build unzip
+          mkdir dl && gh release download -R Lameguy64/PSn00bSDK -p '*.zip' -D dl
+          ls -la dl
+          for z in dl/*.zip; do
+            case "$z" in
+              *gcc*linux*)   sudo mkdir -p /opt/mipsel-none-elf && sudo unzip -q -o "$z" -d /opt/mipsel-none-elf ;;
+              *gcc*)         ;;
+              *[Ll]inux*)    sudo mkdir -p /opt/psn00bsdk && sudo unzip -q -o "$z" -d /opt/psn00bsdk ;;
+            esac
+          done
+          SDKCMAKE=$(find /opt/psn00bsdk -name sdk.cmake -path '*libpsn00b/cmake/*' | head -1)
+          echo "sdk.cmake: $SDKCMAKE"
+          echo "PSN00BSDK_LIBS=$(dirname $(dirname $SDKCMAKE))" >> $GITHUB_ENV
+          for b in $(find /opt/psn00bsdk /opt/mipsel-none-elf -type d -name bin); do echo "$b" >> $GITHUB_PATH; done
+      - name: Build DEADBIRD.EXE and the CD image
+        run: |
+          mipsel-none-elf-gcc --version | head -1
+          cmake --preset default -S platform/psx
+          cmake --build platform/psx/build
+          ls -la platform/psx/build
+          mipsel-none-elf-size platform/psx/build/deadbird.elf
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Deadbird-ps1
+          path: |
+            platform/psx/build/deadbird.exe
+            platform/psx/build/deadbird.bin
+            platform/psx/build/deadbird.cue

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- mkpsxiso layout for the Deadbird disc (processed by CMake; paths are relative to the build dir) -->
+<iso_project>
+	<track type="data">
+		<identifiers
+			system        ="PLAYSTATION"
+			volume        ="DEADBIRD"
+			volume_set    ="DEADBIRD"
+			publisher     ="HARLEQUINXD"
+			data_preparer ="PSN00BSDK ${PSN00BSDK_VERSION}"
+			application   ="PLAYSTATION"
+			copyright     ="README.TXT;1"
+		/>
+		<!--
+			No license data is included (it is Sony's and region specific). Emulators and most
+			modded / softmodded consoles boot the disc without it.
+		-->
+		<directory_tree>
+			<file name="SYSTEM.CNF"   type="data" source="${PROJECT_SOURCE_DIR}/system.cnf" />
+			<file name="DEADBIRD.EXE" type="data" source="deadbird.exe" />
+			<dummy sectors="1024"/>
+		</directory_tree>
+	</track>
+</iso_project>
