@@ -11,6 +11,9 @@
 #include "demon_tim.h"
 #undef DEMON_MESH_NO_DATA
 #include "demon_mesh.h"
+#include "chainsaw_mesh.h"
+#include "chainsaw_tim.h"
+#include <string.h>
 
 #define COLS 8
 #define CW 150
@@ -18,6 +21,7 @@
 static FrameBuf fb;
 static unsigned char sheet[CH * 3][CW * COLS][3];
 static Player pl;
+static Model saw_body, saw_chain;
 
 static void shot(const Model *m, int row, int col, int behind)
 {
@@ -40,6 +44,14 @@ static void shot(const Model *m, int row, int col, int behind)
     /* (no level geometry: the camera sits outside the arena walls) */
     for (b = 0; b < DEMON_NBONES; b++) mat_mul(&view, &pl.world[b], &cam[b]);
     model_draw_mats(m, cam, &ctx, &fb);
+    {   /* the arm chainsaw, as in the game */
+        MATRIX mount, sawm;
+        mat_identity(&mount);
+        mat_translate(&mount, DEMON_MOUNT_X, DEMON_MOUNT_Y, DEMON_MOUNT_Z);
+        mat_mul(&cam[DEMON_MOUNT_BONE], &mount, &sawm);
+        model_draw_mats(&saw_body, &sawm, &ctx, &fb);
+        model_draw_mats(&saw_chain, &sawm, &ctx, &fb);
+    }
     gpu_draw_ot(&fb);
     for (y = 0; y < CH; y++)
         for (x = 0; x < CW; x++) {
@@ -67,10 +79,26 @@ int main(int argc, char **argv)
     m.bones = (const DBONE *)demon_bones; m.nbones = DEMON_NBONES;
     m.tpage = tim.tpage; m.clut = tim.clut;
 
+    {
+        TimInfo st;
+        tim_upload(chainsaw_tim, CHAINSAW_TIM_SIZE, &st);
+        saw_body.verts = (const DVERT *)saw_verts; saw_body.nverts = SAW_NVERTS;
+        saw_body.prims = (const DPRIM *)saw_prims; saw_body.nprims = SAW_NPRIMS;
+        saw_body.bones = (const DBONE *)saw_bones; saw_body.nbones = 1;
+        saw_body.tpage = st.tpage; saw_body.clut = st.clut;
+        saw_chain = saw_body; saw_chain.bones = (const DBONE *)&saw_bones[1];
+    }
     player_init(&m);
     for (row = 0; row < 3; row++) {
         int mag = row ? 4096 : 2600, step = row ? 3 : 4, turn = row == 2 ? 200 : 0;
-        player_reset(&pl, -2800, -3000, 0);                     /* open floor, heading +Z */
+        {   /* the long Turbine Hall floor, heading +X */
+            int a;
+            for (a = 0; a < level_area_count(); a++) if (!strcmp(level_area(a)->name, "Turbine Hall")) break;
+            if (a < level_area_count()) {
+                const LabArea *ar = level_area(a);
+                player_reset(&pl, ar->x0 + 1500, (ar->z0 + ar->z1) / 2, 1024);
+            } else player_reset(&pl, -2800, -3000, 0);
+        }
         for (i = 0; i < 70; i++) { player_update(&pl, 0, 0, mag); player_pose(&pl, &m); }
         for (i = 0; i < COLS; i++) {
             int k;

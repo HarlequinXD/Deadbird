@@ -197,7 +197,16 @@ static void simulate(u32 pad)
         land_shake_t = 0;
         land_shake_amp = pl.land_amp * 110 >> 12;                             /* up to ~11 cm of camera jolt */
     } else if (land_shake_t < 99) land_shake_t++;
-    chain_ph += 5 + pl.speed / 6;                                             /* chain idles, revs when she runs */
+    chain_ph += 5 + pl.speed / 6;
+    {   /* heavy footfalls when she runs: a small camera thud each time a foot hits the floor */
+        static int prev_half;
+        int half = (pl.phase >> 15) & 1;
+        if (half != prev_half && pl.grounded && pl.runw > 1500 && land_shake_t >= 22) {
+            land_shake_t = 9;
+            land_shake_amp = 22 + (pl.runw * 26 >> 12);
+        }
+        prev_half = half;
+    }                                             /* chain idles, revs when she runs */
     player_pose(&pl, &demon);
     level_update();
     fx_update();

@@ -182,8 +182,8 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         if (!p->grounded) amp_t = p->amp;
         p->runw += (run_t - p->runw) / 6;
         p->amp += (amp_t - p->amp) / 3;
-        p->stance = 2540 + ((1434 - 2540) * p->runw >> 12);                /* 0.62 .. 0.35 of a cycle */
-        exc = 300 + (60 * p->runw >> 12);
+        p->stance = 2580 + ((1680 - 2580) * p->runw >> 12);                /* 0.63 .. 0.41: heavy, long ground contact */
+        exc = 330 + (80 * p->runw >> 12);                                  /* long, slow strides */
         exc = exc * clamp(sp * 4096 / 300, 0, 4096) >> 12;                  /* full stride from 1.2 m/s */
         p->exc = exc;
         if (exc < 24) exc = 24;
@@ -317,9 +317,9 @@ static void place_feet(Player *p, const Model *m)
             q = (ph - p->stance) * 4096 / (4096 - p->stance);
             off = -p->exc + (2 * p->exc * smooth(q) >> 12);
             swing = 1;
-            h = mixi(80, 150, run) * clamp(p->speed16 * 4096 / (22 * SUB) + 1229, 0, 4096) >> 12;
+            h = mixi(58, 112, run) * clamp(p->speed16 * 4096 / (22 * SUB) + 1229, 0, 4096) >> 12;
             lift = (h * sinpi(q) >> 12) + (run * 80 >> 12) * sinpi(q * 3 / 2 > 4096 ? 4096 : q * 3 / 2) / 4096;
-            off -= (run * 120 >> 12) * sinpi(q * 7 / 5 > 4096 ? 4096 : q * 7 / 5) / 4096;   /* heel kicks up behind */
+            off -= (run * 70 >> 12) * sinpi(q * 7 / 5 > 4096 ? 4096 : q * 7 / 5) / 4096;   /* heel kicks up behind */
             pt = mixi(358, -117, smooth(q * 4096 / 3482));
         }
         off = off * amp >> 12; lift = lift * amp >> 12; pt = pt * amp >> 12;
@@ -365,9 +365,13 @@ static void place_feet(Player *p, const Model *m)
     /* pelvis: Slayer's bob / sway / run crouch / landing dip, then drop so both legs reach */
     ph12 = p->phase >> 4;
     mid = p->stance / 2;
-    bob = mixi(20 * icos((ph12 - mid) * 2 & 4095) >> 12, 40 * icos((ph12 - mid - 1024) * 2 & 4095) >> 12, run) * amp >> 12;
-    dz = 12 + (50 * run >> 12) * amp / 4096 - bob + (170 * p->landw >> 12) - (20 * air >> 12);
-    lat = (-22 * icos((ph12 - mid) & 4095) >> 12) * amp / 4096 * (4096 - run) / 4096;
+    bob = mixi(32 * icos((ph12 - mid) * 2 & 4095) >> 12, 58 * icos((ph12 - mid - 1024) * 2 & 4095) >> 12, run) * amp >> 12;
+    {   /* heavy footfalls: the body keeps sinking for a moment after each foot lands, then heaves up */
+        int h = ph12 & 2047;
+        if (h < 760) bob -= (s32)(mixi(26, 44, run) * isin(h * 2048 / 760) >> 12) * amp >> 12;
+    }
+    dz = 12 + (60 * run >> 12) * amp / 4096 - bob + (170 * p->landw >> 12) - (20 * air >> 12);
+    lat = (-34 * icos((ph12 - mid) & 4095) >> 12) * amp / 4096 * (4096 - run * 6 / 10) / 4096;   /* weight rolls side to side */
     {
         MATRIX R;
         VECTOR th;
