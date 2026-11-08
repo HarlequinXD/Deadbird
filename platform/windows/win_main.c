@@ -21,7 +21,10 @@
 #include <math.h>
 #include <string.h>
 #include "deadbird.h"
+/* the engine names its VRAM rectangle RECT like libgpu does; keep it apart from Win32's RECT */
+#define RECT PSX_RECT
 #include "gpu.h"
+#undef RECT
 
 /* ------------------------------------------------------------------ XInput (loaded at run time) */
 typedef struct { WORD buttons; BYTE lt, rt; SHORT lx, ly, rx, ry; } XPad;
@@ -79,7 +82,7 @@ static HWND wnd;
 static BITMAPINFO bmi;
 static unsigned int frame32[SCREEN_W * SCREEN_H];
 static int fullscreen;
-static WINDOWPLACEMENT prev_place = { sizeof(prev_place) };
+static WINDOWPLACEMENT prev_place;
 static BYTE keys[256];
 static int running = 1;
 
@@ -87,7 +90,9 @@ static void toggle_fullscreen(void)
 {
     DWORD style = (DWORD)GetWindowLongA(wnd, GWL_STYLE);
     if (!fullscreen) {
-        MONITORINFO mi = { sizeof(mi) };
+        MONITORINFO mi;
+        memset(&mi, 0, sizeof(mi)); mi.cbSize = sizeof(mi);
+        prev_place.length = sizeof(prev_place);
         if (GetWindowPlacement(wnd, &prev_place) && GetMonitorInfoA(MonitorFromWindow(wnd, MONITOR_DEFAULTTOPRIMARY), &mi)) {
             SetWindowLongA(wnd, GWL_STYLE, (LONG)(style & ~WS_OVERLAPPEDWINDOW));
             SetWindowPos(wnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
