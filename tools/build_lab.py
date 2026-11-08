@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Builds Deadbird's level: the shinigami energy-extraction plant.
+Builds Deadbird's level: the shinigami energy-extraction plant - a full level, dock to reactor.
 
   Extraction Hall  - the giant tank holding a captured shinigami, smaller extraction pods,
                      a catwalk with stairs, consoles, pillars
@@ -33,11 +33,13 @@ faces = []        # dict(p=[4 or 3 xyz], uv=[(u,v)], page, flags, anim, emit)
 occluders = []    # (x0,y0,z0,x1,y1,z1) blocks light
 colliders = []    # (x0,z0,x1,z1,top_h)  solid from the floor up to y = -top_h
 lights = []       # (pos, rgb(0..), radius)
-sprites = []      # (x,y,z,size,r,g,b,anim)
+sprites = []      # (x,y,z,size,r,g,b,anim,area)
 anchors = {}      # named positions for animated things drawn in C
 fans = []         # (x,y,z, axis, radius, speed)
 rings = []        # (x, z, r, y_top, y_bot)
 ceilings = []     # (x0,z0,x1,z1,height) for the camera
+areas = []        # dict(name, rect, H, kind, links)
+CUR = [0]         # area that new faces belong to
 
 
 def V(*a):
@@ -65,7 +67,7 @@ def add_quad(o, U, V_, tex, flags=0, anim=0, emit=None, uvr=None, nd=None):
     page, t = tid(tex)
     uv = tile_uv(page, t, *(uvr or (0, 0, 63, 63)))
     faces.append(dict(p=[o, o + U, o + V_, o + U + V_], uv=uv, page=page, flags=flags | F_QUAD,
-                      anim=anim, emit=emit))
+                      anim=anim, emit=emit, area=CUR[0]))
 
 
 def add_tri(a, b, c, tex, flags=0, anim=0, emit=None, nd=None):
@@ -75,7 +77,7 @@ def add_tri(a, b, c, tex, flags=0, anim=0, emit=None, nd=None):
     page, t = tid(tex)
     uv = tile_uv(page, t)
     faces.append(dict(p=[a, b, c], uv=[(uv[0][0] + 32, uv[0][1]), uv[2], uv[3]], page=page, flags=flags & ~F_QUAD,
-                      anim=anim, emit=emit))
+                      anim=anim, emit=emit, area=CUR[0]))
 
 
 def grid(o, U, V_, cell, tex, flags=0, anim=0, emit=None, nd=None, texf=None, maxn=16):
@@ -158,81 +160,93 @@ def cyl_collide(x, z, r, h):
     occluders.append((x - k, -h, z - k, x + k, 0, z + k))
 
 
-# ------------------------------------------------------------------ rooms
-DOOR_H = 2600
+
+
+# ------------------------------------------------------------------ rooms and halls
+DOOR_H = 3000            # corridors are exactly door height, so doorways line up
 WALL_T = 240
 
 
-def room(x0, z0, x1, z1, H, doors=(), open_ends=(), floor='floor_plate', lights_on=True, name='',
-         upper='wall_panel', trim=True):
-    """interior: floor, ceiling, four walls (with door openings), wall colliders.
-    doors: list of (side, centre, width) with side in 'N','S','E','W' (N = +z, E = +x)."""
+def area(name, x0, z0, x1, z1, H, kind):
+    areas.append(dict(name=name, rect=(x0, z0, x1, z1), H=H, kind=kind, links=set()))
+    CUR[0] = len(areas) - 1
     ceilings.append((x0, z0, x1, z1, H))
-    # floor: plates, with grates along the walls
+    return CUR[0]
+
+
+def build_shell(ai, floor_tex=None, upper='wall_panel', ceil_light_every=3, floor_cell=768):
+    """floor, ceiling and walls (with a doorway wherever a corridor meets a wall) of area ai"""
+    a = areas[ai]
+    x0, z0, x1, z1 = a['rect']
+    H = a['H']
+    CUR[0] = ai
+    corridor_ = a['kind'] == 'hall'
+    # floor
     def ftex(i, j, nu, nv):
-        if floor != 'floor_plate':
-            return floor
-        return 'floor_grate' if (i in (0, nu - 1) or j in (0, nv - 1)) and (i + j) % 3 == 0 else 'floor_plate'
-    grid(V(x0, 0, z0), V(x1 - x0, 0, 0), V(0, 0, z1 - z0), 512, floor, F_FLOOR, nd=V(0, -1, 0), texf=ftex, maxn=40)
+        if floor_tex:
+            return floor_tex(i, j, nu, nv)
+        edge = i in (0, nu - 1) or j in (0, nv - 1)
+        return 'floor_grate' if edge and (i + j) % 3 == 0 else 'floor_plate'
+    grid(V(x0, 0, z0), V(x1 - x0, 0, 0), V(0, 0, z1 - z0), 600 if corridor_ else floor_cell, None, F_FLOOR,
+         nd=V(0, -1, 0), texf=ftex, maxn=40)
     # ceiling: dark plates with light panels
-    def ctex(i, j, nu, nv):
-        return 'ceiling_light' if (i % 3 == 1 and j % 3 == 1) else 'dark_metal'
-    nu = max(1, int((x1 - x0) / 1000)); nv = max(1, int((z1 - z0) / 1000))
+    cc = 1000 if corridor_ else 1400
+    nu = max(1, int(round((x1 - x0) / cc))); nv = max(1, int(round((z1 - z0) / cc)))
     for j in range(nv):
         for i in range(nu):
-            t = ctex(i, j, nu, nv)
+            lit = (i % ceil_light_every == ceil_light_every // 2 and j % ceil_light_every == ceil_light_every // 2) if not corridor_ \
+                else ((i + j) % 3 == 1 and (nu == 1 or nv == 1))
+            t = 'ceiling_light' if lit else 'dark_metal'
             o = V(x0 + (x1 - x0) * i / nu, -H, z0 + (z1 - z0) * j / nv)
             add_quad(o, V((x1 - x0) / nu, 0, 0), V(0, 0, (z1 - z0) / nv), t,
-                     F_EMIT if t == 'ceiling_light' else 0, 0, (150, 160, 170) if t == 'ceiling_light' else None, nd=V(0, 1, 0))
+                     F_EMIT if lit else 0, 0, (150, 160, 170) if lit else None, nd=V(0, 1, 0))
     # walls
     sides = {'S': (V(x0, 0, z0), V(1, 0, 0), x1 - x0, V(0, 0, 1)),
              'N': (V(x0, 0, z1), V(1, 0, 0), x1 - x0, V(0, 0, -1)),
              'W': (V(x0, 0, z0), V(0, 0, 1), z1 - z0, V(1, 0, 0)),
              'E': (V(x1, 0, z0), V(0, 0, 1), z1 - z0, V(-1, 0, 0))}
     for s, (o, d, L, n) in sides.items():
-        if s in open_ends:
+        if s in a.get('open', ()):
             continue
-        holes = sorted([(c - w / 2, c + w / 2) for (ds, c, w) in doors if ds == s])
-        # spans along the wall: solid between holes (full height), above holes (from DOOR_H up)
+        holes = sorted(a.get('doors', {}).get(s, []))
         cuts = [0]
-        for a, b in holes:
-            cuts += [a, b]
+        for c0, c1 in holes:
+            cuts += [c0, c1]
         cuts.append(L)
         for k in range(0, len(cuts), 2):
-            a, b = cuts[k], cuts[k + 1]
-            if b - a > 1:
-                wall_strip(o + d * a, d * (b - a), 0, H, n, upper, trim)
-                # collider behind this strip
-                p0 = o + d * a - n * WALL_T
-                p1 = o + d * b
-                colliders.append((min(p0[0], p1[0]), min(p0[2], p1[2]), max(p0[0], p1[0]), max(p0[2], p1[2]), 8000))
-                occluders.append((min(p0[0], p1[0]), -H - 10, min(p0[2], p1[2]), max(p0[0], p1[0]), 10, max(p0[2], p1[2])))
-        for a, b in holes:
+            p, q = cuts[k], cuts[k + 1]
+            if q - p > 1:
+                wall_strip(o + d * p, d * (q - p), 0, H, n, upper, not corridor_)
+                w0 = o + d * p - n * WALL_T
+                w1 = o + d * q
+                colliders.append((min(w0[0], w1[0]), min(w0[2], w1[2]), max(w0[0], w1[0]), max(w0[2], w1[2]), 9000))
+                occluders.append((min(w0[0], w1[0]), -H - 10, min(w0[2], w1[2]), max(w0[0], w1[0]), 10, max(w0[2], w1[2])))
+        for c0, c1 in holes:
+            w0 = o + d * c0 - n * WALL_T
+            w1 = o + d * c1
             if H > DOOR_H:
-                wall_strip(o + d * a, d * (b - a), DOOR_H, H, n, upper, False)
-                occluders.append((min((o + d * a - n * WALL_T)[0], (o + d * b)[0]), -H - 10, min((o + d * a - n * WALL_T)[2], (o + d * b)[2]),
-                                  max((o + d * a - n * WALL_T)[0], (o + d * b)[0]), -DOOR_H, max((o + d * a - n * WALL_T)[2], (o + d * b)[2])))
-            door_frame(o + d * a, d * (b - a), n)
+                wall_strip(o + d * c0, d * (c1 - c0), DOOR_H, H, n, upper, False)
+                occluders.append((min(w0[0], w1[0]), -H - 10, min(w0[2], w1[2]), max(w0[0], w1[0]), -DOOR_H, max(w0[2], w1[2])))
+            door_frame(o + d * c0, d * (c1 - c0), n)
 
 
 def wall_strip(o, U, ya, yb, n, upper, trim):
-    """wall from height ya to yb (positive heights, Y up) along U at base o, facing n"""
+    """wall from height ya to yb (positive heights) along U at base o, facing n"""
     lo = min(yb, 700)
     if ya < lo:
-        grid(o + V(0, -lo, 0), U, V(0, lo - ya, 0), 512, 'wall_lower', nd=n)
+        grid(o + V(0, -lo, 0), U, V(0, lo - ya, 0), 768, 'wall_lower', nd=n)
     top = yb
     mid0 = max(ya, lo)
     if trim and top - mid0 > 900:
-        # panels up to 3000, then circuitry / vents, then a beam under the ceiling
-        p_top = min(top - 300, 3000)
+        p_top = min(top - 300, 3200)
         def wtex(i, j, nu, nv):
-            return 'wall_vent' if (i % 4 == 2 and j == nv - 1) else upper
-        grid(o + V(0, -p_top, 0), U, V(0, p_top - mid0, 0), 640, upper, nd=n, texf=wtex)
+            return 'wall_vent' if (i % 5 == 2 and j == nv - 1) else upper
+        grid(o + V(0, -p_top, 0), U, V(0, p_top - mid0, 0), 900, upper, nd=n, texf=wtex, maxn=40)
         if top - 300 > p_top:
-            grid(o + V(0, -(top - 300), 0), U, V(0, top - 300 - p_top, 0), 640, 'circuit', nd=n)
-        grid(o + V(0, -top, 0), U, V(0, 300, 0), 640, 'beam', nd=n)
+            grid(o + V(0, -(top - 300), 0), U, V(0, top - 300 - p_top, 0), 1500, 'circuit', nd=n, maxn=40)
+        grid(o + V(0, -top, 0), U, V(0, 300, 0), 1000, 'beam', nd=n, maxn=40)
     elif top > mid0:
-        grid(o + V(0, -top, 0), U, V(0, top - mid0, 0), 640, upper, nd=n)
+        grid(o + V(0, -top, 0), U, V(0, top - mid0, 0), 800, upper, nd=n, maxn=40)
 
 
 def door_frame(o, U, n):
@@ -240,37 +254,109 @@ def door_frame(o, U, n):
     L = np.linalg.norm(U)
     d = U / L
     back = -n * WALL_T
-    # jambs
     add_quad(o + V(0, -DOOR_H, 0), back, V(0, DOOR_H, 0), 'bulkhead', nd=d)
     add_quad(o + U + V(0, -DOOR_H, 0), back, V(0, DOOR_H, 0), 'bulkhead', nd=-d)
-    # soffit
     add_quad(o + V(0, -DOOR_H, 0), U, back, 'hazard', nd=V(0, 1, 0))
-    # lintel stripe on the room side
-    add_quad(o + V(0, -DOOR_H - 200, 0) + n * 4, U, V(0, 200, 0), 'hazard', nd=n)
+    add_quad(o + V(0, -DOOR_H - 240, 0) + n * 4, U, V(0, 240, 0), 'hazard', nd=n)
 
 
-def corridor(x0, z0, x1, z1, axis):
-    """corridor with open ends; pipes along the walls, cables under the ceiling, grates"""
-    H = DOOR_H
-    room(x0, z0, x1, z1, H, open_ends=('W', 'E') if axis == 'x' else ('S', 'N'), floor='floor_plate', trim=False,
-         upper='wall_panel')
-    if axis == 'x':
-        for zz, yy in ((z0 + 160, -1900), (z0 + 160, -2150), (z1 - 160, -1900)):
-            cylinder(V(x0, yy, zz), 90, 0, x1 - x0, 6, 'pipe', axis='x')
-        grid(V(x0, -H + 20, z0 + 600), V(x1 - x0, 0, 0), V(0, 0, 400), 640, 'cables', nd=V(0, 1, 0))
-        # floor light strip down the middle
-        grid(V(x0, -2, (z0 + z1) / 2 - 90), V(x1 - x0, 0, 0), V(0, 0, 180), 640, 'floor_light', F_EMIT | F_FLOOR,
+def hall_between(name, ra, rb, centre, width=2400):
+    """a straight hall linking two rooms that face each other; doorways are cut automatically"""
+    A, B = areas[ra]['rect'], areas[rb]['rect']
+    if A[2] <= B[0] or B[2] <= A[0]:          # side by side in x -> hall runs along x
+        lo, hi = (ra, rb) if A[2] <= B[0] else (rb, ra)
+        L, Hh = areas[lo]['rect'], areas[hi]['rect']
+        x0, x1 = L[2], Hh[0]
+        z0, z1 = centre - width / 2, centre + width / 2
+        hi_ = area(name, x0, z0, x1, z1, DOOR_H, 'hall')
+        areas[hi_]['open'] = ('W', 'E'); areas[hi_]['axis'] = 'x'
+        areas[lo].setdefault('doors', {}).setdefault('E', []).append((z0 - L[1], z1 - L[1]))
+        areas[hi].setdefault('doors', {}).setdefault('W', []).append((z0 - Hh[1], z1 - Hh[1]))
+    else:                                       # one above the other in z -> hall runs along z
+        lo, hi = (ra, rb) if A[3] <= B[1] else (rb, ra)
+        L, Hh = areas[lo]['rect'], areas[hi]['rect']
+        z0, z1 = L[3], Hh[1]
+        x0, x1 = centre - width / 2, centre + width / 2
+        hi_ = area(name, x0, z0, x1, z1, DOOR_H, 'hall')
+        areas[hi_]['open'] = ('S', 'N'); areas[hi_]['axis'] = 'z'
+        areas[lo].setdefault('doors', {}).setdefault('N', []).append((x0 - L[0], x1 - L[0]))
+        areas[hi].setdefault('doors', {}).setdefault('S', []).append((x0 - Hh[0], x1 - Hh[0]))
+    areas[hi_]['links'] |= {ra, rb}
+    areas[ra]['links'].add(hi_); areas[rb]['links'].add(hi_)
+    return hi_
+
+
+def dress_hall(hi, style='pipes'):
+    """pipes, cable tray, light strip; lights along the length"""
+    a = areas[hi]
+    CUR[0] = hi
+    x0, z0, x1, z1 = a['rect']
+    H = a['H']
+    L = (x1 - x0) if a['axis'] == 'x' else (z1 - z0)
+    if a['axis'] == 'x':
+        for zz, yy, r in ((z0 + 170, -2300, 100), (z0 + 170, -2560, 80), (z1 - 170, -2300, 100)):
+            cylinder(V(x0, yy, zz), r, 0, x1 - x0, 6, 'pipe', axis='x')
+        grid(V(x0, -H + 20, (z0 + z1) / 2 - 300), V(x1 - x0, 0, 0), V(0, 0, 600), 800, 'cables', nd=V(0, 1, 0))
+        grid(V(x0, -2, (z0 + z1) / 2 - 100), V(x1 - x0, 0, 0), V(0, 0, 200), 800, 'floor_light', F_EMIT | F_FLOOR,
              emit=(130, 140, 140), nd=V(0, -1, 0))
-        lights.append((V((x0 + x1) / 2, -2300, (z0 + z1) / 2), V(0.7, 0.9, 0.95), 4500))
+        n = max(1, int(L / 3000))
+        for k in range(n):
+            lights.append((V(x0 + (k + 0.5) * L / n, -2700, (z0 + z1) / 2), V(0.7, 0.9, 0.95), 4200))
     else:
-        for xx, yy in ((x0 + 160, -1900), (x0 + 160, -2150), (x1 - 160, -1900)):
-            cylinder(V(xx, yy, z0), 90, 0, z1 - z0, 6, 'pipe', axis='z')
-        grid(V(x0 + 600, -H + 20, z0), V(400, 0, 0), V(0, 0, z1 - z0), 640, 'cables', nd=V(0, 1, 0))
-        grid(V((x0 + x1) / 2 - 90, -2, z0), V(180, 0, 0), V(0, 0, z1 - z0), 640, 'floor_light', F_EMIT | F_FLOOR,
+        for xx, yy, r in ((x0 + 170, -2300, 100), (x0 + 170, -2560, 80), (x1 - 170, -2300, 100)):
+            cylinder(V(xx, yy, z0), r, 0, z1 - z0, 6, 'pipe', axis='z')
+        grid(V((x0 + x1) / 2 - 300, -H + 20, z0), V(600, 0, 0), V(0, 0, z1 - z0), 800, 'cables', nd=V(0, 1, 0))
+        grid(V((x0 + x1) / 2 - 100, -2, z0), V(200, 0, 0), V(0, 0, z1 - z0), 800, 'floor_light', F_EMIT | F_FLOOR,
              emit=(130, 140, 140), nd=V(0, -1, 0))
-        lights.append((V((x0 + x1) / 2, -2300, (z0 + z1) / 2), V(0.7, 0.9, 0.95), 4500))
+        n = max(1, int(L / 3000))
+        for k in range(n):
+            lights.append((V((x0 + x1) / 2, -2700, z0 + (k + 0.5) * L / n), V(0.7, 0.9, 0.95), 4200))
 
 
+def ceiling_lights(ai, col, R, step=4000, h=None):
+    x0, z0, x1, z1 = areas[ai]['rect']
+    H = h or areas[ai]['H']
+    nx = max(1, int(round((x1 - x0) / step))); nz = max(1, int(round((z1 - z0) / step)))
+    for j in range(nz):
+        for i in range(nx):
+            lights.append((V(x0 + (i + 0.5) * (x1 - x0) / nx, -H + 300, z0 + (j + 0.5) * (z1 - z0) / nz), V(*col), R))
+
+
+def stairs(x0, z0, x1, z1, top, axis, up_positive=True):
+    """flight of 130-high steps from the floor to `top`, rising along axis"""
+    n = int(round(top / 130))
+    for i in range(n):
+        if axis == 'x':
+            L = (x1 - x0) / n
+            a = x0 + i * L if up_positive else x1 - (i + 1) * L
+            box(a, -(i + 1) * 130, z0, a + L, 0, z1, 'stair_tread', 'dark_metal', cell=1600, occl=(i > n // 2))
+        else:
+            L = (z1 - z0) / n
+            a = z0 + i * L if up_positive else z1 - (i + 1) * L
+            box(x0, -(i + 1) * 130, a, x1, 0, a + L, 'stair_tread', 'dark_metal', cell=1600, occl=(i > n // 2))
+
+
+def rail_x(x0, x1, z, base):
+    x0, x1 = min(x0, x1), max(x0, x1)
+    box(x0, -base - 900, z - 30, x1, -base, z + 30, 'beam', 'beam', cell=1200, occl=False, collide=False)
+    colliders.append((x0, z - 40, x1, z + 40, base + 900))
+
+
+def rail_z(z0, z1, x, base):
+    z0, z1 = min(z0, z1), max(z0, z1)
+    box(x - 30, -base - 900, z0, x + 30, -base, z1, 'beam', 'beam', cell=1200, occl=False, collide=False)
+    colliders.append((x - 40, z0, x + 40, z1, base + 900))
+
+
+def sign_on(x, z, nd, w=1000):
+    nd = V(*nd)
+    U = np.cross(V(0, -1, 0), nd) * w
+    add_quad(V(x, -2700, z) + nd * 4 - U / 2, U, V(0, 1000, 0), 'sign', nd=nd)
+
+
+def machine(x0, z0, x1, z1, h, face):
+    """processing machine block: vented base sides, control panel on the face toward the room"""
+    box(x0, -h, z0, x1, 0, z1, 'dark_metal', 'machine_base', 'machine_panel', nd_front=V(*face), cell=900)
 # ------------------------------------------------------------------ props
 def captive(x, y, z, s=1.0, facing=0.0):
     """a low-poly caged / tanked shinigami: dark feathered body, bird skull, spread wings"""
@@ -311,18 +397,18 @@ def extraction_pod(x, z, facing, anim):
     captive(x, -500, z, 0.95, facing)
     cyl_collide(x, z, r + 120, 3300)
     lights.append((V(x, -1500, z), V(0.25, 0.85, 1.0), 3200))
-    sprites.append((x, -2650, z, 380, 60, 200, 230, anim))
+    sprites.append((x, -2650, z, 380, 60, 200, 230, anim, CUR[0]))
     anchors.setdefault('pods', []).append((x, z, r))
     # console beside it
     cx, cz = x + math.cos(facing) * 900, z - math.sin(facing) * 900
     console(cx, cz, facing + math.pi, 'screen_vitals')
 
 
-def console(x, z, facing, screen='screen_graph'):
+def console(x, z, facing, screen='screen_graph', y=0):
     """desk + slanted keyboard + monitor; facing = direction the operator looks (radians, 0 = +z)"""
     c, s = math.cos(facing), math.sin(facing)
     fwd, right = V(s, 0, c), V(c, 0, -s)
-    o = V(x, 0, z)
+    o = V(x, y, z)
     w, d = 420, 260
     # body: four sides + top as oriented quads
     corners = [o - right * w - fwd * d, o + right * w - fwd * d, o + right * w + fwd * d, o - right * w + fwd * d]
@@ -339,8 +425,8 @@ def console(x, z, facing, screen='screen_graph'):
     add_quad(scr + right * 760, fwd * 60, V(0, 560, 0), 'dark_metal', nd=right)
     add_quad(scr, right * 760, fwd * 60, 'dark_metal', nd=V(0, -1, 0))
     xs = [p[0] for p in corners]; zs = [p[2] for p in corners]
-    colliders.append((min(xs), min(zs), max(xs), max(zs), 800))
-    occluders.append((min(xs), -800, min(zs), max(xs), 0, max(zs)))
+    colliders.append((min(xs), min(zs), max(xs), max(zs), 800 - y))
+    occluders.append((min(xs), y - 800, min(zs), max(xs), y, max(zs)))
     lights.append((scr + right * 380 - fwd * 300 + V(0, 280, 0), V(0.35, 0.5, 0.45) if screen == 'screen_graph' else V(0.6, 0.2, 0.15), 1300))
 
 
@@ -371,191 +457,304 @@ def pillar(x, z, H):
 
 
 # ------------------------------------------------------------------ the plant
-# Extraction Hall
-HALL = (-4500, -4500, 4500, 4500, 4600)
-room(*HALL[:4], HALL[4], doors=[('N', 4500, 2000), ('E', 4500, 2000), ('W', 6500, 2000)], name='hall')
-# the great tank in the middle
-TANK_R = 1000
-cylinder(V(0, 0, 0), TANK_R + 300, 0, -600, 12, 'machine_base', cap='hazard')
-cylinder(V(0, -600, 0), TANK_R, 0, -2800, 12, 'glass', F_ADD, 2, rep=2)
-cylinder(V(0, -3400, 0), TANK_R + 260, 0, -700, 12, 'dark_metal', cap='dark_metal')
-for k in range(6):                       # feed pipes up into the ceiling
+# Route: Loading Dock -> Security Checkpoint -> Processing Hall -> Extraction Hall ->
+#        Containment Block -> Research Lab -> Server Vault -> Pipe Gallery -> Turbine Hall ->
+#        Reactor Core. The Extraction Hall also opens straight into the Pipe Gallery (a loop).
+# Rooms keep their middles open (room to fight); machines and props stand along the walls.
+DOCK = area('Loading Dock',        -26000, -30000, -12000, -20000, 6500, 'room')
+CHECK = area('Security Checkpoint',  -6000, -28000,   2000, -22000, 4500, 'room')
+PROC = area('Processing Hall',     -10000, -16000,   6000,  -8000, 5500, 'room')
+EXTR = area('Extraction Hall',      -9000,  -4000,   5000,  10000, 6500, 'room')
+CONT = area('Containment Block',   -28000,  -2000, -15000,   8000, 4800, 'room')
+LAB = area('Research Lab',         -27000,  14000, -16000,  22000, 4200, 'room')
+VAULT = area('Server Vault',       -10000,  13000,      0,  23000, 4500, 'room')
+GALL = area('Pipe Gallery',          6000,   2000,  11000,  26000, 6000, 'room')
+TURB = area('Turbine Hall',          6500, -18000,  22500,  -4000, 7500, 'room')
+CORE = area('Reactor Core',         14000,      0,  29000,  16000, 9000, 'room')
+
+H1 = hall_between('Dock Hall', DOCK, CHECK, -25000)
+H2 = hall_between('Checkpoint Hall', CHECK, PROC, -2000)
+H3 = hall_between('Processing Hall North', PROC, EXTR, -2000)
+H4 = hall_between('Containment Hall', CONT, EXTR, 3000)
+H5 = hall_between('Lab Hall', CONT, LAB, -21600)
+H6 = hall_between('Vault Hall', LAB, VAULT, 18000)
+H7 = hall_between('Gallery Hall', VAULT, GALL, 18000)
+H8 = hall_between('Shortcut Hall', EXTR, GALL, 4000)
+H9 = hall_between('Turbine Hall Stair', TURB, GALL, 8000)
+H10 = hall_between('Core Hall', TURB, CORE, 21000)
+
+SPAWN = (-19000, -26500, 0)
+ROUTE_HALLS = [H1, H2, H3, H4, H5, H6, H7, H9, H10]      # dock -> reactor (H8 is the shortcut)
+GOAL = (18500, 5000)
+
+
+def route_points():
+    """walkable path for the route test: spawn, then for every hall a point 2000 into the room
+    before its doorway, the doorway, the far doorway and a point 2000 into the next room"""
+    pts = [SPAWN[:2]]
+    for h in ROUTE_HALLS:
+        x0, z0, x1, z1 = areas[h]['rect']
+        cx, cz = (x0 + x1) / 2, (z0 + z1) / 2
+        if areas[h]['axis'] == 'x':
+            ends = [(x0, cz), (x1, cz)]
+            d = (1, 0)
+        else:
+            ends = [(cx, z0), (cx, z1)]
+            d = (0, 1)
+        # walk the hall in whichever direction is nearer to where we are
+        px, pz = pts[-1]
+        if (ends[1][0] - px) ** 2 + (ends[1][1] - pz) ** 2 < (ends[0][0] - px) ** 2 + (ends[0][1] - pz) ** 2:
+            ends = ends[::-1]
+            d = (-d[0], -d[1])
+        a, b = ends
+        pts += [(a[0] - d[0] * 2000, a[1] - d[1] * 2000), a, b, (b[0] + d[0] * 2000, b[1] + d[1] * 2000)]
+    pts.append(GOAL)
+    return [(int(x), int(z)) for x, z in pts]
+
+
+def dock_floor(i, j, nu, nv):
+    if j in (2, nv - 3) and 2 <= i <= nu - 3:
+        return 'hazard'
+    return 'floor_grate' if (i in (0, nu - 1) or j in (0, nv - 1)) and (i + j) % 3 == 0 else 'floor_plate'
+
+
+build_shell(DOCK, dock_floor, ceil_light_every=4)
+build_shell(CHECK)
+build_shell(PROC, lambda i, j, nu, nv: 'floor_grate' if j == nv // 2 else ('floor_grate' if (i in (0, nu - 1) or j in (0, nv - 1)) and (i + j) % 3 == 0 else 'floor_plate'))
+build_shell(EXTR)
+build_shell(CONT)
+build_shell(LAB)
+build_shell(VAULT, lambda i, j, nu, nv: 'floor_grate' if i % 4 == 1 else 'floor_plate')
+build_shell(GALL, lambda i, j, nu, nv: 'floor_grate' if i == nu // 2 or i == nu // 2 - 1 else 'floor_plate')
+build_shell(TURB, ceil_light_every=4)
+build_shell(CORE, lambda i, j, nu, nv: 'floor_grate' if (i + j) % 2 == 0 and 4 <= i <= nu - 5 and 4 <= j <= nv - 5 else 'floor_plate', ceil_light_every=4)
+for h in (H1, H2, H3, H4, H5, H6, H7, H8, H9, H10):
+    build_shell(h)
+    dress_hall(h)
+
+# ---------------- Loading Dock: arrival bay, cargo containers, a loading platform with stairs
+CUR[0] = DOCK
+box(-25800, -2600, -22800, -20000, 0, -20200, 'dark_metal', 'crate', cell=1300)          # container
+box(-25800, -5200, -22800, -21500, -2600, -20200, 'dark_metal', 'crate', cell=1300, collide=False)   # stacked
+box(-17400, -2600, -22800, -13200, 0, -20200, 'dark_metal', 'crate', cell=1300)
+box(-26000, -520, -29000, -23200, 0, -24000, 'floor_grate', 'wall_lower', cell=900)       # loading platform
+stairs(-23200, -27500, -22100, -25500, 520, 'x', up_positive=False)
+rail_z(-29000, -27500, -23200, 520)
+rail_z(-25500, -24000, -23200, 520)
+for (x, z) in ((-14500, -29400), (-13700, -29400), (-14200, -28700), (-12400, -29600)):
+    crate(x, z, 700, 700)
+canister(-25200, -23400); canister(-24600, -23400)
+sign_on(-12000 + 0, -27200, (-1, 0, 0))
+ceiling_lights(DOCK, (0.8, 0.82, 0.88), 8500, 4600)
+lights.append((V(-12300, -3300, -25000), V(1.3, 0.15, 0.1), 2600))
+sprites.append((-12350, -3300, -25000, 260, 255, 40, 30, 5, DOCK))
+
+# ---------------- Security Checkpoint: scanner arch, guard consoles
+CUR[0] = CHECK
+for px in (-3800, -200):
+    box(px - 400, -3400, -24000, px + 400, 0, -22800, 'dark_metal', 'hazard', cell=900)
+box(-3800, -3800, -23800, -200, -3400, -23000, 'beam', 'beam', cell=1200, collide=False)
+add_quad(V(-3400, -3420, -23800), V(2800, 0, 0), V(0, 0, 800), 'floor_light', F_EMIT | F_PULSE, 5, (180, 60, 50), nd=V(0, 1, 0))
+lights.append((V(-2000, -3200, -23400), V(1.2, 0.2, 0.15), 3200))
+console(-5000, -27200, math.pi, 'screen_graph')
+console(1000, -27200, math.pi, 'screen_vitals')
+console(1200, -22900, 0.0, 'screen_graph')
+sign_on(0, -22000, (0, 0, -1))
+ceiling_lights(CHECK, (0.75, 0.8, 0.85), 7000, 4000)
+
+# ---------------- Processing Hall: machines down both long walls, overhead pipes
+CUR[0] = PROC
+for x in (-7800, -5200, 1200, 3800):
+    machine(x - 1000, -16000, x + 1000, -14400, 2600, (0, 0, 1))
+    machine(x - 1000, -9600, x + 1000, -8000, 2600, (0, 0, -1))
+    lights.append((V(x, -1200, -14000), V(1.1, 0.5, 0.2), 2400))
+    lights.append((V(x, -1200, -10000), V(1.1, 0.5, 0.2), 2400))
+for zz in (-14800, -9200):
+    cylinder(V(-10000, -4600, zz), 260, 0, 16000, 8, 'pipe', axis='x')
+for zz in (-13200, -10800):
+    cylinder(V(-10000, -5100, zz), 150, 0, 16000, 6, 'pipe', axis='x')
+console(4500, -12000, math.pi / 2, 'screen_graph')
+ceiling_lights(PROC, (0.75, 0.78, 0.85), 7500, 4000)
+
+# ---------------- Extraction Hall: the great tank, four pods, catwalk
+CUR[0] = EXTR
+TX0, TZ0, TANK_R = -2000, 3000, 1300
+cylinder(V(TX0, 0, TZ0), TANK_R + 300, 0, -600, 12, 'machine_base', cap='hazard')
+cylinder(V(TX0, -600, TZ0), TANK_R, 0, -3200, 12, 'glass', F_ADD, 2, rep=2)
+cylinder(V(TX0, -3800, TZ0), TANK_R + 260, 0, -800, 12, 'dark_metal', cap='dark_metal')
+for k in range(6):
     a = k * math.pi / 3 + 0.3
-    cylinder(V(math.cos(a) * 700, -4100, math.sin(a) * 700), 130, 0, -500, 6, 'pipe')
-for k in range(4):                       # cable trunks along the floor to the walls
-    a = k * math.pi / 2 + math.pi / 4
-    x0, z0 = math.cos(a) * (TANK_R + 300), math.sin(a) * (TANK_R + 300)
-    x1, z1 = math.cos(a) * 3400, math.sin(a) * 3400
-    d = V(x1 - x0, 0, z1 - z0)
-    side = np.cross(d, V(0, 1, 0)); side = side / np.linalg.norm(side) * 160
-    add_quad(V(x0, -40, z0) - side, d, side * 2, 'cables', F_FLOOR, nd=V(0, -1, 0))
-# glowing ring on the floor round the base
+    cylinder(V(TX0 + math.cos(a) * 900, -4600, TZ0 + math.sin(a) * 900), 150, 0, -1900, 6, 'pipe')
 for k in range(12):
     a0, a1 = 2 * math.pi * k / 12, 2 * math.pi * (k + 1) / 12
-    r0, r1 = TANK_R + 320, TANK_R + 520
-    p0 = V(math.cos(a0) * r0, -3, math.sin(a0) * r0)
-    p1 = V(math.cos(a1) * r0, -3, math.sin(a1) * r0)
-    p2 = V(math.cos(a0) * r1, -3, math.sin(a0) * r1)
-    faces.append(dict(p=[p0, p1, p2, V(math.cos(a1) * r1, -3, math.sin(a1) * r1)],
-                      uv=tile_uv(0, TA['floor_light']), page=0, flags=F_QUAD | F_EMIT | F_FLOOR | F_PULSE, anim=2, emit=(140, 150, 150)))
+    r0, r1 = TANK_R + 320, TANK_R + 560
+    p0 = V(TX0 + math.cos(a0) * r0, -3, TZ0 + math.sin(a0) * r0)
+    p1 = V(TX0 + math.cos(a1) * r0, -3, TZ0 + math.sin(a1) * r0)
+    p2 = V(TX0 + math.cos(a0) * r1, -3, TZ0 + math.sin(a0) * r1)
+    p3 = V(TX0 + math.cos(a1) * r1, -3, TZ0 + math.sin(a1) * r1)
+    f = dict(p=[p0, p1, p2, p3], uv=tile_uv(0, TA['floor_light']), page=0, flags=F_QUAD | F_EMIT | F_FLOOR | F_PULSE,
+             anim=2, emit=(140, 150, 150), area=EXTR)
     if np.dot(np.cross(p2 - p0, p1 - p0), V(0, -1, 0)) < 0:
-        f = faces[-1]; f['p'] = [f['p'][1], f['p'][0], f['p'][3], f['p'][2]]
-cyl_collide(0, 0, TANK_R + 300, 4600)
-anchors['tank'] = (0, -2000, 0)
-rings.append((0, 0, TANK_R - 60, -3300, -700))
-lights.append((V(0, -2000, 0), V(0.3, 1.0, 1.3), 9000))
-lights.append((V(0, -500, 0), V(0.2, 0.7, 0.9), 3000))
-sprites.append((0, -3450, 0, 900, 70, 210, 240, 2))
-# pods along the west and south walls
-extraction_pod(-3800, -1200, math.pi / 2, 3)
-extraction_pod(-3800, 600, math.pi / 2, 4)
-extraction_pod(-1800, -3800, 0.0, 3)
-extraction_pod(1800, -3800, 0.0, 4)
-# pillars
-for (px, pz) in ((-2600, 2600), (2600, -2400)):
-    pillar(px, pz, 4600)
-# catwalk along the north-east corner with stairs up from the hall floor
+        f['p'] = [p1, p0, p3, p2]
+    faces.append(f)
+cyl_collide(TX0, TZ0, TANK_R + 300, 6500)
+anchors['tank'] = (TX0, -2300, TZ0)
+rings.append((TX0, TZ0, TANK_R - 60, -3700, -800))
+lights.append((V(TX0, -2300, TZ0), V(0.3, 1.0, 1.3), 10000))
+lights.append((V(TX0, -500, TZ0), V(0.2, 0.7, 0.9), 3600))
+sprites.append((TX0, -3850, TZ0, 1100, 70, 210, 240, 2, EXTR))
+extraction_pod(-8300, -1500, math.pi / 2, 3)
+extraction_pod(-8300, 7500, math.pi / 2, 4)
+extraction_pod(4300, -1500, -math.pi / 2, 3)
+extraction_pod(4300, 7500, -math.pi / 2, 4)
 CW_H = 1040
-box(2400, -CW_H, 2600, 4500, 0, 4500, 'floor_grate', 'wall_lower', cell=520)
-for i in range(8):
-    sx0 = 600 + i * 220
-    box(sx0, -(i + 1) * 130, 3300, sx0 + 220 if i < 7 else 2400, 0, 4500, 'stair_tread', 'dark_metal', cell=1200,
-        occl=(i > 3))
-for (a, b) in (((2400, 2600), (4500, 2600)), ((2400, 2600), (2400, 3300))):        # railings
-    (ax, az), (bx, bz) = a, b
-    if ax == bx:
-        box(ax - 30, -CW_H - 900, az, ax + 30, -CW_H, bz, 'beam', 'beam', cell=900, occl=False, collide=False)
-        colliders.append((ax - 40, az, ax + 40, bz, CW_H + 900))
-    else:
-        box(ax, -CW_H - 900, az - 30, bx, -CW_H, az + 30, 'beam', 'beam', cell=900, occl=False, collide=False)
-        colliders.append((ax, az - 40, bx, az + 40, CW_H + 900))
-console(3300, -1900, math.pi / 2, 'screen_vitals')
-# warning signs on the walls
-add_quad(V(-1000, -2600, 4500 - 3), V(1000, 0, 0) * -1, V(0, 1000, 0), 'sign', nd=V(0, 0, -1))
-add_quad(V(4500 - 3, -2600, 2000), V(0, 0, 1000), V(0, 1000, 0), 'sign', nd=V(-1, 0, 0))
-for (lx, lz) in ((-2500, -2500), (2500, -2500), (-2500, 2500), (2500, 2500)):
-    lights.append((V(lx, -4300, lz), V(0.8, 0.84, 0.92), 8000))
-lights.append((V(4300, -2900, 0), V(1.3, 0.15, 0.1), 2400))          # red alarm by the reactor door
-sprites.append((4380, -2900, 0, 260, 255, 40, 30, 5))
-crate(-4200, 4200, 600); crate(-3600, 4250, 500); crate(-4250, 3600, 500, 1000)
-canister(-2900, 4280); canister(-2450, 4280)
+box(-6000, -CW_H, 8000, 2000, 0, 10000, 'floor_grate', 'wall_lower', cell=900)
+stairs(-8200, 8400, -6000, 10000, CW_H, 'x')
+rail_x(-6000, 2000, 8000, CW_H)
+rail_z(8000, 10000, 2000, CW_H)
+console(-2000, 9500, 0.0, 'screen_vitals', y=-CW_H)
+for (x, z) in ((-4500, -3800), (500, -3800)):
+    pillar(x, z + 400, 6500)
+ceiling_lights(EXTR, (0.8, 0.84, 0.92), 8500, 4700)
 
-# Corridor east -> Reactor
-corridor(4500, -1000, 8000, 1000, 'x')
-REACT = (8000, -4000, 15000, 4000, 5600)
-room(*REACT[:4], REACT[4], doors=[('W', 4000, 2000)], name='reactor')
-RC = (11800, 0)
-box(RC[0] - 1600, -300, RC[1] - 1600, RC[0] + 1600, 0, RC[1] + 1600, 'hazard', 'wall_lower', cell=800)
-cylinder(V(RC[0], -300, RC[1]), 950, 0, -3400, 12, 'coil', rep=3)
-for k, yb in enumerate((-1000, -2000, -3000)):
-    cylinder(V(RC[0], yb, RC[1]), 1010, 0, -260, 12, 'energy', F_EMIT | F_PULSE, 6 + k % 2, emit=(170, 170, 170))
-cylinder(V(RC[0], -3700, RC[1]), 1250, 0, -500, 12, 'dark_metal', cap='dark_metal')
-for k in range(4):                       # conduits to the walls
-    a = k * math.pi / 2
-    if k % 2 == 0:
-        cylinder(V(RC[0] + (1200 if k == 0 else -3800), -3950, RC[1]), 200, 0, 2600, 8, 'pipe', axis='x')
-    else:
-        cylinder(V(RC[0], -3950, RC[1] + (1200 if k == 1 else -3800)), 200, 0, 2600, 8, 'pipe', axis='z')
-cyl_collide(RC[0], RC[1], 1600, 300)
-colliders.append((RC[0] - 1100, RC[1] - 1100, RC[0] + 1100, RC[1] + 1100, 5000))
-occluders.append((RC[0] - 800, -3700, RC[1] - 800, RC[0] + 800, 0, RC[1] + 800))
-lights.append((V(RC[0], -2000, RC[1]), V(1.5, 0.75, 0.3), 11000))
-lights.append((V(RC[0], -4300, RC[1]), V(0.8, 0.5, 0.3), 5000))
-sprites.append((RC[0], -2000, RC[1], 1700, 255, 150, 60, 6))
-anchors['reactor'] = (RC[0], -2000, RC[1])
-# turbine generators with fans on their faces
-for gz in (-2900, 2900):
-    box(9200, -2400, gz - 700, 11000, 0, gz + 700, 'dark_metal', 'machine_base', cell=700)
-    fz = gz + 705 if gz < 0 else gz - 705
-    fans.append((10100, -1200, fz, 'z', 600, 1 if gz < 0 else -1))
-for (cx, cz, f) in ((14200, -2500, math.pi / 2), (14200, 2500, math.pi / 2), (14200, 0, math.pi / 2)):
-    console(cx, cz, f, 'screen_graph')
-for zz in (-3780, 3780):
-    canister(8600, zz); canister(9000, zz)
-for (lx, lz) in ((9500, -2600), (9500, 2600), (14000, -2600), (14000, 2600)):
-    lights.append((V(lx, -5300, lz), V(0.7, 0.7, 0.76), 8500))
-add_quad(V(8003, -2700, -1300), V(0, 0, -1000), V(0, 1000, 0), 'sign', nd=V(1, 0, 0))
-
-# Corridor north -> Control Lab
-corridor(-1000, 4500, 1000, 8000, 'z')
-LAB = (-4000, 8000, 4000, 12500, 3400)
-room(*LAB[:4], LAB[4], doors=[('S', 4000, 2000)], name='lab')
-# vitals wall: big screens on the far wall
-for k, scr in enumerate(('screen_graph', 'screen_vitals', 'screen_graph')):
-    x0 = -2800 + k * 1900
-    add_quad(V(x0 + 1600, -2900, 12500 - 6), V(-1600, 0, 0), V(0, 1200, 0), scr, F_EMIT, 1, (160, 160, 160), nd=V(0, 0, -1))
-lights.append((V(0, -2300, 11800), V(0.4, 0.55, 0.5), 3600))
-for xx in (-2600, -1200, 1200, 2600):
-    console(xx, 10400, 0.0, 'screen_graph' if xx < 0 else 'screen_vitals')
-for zz in (8800, 9600, 10400, 11200):
-    rack(-3700, zz, V(1, 0, 0))
-    rack(3700, zz, V(-1, 0, 0))
-# autopsy table with a shinigami on it
-box(-700, -800, 8700, 700, 0, 9500, 'dark_metal', 'machine_panel', cell=800)
-# the body lies flat: build it rotated by hand (torso along x)
-box(-500, -900, 8950, 300, -800, 9250, 'shini_body', 'shini_body', cell=900, collide=False, occl=False)
-box(300, -980, 8960, 560, -800, 9240, 'shini_body', 'shini_body', front='shini_skull', nd_front=V(1, 0, 0), cell=900, collide=False, occl=False)
-add_quad(V(-300, -905, 9250), V(400, 0, 0), V(-200, 0, 700), 'shini_body', F_DOUBLE)
-add_quad(V(-300, -905, 8950), V(400, 0, 0), V(-200, 0, -700), 'shini_body', F_DOUBLE)
-lights.append((V(0, -2600, 9100), V(1.0, 1.0, 0.95), 2600))
-sprites.append((0, -3300, 9100, 400, 255, 250, 230, 0))
-# specimen jars on a bench
-box(-3200, -800, 11700, -1200, 0, 12300, 'dark_metal', 'machine_panel', cell=700)
-for k in range(4):
-    jx = -2950 + k * 480
-    cylinder(V(jx, -800, 12000), 170, 0, -500, 6, 'glass', F_ADD, 2)
-    box(jx - 70, -1100, 11930, jx + 70, -960, 12070, 'shini_skull', 'shini_skull', front='shini_skull', nd_front=V(0, 0, -1),
-        cell=400, collide=False, occl=False)
-for (lx, lz) in ((-2400, 9200), (2400, 9200), (0, 11600)):
-    lights.append((V(lx, -3200, lz), V(0.8, 0.85, 0.9), 6500))
-
-# Corridor west -> Containment
-corridor(-8000, 1000, -4500, 3000, 'x')
-CONT = (-15000, -2000, -8000, 6000, 4000)
-room(*CONT[:4], CONT[4], doors=[('E', 4000, 2000)], name='containment', floor='floor_plate')
-# cages along the north and south walls, each with a captive
-for k in range(4):
-    cx = -14200 + k * 1500
+# ---------------- Containment Block: barred cells under red light along both long walls
+CUR[0] = CONT
+for cx in (-26300, -24000, -19000, -16700):
     for side in (-1, 1):
-        zw = 6000 if side > 0 else -2000
-        zf = zw - side * 1300
-        x0, x1 = cx - 600, cx + 600
-        # bars: front and two sides, double-sided see-through
-        add_quad(V(x0, -2400, zf), V(1200, 0, 0), V(0, 2400, 0), 'cage_bars', F_DOUBLE)
-        add_quad(V(x0, -2400, zf), V(0, 0, zw - zf), V(0, 2400, 0), 'cage_bars', F_DOUBLE)
-        add_quad(V(x1, -2400, zf), V(0, 0, zw - zf), V(0, 2400, 0), 'cage_bars', F_DOUBLE)
-        grid(V(x0, -2400, zf), V(1200, 0, 0), V(0, 0, zw - zf), 700, 'dark_metal', nd=V(0, 1, 0))
-        grid(V(x0, -2400, zf), V(1200, 0, 0), V(0, 0, zw - zf), 700, 'beam', nd=V(0, -1, 0))
-        colliders.append((x0, min(zf, zw), x1, max(zf, zw), 2400))
-        if k != 2:
-            captive(cx, -60, (zf + zw) / 2, 0.85, 0.0 if side < 0 else math.pi)
-        lights.append((V(cx, -2200, (zf + zw) / 2), V(1.0, 0.15, 0.12), 2600))
-# crates and canisters in the middle
-for (x, z, s, h) in ((-12500, 1500, 700, 700), (-11800, 1600, 600, 1200), (-12300, 2400, 600, 600), (-10200, 1000, 700, 700),
-                     (-10000, 2700, 600, 600)):
-    crate(x, z, s, h)
-for (x, z) in ((-13300, 2000), (-13300, 2500), (-9400, 1800), (-11000, 2200)):
+        zw = 8000 if side > 0 else -2000
+        zf = zw - side * 1600
+        x0, x1 = cx - 900, cx + 900
+        add_quad(V(x0, -2600, zf), V(1800, 0, 0), V(0, 2600, 0), 'cage_bars', F_DOUBLE)
+        add_quad(V(x0, -2600, zf), V(0, 0, zw - zf), V(0, 2600, 0), 'cage_bars', F_DOUBLE)
+        add_quad(V(x1, -2600, zf), V(0, 0, zw - zf), V(0, 2600, 0), 'cage_bars', F_DOUBLE)
+        grid(V(x0, -2600, zf), V(1800, 0, 0), V(0, 0, zw - zf), 900, 'dark_metal', nd=V(0, 1, 0))
+        grid(V(x0, -2600, zf), V(1800, 0, 0), V(0, 0, zw - zf), 900, 'beam', nd=V(0, -1, 0))
+        colliders.append((x0, min(zf, zw), x1, max(zf, zw), 2600))
+        captive(cx, -60, (zf + zw) / 2, 0.85, 0.0 if side < 0 else math.pi)
+        lights.append((V(cx, -2300, (zf + zw) / 2), V(1.0, 0.15, 0.12), 2800))
+for (x, z) in ((-27600, 2600), (-27600, 3300)):
     canister(x, z)
-for (lx, lz) in ((-13000, 2000), (-10000, 2000)):
-    lights.append((V(lx, -3700, lz), V(0.7, 0.6, 0.65), 7500))
-add_quad(V(-8003, -2700, 3000 + 1100), V(0, 0, 1000), V(0, 1000, 0), 'sign', nd=V(1, 0, 0))
+crate(-27500, 4300, 700, 1200)
+for (lx, lz) in ((-25000, 3000), (-19000, 3000)):
+    lights.append((V(lx, -4400, lz), V(0.7, 0.6, 0.65), 7500))
 
-SPAWN = (0, -3000, 0)            # x, z, yaw: south of the tank, looking at it
+# ---------------- Research Lab: monitor wall, operator desks, autopsy table, specimen bench
+CUR[0] = LAB
+for k, scr in enumerate(('screen_graph', 'screen_vitals', 'screen_graph', 'screen_vitals')):
+    x0 = -25600 + k * 2300
+    add_quad(V(x0 + 1900, -3300, 22000 - 6), V(-1900, 0, 0), V(0, 1400, 0), scr, F_EMIT, 1, (160, 160, 160), nd=V(0, 0, -1))
+lights.append((V(-21500, -2600, 21300), V(0.4, 0.55, 0.5), 5000))
+for xx in (-25000, -22800, -20600, -18400):
+    console(xx, 20600, 0.0, 'screen_graph' if xx < -21500 else 'screen_vitals')
+TBX = -18800
+box(TBX - 700, -800, 15600, TBX + 700, 0, 16400, 'dark_metal', 'machine_panel', cell=800)
+box(TBX - 500, -900, 15850, TBX + 300, -800, 16150, 'shini_body', 'shini_body', cell=900, collide=False, occl=False)
+box(TBX + 300, -980, 15860, TBX + 560, -800, 16140, 'shini_body', 'shini_body', front='shini_skull', nd_front=V(1, 0, 0), cell=900,
+    collide=False, occl=False)
+add_quad(V(TBX - 300, -905, 16150), V(400, 0, 0), V(-200, 0, 700), 'shini_body', F_DOUBLE)
+add_quad(V(TBX - 300, -905, 15850), V(400, 0, 0), V(-200, 0, -700), 'shini_body', F_DOUBLE)
+lights.append((V(TBX, -3000, 16000), V(1.0, 1.0, 0.95), 3200))
+sprites.append((TBX, -3900, 16000, 450, 255, 250, 230, 0, LAB))
+box(-27000, -800, 15000, -26400, 0, 19000, 'dark_metal', 'machine_panel', cell=800)
+for k in range(5):
+    jz = 15400 + k * 750
+    cylinder(V(-26700, -800, jz), 190, 0, -560, 6, 'glass', F_ADD, 2)
+    box(-26780, -1140, jz - 80, -26620, -980, jz + 80, 'shini_skull', 'shini_skull', front='shini_skull', nd_front=V(1, 0, 0),
+        cell=400, collide=False, occl=False)
+for zz in (14600, 15400):
+    rack(-16300, zz, V(-1, 0, 0))
+ceiling_lights(LAB, (0.8, 0.85, 0.9), 7000, 3800)
 
+# ---------------- Server Vault: rows of racks with a cross aisle, cold blue light
+CUR[0] = VAULT
+for rx in (-7500, -5000, -2500):
+    for rz in (14200, 15000, 15800, 20200, 21000, 21800):
+        box(rx - 350, -2600, rz - 380, rx + 350, 0, rz + 380, 'dark_metal', 'server_rack', cell=800)
+    lights.append((V(rx + 1250, -3600, 15000), V(0.35, 0.55, 1.0), 4000))
+    lights.append((V(rx + 1250, -3600, 21000), V(0.35, 0.55, 1.0), 4000))
+ceiling_lights(VAULT, (0.5, 0.6, 0.8), 6500, 4500)
 
+# ---------------- Pipe Gallery: giant pipes along the east wall, high pipes on the west
+CUR[0] = GALL
+for (yy, r) in ((-900, 800), (-2900, 500)):
+    cylinder(V(11000 - r - 60, yy, 2000), r, 0, 24000, 10, 'pipe', axis='z')
+colliders.append((11000 - 1720, 2000, 11000, 26000, 1700))
+occluders.append((11000 - 1720, -1700, 2000, 11000, 0, 26000))
+for yy in (-3900, -4600, -5200):
+    cylinder(V(6000 + 260, yy, 2000), 200, 0, 24000, 6, 'pipe', axis='z')
+for zz in range(4000, 26000, 4000):
+    box(9100, -5600, zz - 120, 11000, -5300, zz + 120, 'beam', 'beam', cell=1200, collide=False, occl=False)
+for k in range(6):
+    lights.append((V(8000, -5000, 3500 + k * 4200), V(0.75, 0.8, 0.7), 6500))
+    lights.append((V(10000, -300, 3500 + k * 4200), V(0.2, 0.9, 0.7), 2200))
+sign_on(6000, 9000, (1, 0, 0))
+
+# ---------------- Turbine Hall: three generators with fans, control platform, big pipes
+CUR[0] = TURB
+for gx in (10500, 15500):
+    box(gx - 1600, -3400, -18000, gx + 1600, 0, -14600, 'dark_metal', 'machine_base', cell=1000)
+    fans.append((gx, -1700, -14595, 'z', 1100, 1 if gx < 14000 else -1))
+    cylinder(V(gx, -3400, -16300), 450, 0, -4100, 8, 'pipe')
+    lights.append((V(gx, -1700, -13600), V(1.1, 0.55, 0.25), 3600))
+box(18000, -1040, -18000, 22500, 0, -12000, 'floor_grate', 'wall_lower', cell=900)       # control platform
+stairs(18000, -12000, 20000, -10400, 1040, 'z', up_positive=False)
+rail_x(20000, 22500, -12000, 1040)
+rail_z(-18000, -12000, 18000, 1040)
+for zz in (-17000, -15000, -13200):
+    console(21700, zz, math.pi / 2, 'screen_graph', y=-1040)
+cylinder(V(6500, -6200, -11000), 400, 0, 16000, 8, 'pipe', axis='x')
+ceiling_lights(TURB, (0.72, 0.72, 0.78), 9000, 5000)
+sign_on(6500, -9000, (1, 0, 0))
+
+# ---------------- Reactor Core: the soul reactor, conduits, ring of consoles
+CUR[0] = CORE
+RC = (21500, 8500)
+box(RC[0] - 2200, -300, RC[1] - 2200, RC[0] + 2200, 0, RC[1] + 2200, 'hazard', 'wall_lower', cell=1100)
+cylinder(V(RC[0], -300, RC[1]), 1300, 0, -5200, 12, 'coil', rep=4)
+for k, yb in enumerate((-1300, -2600, -3900)):
+    cylinder(V(RC[0], yb, RC[1]), 1370, 0, -320, 12, 'energy', F_EMIT | F_PULSE, 6 + k % 2, emit=(170, 170, 170))
+cylinder(V(RC[0], -5500, RC[1]), 1700, 0, -700, 12, 'dark_metal', cap='dark_metal')
+cylinder(V(RC[0], -6200, RC[1]), 600, 0, -2800, 8, 'pipe')
+cylinder(V(RC[0] + 1650, -6000, RC[1]), 320, 0, 29000 - RC[0] - 1650, 8, 'pipe', axis='x')
+cylinder(V(14000, -6000, RC[1]), 320, 0, RC[0] - 1650 - 14000, 8, 'pipe', axis='x')
+cylinder(V(RC[0], -6000, RC[1] + 1650), 320, 0, 16000 - RC[1] - 1650, 8, 'pipe', axis='z')
+cyl_collide(RC[0], RC[1], 2200, 300)
+colliders.append((RC[0] - 1400, RC[1] - 1400, RC[0] + 1400, RC[1] + 1400, 9000))
+occluders.append((RC[0] - 1000, -5500, RC[1] - 1000, RC[0] + 1000, 0, RC[1] + 1000))
+lights.append((V(RC[0], -2600, RC[1]), V(1.5, 0.75, 0.3), 14000))
+lights.append((V(RC[0], -7000, RC[1]), V(0.8, 0.5, 0.3), 8000))
+sprites.append((RC[0], -2600, RC[1], 2300, 255, 150, 60, 6, CORE))
+anchors['reactor'] = (RC[0], -2600, RC[1])
+for k in range(6):
+    a = k * math.pi / 3 + math.pi / 6
+    console(RC[0] + math.sin(a) * 5200, RC[1] + math.cos(a) * 5200, a + math.pi, 'screen_graph' if k % 2 else 'screen_vitals')
+for (lx, lz) in ((16000, 2000), (27000, 2000), (16000, 14000), (27000, 14000)):
+    lights.append((V(lx, -8500, lz), V(0.7, 0.7, 0.76), 10000))
 # ------------------------------------------------------------------ lighting bake
 AMBIENT = V(0.22, 0.23, 0.29)
-OCC = np.array(occluders, float)                     # (M, 6): x0,y0,z0,x1,y1,z1
-OCC_MIN = np.minimum(OCC[:, 0:3], OCC[:, 3:6])
-OCC_MAX = np.maximum(OCC[:, 0:3], OCC[:, 3:6])
+OCC = OCC_MIN = OCC_MAX = None
 
 
-def shadowed(P, L):
+def prep_occluders():
+    global OCC, OCC_MIN, OCC_MAX
+    OCC = np.array(occluders, float)
+    OCC_MIN = np.minimum(OCC[:, 0:3], OCC[:, 3:6])
+    OCC_MAX = np.maximum(OCC[:, 0:3], OCC[:, 3:6])
+
+
+
+def shadowed(P, L, MN=None, MX=None):
     """for points P (N,3) toward light L (3,): is the segment blocked by any occluder box?"""
+    if MN is None:
+        MN, MX = OCC_MIN, OCC_MAX
+    if len(MN) == 0:
+        return np.zeros(len(P), bool)
+    if len(P) > 1500:
+        return np.concatenate([shadowed(P[k:k + 1500], L, MN, MX) for k in range(0, len(P), 1500)])
     D = L[None] - P                                   # (N,3)
     inv = 1.0 / np.where(np.abs(D) < 1e-6, 1e-6, D)
-    t0 = (OCC_MIN[None] - P[:, None]) * inv[:, None]  # (N,M,3)
-    t1 = (OCC_MAX[None] - P[:, None]) * inv[:, None]
+    t0 = (MN[None] - P[:, None]) * inv[:, None]  # (N,M,3)
+    t1 = (MX[None] - P[:, None]) * inv[:, None]
     tmin = np.minimum(t0, t1).max(-1)
     tmax = np.maximum(t0, t1).min(-1)
     hit = (tmax >= tmin) & (tmax > 0.0) & (tmin < 0.98)
@@ -578,6 +777,7 @@ def floor_ao(P):
 
 
 def bake():
+    prep_occluders()
     pts, nrm, idx = [], [], []
     for fi, f in enumerate(faces):
         p = f['p']
@@ -611,7 +811,8 @@ def bake():
         if len(s) == 0:
             continue
         att = np.clip(1 - (d[s] / R) ** 2, 0, 1) ** 1.5
-        lit = ~shadowed(Pn[s], L)
+        near = np.all((OCC_MIN <= L + R) & (OCC_MAX >= L - R), axis=1)
+        lit = ~shadowed(Pn[s], L, OCC_MIN[near], OCC_MAX[near])
         k = ndl[sel2] * att * np.where(lit, 1.0, 0.12) * (0.65 + 0.35 * ao[s])
         acc[s] += k[:, None] * col[None]
     for i, (fi, ci) in enumerate(idx):
@@ -626,18 +827,46 @@ def bake():
 
 
 # ------------------------------------------------------------------ export
+def pvs():
+    """what you can see from each area: itself, its halls, and the rooms at the far end of them
+    (halls are straight, so you see down them into the next room) - 2 steps on the area graph"""
+    out = []
+    for i in range(len(areas)):
+        seen = {i}
+        frontier = {i}
+        for _ in range(2):
+            nxt = set()
+            for a in frontier:
+                nxt |= areas[a]['links']
+            seen |= nxt
+            frontier = nxt
+        out.append(sum(1 << k for k in seen))
+    return out
+
+
+def views():
+    """a camera spot per room for the tour renderer: back corner, looking across the room"""
+    v = []
+    for a in areas:
+        if a['kind'] != 'room':
+            continue
+        x0, z0, x1, z1 = a['rect']
+        cx, cz = x0 + (x1 - x0) * 0.12, z0 + (z1 - z0) * 0.12
+        yaw = int(round(math.atan2((x0 + x1) / 2 - cx, (z0 + z1) / 2 - cz) / (2 * math.pi) * 4096)) & 4095
+        v.append((a['name'], int(cx), int(-min(a['H'] - 600, 3200)), int(cz), yaw, 170))
+    return v
+
+
 def export():
     bake()
-    # chunk by centroid on a 2048 grid
     chunks = {}
     for f in faces:
         c = np.mean(f['p'], 0)
-        key = (int(math.floor(c[0] / 2048)), int(math.floor(c[2] / 2048)))
+        key = (f['area'], int(math.floor(c[0] / 3072)), int(math.floor(c[2] / 3072)))
         chunks.setdefault(key, []).append(f)
     vout, fout, cout = [], [], []
     for key in sorted(chunks):
         fl = chunks[key]
-        # split big chunks so vertex indices stay small
         for s in range(0, len(fl), 300):
             part = fl[s:s + 300]
             vmap = {}
@@ -657,9 +886,10 @@ def export():
             mn, mx = P.min(0), P.max(0)
             ctr = (mn + mx) / 2
             r = np.linalg.norm(mx - mn) / 2
-            cout.append((ctr, r, v0, len(vout) - v0, f0, len(fout) - f0))
+            cout.append((ctr, r, v0, len(vout) - v0, f0, len(fout) - f0, key[0]))
     for v in vout:
-        assert all(-32768 <= x <= 32767 for x in v)
+        assert all(-32000 <= x <= 32000 for x in v), v
+    assert len(vout) < 65536 and len(areas) <= 32
     return vout, fout, cout
 
 
@@ -668,6 +898,34 @@ def tim_bytes(idx, clut, vx, vy, cy):
     tim += struct.pack('<IHHHH', 12 + 512, 0, cy, 256, 1) + struct.pack('<256H', *clut)
     tim += struct.pack('<IHHHH', 12 + 256 * 256, vx, vy, 128, 256) + idx.tobytes()
     return tim
+
+
+def level_map(rp):
+    """top-down plan of the level with the route (docs/level_map.png)"""
+    from PIL import Image, ImageDraw
+    S, OX, OZ = 1 / 50, 30000, 32000
+    W, Hh = int(60000 * S), int(60000 * S)
+    im = Image.new('RGB', (W, Hh), (12, 12, 18))
+    d = ImageDraw.Draw(im)
+    P = lambda x, z: ((x + OX) * S, Hh - (z + OZ) * S)
+    for a in areas:
+        x0, z0, x1, z1 = a['rect']
+        col = (60, 70, 86) if a['kind'] == 'room' else (44, 50, 60)
+        (ax, ay), (bx, by) = P(x0, z1), P(x1, z0)
+        d.rectangle([ax, ay, bx, by], fill=col, outline=(120, 140, 160))
+    for (x0, z0, x1, z1, h) in colliders:
+        if h < 8000:
+            (ax, ay), (bx, by) = P(x0, z1), P(x1, z0)
+            d.rectangle([ax, ay, bx, by], fill=(150, 110, 60) if h < 1100 else (110, 90, 90))
+    d.line([P(*p) for p in rp], fill=(80, 220, 230), width=2)
+    sx, sy = P(*SPAWN[:2]); d.ellipse([sx - 5, sy - 5, sx + 5, sy + 5], fill=(80, 255, 120))
+    gx, gy = P(*GOAL); d.ellipse([gx - 5, gy - 5, gx + 5, gy + 5], fill=(255, 120, 40))
+    for a in areas:
+        if a['kind'] == 'room':
+            x0, z0, x1, z1 = a['rect']
+            tx, ty = P(x0 + 300, z1 - 300)
+            d.text((tx, ty), a['name'], fill=(230, 230, 240))
+    im.save(os.path.join(ROOT, 'docs', 'level_map.png'))
 
 
 def main():
@@ -679,14 +937,18 @@ def main():
         pages.append(tim_bytes(idx, clut, 384 + k * 128, 0, 485 + k))
         Image.fromarray(rgb.astype(np.uint8)).save(os.path.join(ROOT, 'docs', f'lab_page_{"ab"[k]}.png'))
     vout, fout, cout = export()
+    vis = pvs()
+    vw = views()
     nq = len(fout)
     out = []
     w = out.append
-    w('/* Deadbird lab level: generated by tools/build_lab.py - edit the script, not this file */')
+    w('/* Deadbird level: generated by tools/build_lab.py - edit the script, not this file */')
     w('#ifndef LAB_DATA_H\n#define LAB_DATA_H')
     w(f'#define LAB_NVERTS {len(vout)}\n#define LAB_NFACES {nq}\n#define LAB_NCHUNKS {len(cout)}')
     w(f'#define LAB_NBOXES {len(colliders)}\n#define LAB_NSPRITES {len(sprites)}\n#define LAB_NFANS {len(fans)}')
     w(f'#define LAB_NRINGS {len(rings)}\n#define LAB_NPODS {len(anchors["pods"])}\n#define LAB_NCEIL {len(ceilings)}')
+    rp = route_points()
+    w(f'#define LAB_NAREAS {len(areas)}\n#define LAB_NVIEWS {len(vw)}\n#define LAB_NROUTE {len(rp)}')
     w(f'#define LAB_SPAWN_X {SPAWN[0]}\n#define LAB_SPAWN_Z {SPAWN[1]}\n#define LAB_SPAWN_YAW {SPAWN[2]}')
     w('#define LAB_TANK_X %d\n#define LAB_TANK_Y %d\n#define LAB_TANK_Z %d' % anchors['tank'])
     w('#define LAB_REACTOR_X %d\n#define LAB_REACTOR_Y %d\n#define LAB_REACTOR_Z %d' % anchors['reactor'])
@@ -702,16 +964,16 @@ def main():
         w('  {{%d,%d,%d,%d},{%s},{%s},%d,%d,%d},' % (*ids, uv, cols, f['page'], f['flags'], f['anim']))
     w('};')
     w('static const LabChunk lab_chunks[LAB_NCHUNKS] = {')
-    for (c, r, v0, nv, f0, nf) in cout:
-        w('  {%d,%d,%d,%d,%d,%d,%d,%d},' % (int(c[0]), int(c[1]), int(c[2]), int(r) + 1, v0, nv, f0, nf))
+    for (c, r, v0, nv, f0, nf, ar) in cout:
+        w('  {%d,%d,%d,%d,%d,%d,%d,%d,%d},' % (int(c[0]), int(c[1]), int(c[2]), int(r) + 1, v0, nv, f0, nf, ar))
     w('};')
     w('static const LabBox lab_boxes[LAB_NBOXES] = {')
     for (x0, z0, x1, z1, h) in colliders:
-        w('  {%d,%d,%d,%d,%d},' % (int(x0), int(z0), int(x1), int(z1), int(h)))
+        w('  {%d,%d,%d,%d,%d},' % (int(x0), int(z0), int(x1), int(z1), int(min(h, 32000))))
     w('};')
     w('static const LabSprite lab_sprites[LAB_NSPRITES] = {')
     for s in sprites:
-        w('  {%d,%d,%d,%d,%d,%d,%d,%d},' % tuple(int(x) for x in s))
+        w('  {%d,%d,%d,%d,%d,%d,%d,%d,%d},' % tuple(int(x) for x in s))
     w('};')
     w('static const LabFan lab_fans[LAB_NFANS] = {')
     for (x, y, z, ax, r, sp) in fans:
@@ -727,7 +989,20 @@ def main():
     w('};')
     w('static const LabBox lab_ceil[LAB_NCEIL] = {')
     for (x0, z0, x1, z1, h) in ceilings:
-        w('  {%d,%d,%d,%d,%d},' % (x0, z0, x1, z1, h))
+        w('  {%d,%d,%d,%d,%d},' % (int(x0), int(z0), int(x1), int(z1), int(h)))
+    w('};')
+    w('static const LabArea lab_areas[LAB_NAREAS] = {')
+    for a, m in zip(areas, vis):
+        x0, z0, x1, z1 = a['rect']
+        w('  {%d,%d,%d,%d,0x%08xu,"%s"},' % (int(x0), int(z0), int(x1), int(z1), m, a['name']))
+    w('};')
+    w('/* waypoints from the spawn to the reactor (used by the route test) */')
+    w('static const s32 lab_route[LAB_NROUTE][2] = {')
+    w('  ' + ' '.join('{%d,%d},' % p for p in rp))
+    w('};')
+    w('static const LabView lab_views[LAB_NVIEWS] = {')
+    for (n, x, y, z, yaw, pitch) in vw:
+        w('  {"%s",%d,%d,%d,%d,%d},' % (n, x, y, z, yaw, pitch))
     w('};')
     for k, t in enumerate(pages):
         w(f'#define LAB_TIM{k}_SIZE {len(t)}')
@@ -737,8 +1012,12 @@ def main():
         w('};')
     w('#endif')
     open(os.path.join(ROOT, 'game', 'lab_data.h'), 'w').write('\n'.join(out) + '\n')
+    level_map(rp)
     tris = sum(2 if (f['flags'] & F_QUAD) else 1 for _, f in fout)
-    print(f'lab: {len(vout)} verts, {nq} quads (~{tris} triangles), {len(cout)} chunks, {len(colliders)} boxes, '
+    rooms = [a for a in areas if a['kind'] == 'room']
+    floor = sum((a['rect'][2] - a['rect'][0]) * (a['rect'][3] - a['rect'][1]) for a in areas) / 1e6
+    print(f'level: {len(rooms)} rooms + {len(areas) - len(rooms)} halls, floor area {floor:.0f} M sq units')
+    print(f'mesh: {len(vout)} verts, {nq} quads (~{tris} triangles), {len(cout)} chunks, {len(colliders)} boxes, '
           f'{len(lights)} lights, {len(sprites)} halos')
     print(f'data: verts {len(vout) * 6} B, faces {nq * 32} B, textures {sum(len(t) for t in pages)} B')
 

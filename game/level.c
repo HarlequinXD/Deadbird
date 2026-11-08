@@ -1,5 +1,6 @@
 #include "level.h"
 #include "tim.h"
+#include "ik.h"
 #include "lab_data.h"
 
 /* face flags (tools/build_lab.py) */
@@ -11,8 +12,8 @@
 #define F_FLOOR  32
 #define F_EMIT   64
 
-#define FOG_NEAR 6500
-#define FOG_FAR  15500
+#define FOG_NEAR 8000
+#define FOG_FAR  18000
 #define NEAR_Z   140
 #define GUARD    3                 /* guard band: x,y within +-3z keeps screen coords inside 11 bits */
 #define MAXCV    1400
@@ -38,7 +39,40 @@ int  level_polys_drawn(void) { return polys_drawn; }
 int  level_data_bytes(void)
 {
     return (int)(sizeof(lab_verts) + sizeof(lab_faces) + sizeof(lab_chunks) + sizeof(lab_boxes) + sizeof(lab_sprites)
-                 + sizeof(lab_fans) + sizeof(lab_rings) + sizeof(lab_pods) + sizeof(lab_ceil));
+                 + sizeof(lab_fans) + sizeof(lab_rings) + sizeof(lab_pods) + sizeof(lab_ceil) + sizeof(lab_areas));
+}
+int  level_area_count(void) { return LAB_NAREAS; }
+const LabArea *level_area(int i) { return &lab_areas[i]; }
+int  level_view_count(void) { return LAB_NVIEWS; }
+int  level_route_count(void) { return LAB_NROUTE; }
+void level_route_point(int i, s32 *x, s32 *z) { *x = lab_route[i][0]; *z = lab_route[i][1]; }
+const LabView *level_view(int i) { return &lab_views[i]; }
+int  level_area_at(s32 x, s32 z)
+{
+    int i;
+    for (i = 0; i < LAB_NAREAS; i++) {
+        const LabArea *a = &lab_areas[i];
+        if (x >= a->x0 && x <= a->x1 && z >= a->z0 && z <= a->z1) return i;
+    }
+    return -1;
+}
+
+/* rooms worth drawing from a camera position: the PVS of every area within a doorway's
+   reach of it (so standing in a doorway shows both sides) */
+static u32 visible_mask(const MATRIX *view)
+{
+    static u32 last = 0xffffffffu;
+    VECTOR t, c;
+    u32 m = 0;
+    int i;
+    t.vx = -view->t[0]; t.vy = -view->t[1]; t.vz = -view->t[2];
+    mat_rot_tapply(view, &t, &c);
+    for (i = 0; i < LAB_NAREAS; i++) {
+        const LabArea *a = &lab_areas[i];
+        if (c.vx >= a->x0 - 500 && c.vx <= a->x1 + 500 && c.vz >= a->z0 - 500 && c.vz <= a->z1 + 500) m |= a->pvs;
+    }
+    if (m) last = m;
+    return last;
 }
 
 /* ------------------------------------------------------------------ collision */
@@ -59,7 +93,9 @@ static int push_box(s32 *x, s32 *z, s32 r, s32 bx0, s32 bz0, s32 bx1, s32 bz1, s
 {
     s32 qx = *x < bx0 ? bx0 : (*x > bx1 ? bx1 : *x);
     s32 qz = *z < bz0 ? bz0 : (*z > bz1 ? bz1 : *z);
-    s32 dx = *x - qx, dz = *z - qz, d2 = dx * dx + dz * dz, d;
+    s32 dx = *x - qx, dz = *z - qz, d2, d;
+    if (dx >= r || dx <= -r || dz >= r || dz <= -r) return 0;   /* (also keeps the squares in 32 bits) */
+    d2 = dx * dx + dz * dz;
     if (d2 >= r * r) return 0;
     if (d2 == 0) {                                    /* centre inside: push out the shortest way */
         s32 l = *x - bx0, rr = bx1 - *x, f = *z - bz0, bk = bz1 - *z, m = l;
@@ -397,11 +433,13 @@ static void world_quad(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const S
 void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
 {
     int i, k;
+    u32 vis = visible_mask(view);
     polys_drawn = 0;
     for (i = 0; i < LAB_NCHUNKS; i++) {
         const LabChunk *ch = &lab_chunks[i];
         SVECTOR s; VECTOR c;
         s32 r = ch->r;
+        if (!(vis & (1u << ch->area))) continue;
         s.vx = ch->cx; s.vy = ch->cy; s.vz = ch->cz;
         mat_apply(view, &s, &c);
         if (c.vz < -r || c.vz - r > FOG_FAR) continue;
@@ -416,6 +454,7 @@ void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
     for (i = 0; i < LAB_NSPRITES; i++) {
         const LabSprite *s = &lab_sprites[i];
         int pm = pulse(s->anim, t);
+        if (!(vis & (1u << s->area))) continue;
         billboard(fb, view, pr, s->x, s->y, s->z, s->size, 15, s->r * pm >> 13, s->g * pm >> 13, s->b * pm >> 13, -4);
     }
     /* energy rings rising through the tanks */

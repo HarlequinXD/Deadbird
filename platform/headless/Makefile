@@ -15,13 +15,13 @@ clean:
 # side-on walk/run contact sheet driven by the real locomotion code
 GAIT_SRC := gaittest.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/game/player.c $(ROOT)/game/fk.c \
             $(ROOT)/game/fkclips.c $(ROOT)/game/level.c $(ROOT)/game/fx.c $(ROOT)/game/hud.c
-gaittest: $(GAIT_SRC)
+gaittest: $(GAIT_SRC) $(wildcard $(ROOT)/game/*.h)
 	$(CC) $(CFLAGS) $(INC) $(GAIT_SRC) -o $@
 
 # long random-input movement run that fails on glitches
 STRESS_SRC := stresstest.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/game/player.c $(ROOT)/game/fk.c \
               $(ROOT)/game/fkclips.c $(ROOT)/game/level.c $(ROOT)/game/fx.c $(ROOT)/game/hud.c
-stresstest: $(STRESS_SRC)
+stresstest: $(STRESS_SRC) $(wildcard $(ROOT)/game/*.h)
 	$(CC) $(CFLAGS) $(INC) $(STRESS_SRC) -o $@
 
 # fly-through screenshots of the level (no player)

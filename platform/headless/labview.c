@@ -31,30 +31,21 @@ static void save(const char *dir, const char *name)
     fclose(f);
 }
 
-static const struct { const char *name; s32 x, y, z; int yaw, pitch; } spots[] = {
-    { "lab_01_hall",        0, -2300, -4100,    0, 120 },
-    { "lab_02_hall_pods", 2600, -2600, -1500, 2700, 160 },
-    { "lab_03_catwalk",   -1500, -2800, 1200,  900, 200 },
-    { "lab_04_corridor",   4700, -1400,  -600, 1024,  60 },
-    { "lab_05_reactor",    8500, -2400, -3200,  700, 100 },
-    { "lab_06_lab",           0, -2000,  8300,    0, 160 },
-    { "lab_07_lab_racks",  2600, -2000, 11800, 2600, 140 },
-    { "lab_08_containment", -8600, -2200, 2000, 3072, 100 },
-};
-
 int main(int argc, char **argv)
 {
     const char *out = argc > 1 ? argv[1] : ".";
     unsigned i;
     gpu_init();
     level_init();
-    for (i = 0; i < sizeof(spots) / sizeof(spots[0]); i++) {
+    for (i = 0; i < (unsigned)level_view_count(); i++) {
+        const LabView *sp = level_view((int)i);
+        char nm[64];
         MATRIX view, rx, ry;
         SVECTOR t; VECTOR tv;
         PROJ pr;
         RECT r = { 0, 0, SCREEN_W, SCREEN_H };
-        mat_rot_x(&rx, spots[i].pitch); mat_rot_y(&ry, -spots[i].yaw); mat_mul(&rx, &ry, &view);
-        t.vx = (s16)-spots[i].x; t.vy = (s16)-spots[i].y; t.vz = (s16)-spots[i].z;
+        mat_rot_x(&rx, sp->pitch); mat_rot_y(&ry, -sp->yaw); mat_mul(&rx, &ry, &view);
+        t.vx = (s16)-sp->x; t.vy = (s16)-sp->y; t.vz = (s16)-sp->z;
         view.t[0] = view.t[1] = view.t[2] = 0;
         mat_apply(&view, &t, &tv);
         view.t[0] = tv.vx; view.t[1] = tv.vy; view.t[2] = tv.vz;
@@ -64,8 +55,13 @@ int main(int argc, char **argv)
         gpu_set_draw_env(0, 0, SCREEN_W, SCREEN_H, 0, 0, 1);
         level_draw(&fb, &view, &pr, 100);
         gpu_draw_ot(&fb);
-        save(out, spots[i].name);
-        printf("%-20s %4d polygons\n", spots[i].name, level_polys_drawn());
+        {   /* file name: lab_NN_room_name */
+            int k, n = sprintf(nm, "lab_%02u_", i + 1);
+            for (k = 0; sp->name[k] && n < 60; k++) nm[n++] = sp->name[k] == ' ' ? '_' : (char)(sp->name[k] | 0x20);
+            nm[n] = 0;
+        }
+        save(out, nm);
+        printf("%-24s %4d polygons\n", sp->name, level_polys_drawn());
     }
     printf("level data: %d bytes (+ 2 texture pages)\n", level_data_bytes());
     return 0;

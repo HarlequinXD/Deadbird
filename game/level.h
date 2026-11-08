@@ -1,10 +1,12 @@
 /*
- * The level: the shinigami energy-extraction plant (built by tools/build_lab.py).
+ * The level: the shinigami energy-extraction plant (built by tools/build_lab.py) - ten rooms
+ * joined by halls, from the loading dock to the reactor core.
  *
  * A pre-lit, textured, chunked mesh: every face carries its texture page/UVs and three baked
  * vertex colours (lighting, shadows, ambient occlusion), so drawing it is exactly what a PS1
  * does - transform, project, gouraud-textured quads into the ordering table, GPU dither.
- * Chunks outside the view are skipped, polygons crossing the near plane are clipped, and
+ * Only the rooms visible from where the camera is (its room, its halls and the rooms at the
+ * far ends of them) are considered; chunks outside the view are skipped, polygons crossing the near plane are clipped, and
  * distance fog darkens toward black. A few things move: energy rings in the extraction tank,
  * turbine fans, light halos and pulsing screens / plasma.
  *
@@ -20,12 +22,14 @@
 
 typedef struct { s16 x, y, z; } LabVert;
 typedef struct { u16 v[4]; u8 uv[8]; u8 rgb[12]; u8 page, flags, anim; } LabFace;
-typedef struct { s16 cx, cy, cz; u16 r; u16 v0, nv, f0, nf; } LabChunk;
+typedef struct { s16 cx, cy, cz; u16 r; u16 v0, nv, f0, nf; u8 area; } LabChunk;
 typedef struct { s16 x0, z0, x1, z1, h; } LabBox;          /* solid from the floor up to y = -h */
-typedef struct { s16 x, y, z, size; u8 r, g, b, anim; } LabSprite;
+typedef struct { s16 x, y, z, size; u8 r, g, b, anim, area; } LabSprite;
 typedef struct { s16 x, y, z, r, speed; } LabFan;
 typedef struct { s16 x, z, r, yt, yb; } LabRing;
 typedef struct { s16 x, z, r; } LabPod;
+typedef struct { s16 x0, z0, x1, z1; u32 pvs; const char *name; } LabArea;   /* room or hall */
+typedef struct { const char *name; s32 x, y, z; int yaw, pitch; } LabView;
 
 void level_init(void);
 /* highest walkable ground at (x,z) for something currently at height cur_y */
@@ -41,6 +45,15 @@ void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t);
 /* polygons drawn last frame (for the budget readout) */
 int  level_polys_drawn(void);
 int  level_data_bytes(void);
+/* rooms / halls, and a camera spot per room for screenshots */
+int  level_area_count(void);
+const LabArea *level_area(int i);
+int  level_area_at(s32 x, s32 z);
+/* waypoints from the spawn through every room to the reactor (route test) */
+int  level_route_count(void);
+void level_route_point(int i, s32 *x, s32 *z);
+int  level_view_count(void);
+const LabView *level_view(int i);
 /* test hook: an endless flat floor with nothing on it */
 void level_debug_flat(int on);
 
