@@ -359,18 +359,23 @@ static void draw_controls(FrameBuf *fb)
     if ((frame_count >> 4) & 1) text_center(fb, "PRESS ANY BUTTON", 160, 200, 1, 160, 6);
 }
 
-void game_frame(u32 pad)
+void game_step(u32 pad)
 {
-    FrameBuf *fb = &frames[cur];
     u32 press = pad & ~prev_pad;
-    int by = cur * SCREEN_H;
-    PROJ pr;
-
     cur_pad = pad;
     prev_pad = pad;
     frame_count++;
     rumble = rumble * 3 / 4;
     flow(pad, press);
+}
+
+void game_frame(u32 pad)
+{
+    FrameBuf *fb = &frames[cur];
+    int by = cur * SCREEN_H;
+    PROJ pr;
+
+    game_step(pad);
 
     ot_clear(fb);
     gpu_set_draw_env(0, by, SCREEN_W, SCREEN_H, 0, by, 1);

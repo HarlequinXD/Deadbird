@@ -27,9 +27,22 @@ The code already respects the console's limits:
 
 `game/` and `engine/model.c` stay unchanged: they only build primitives and link them into the OT.
 
-## Next steps
+## Status
 
-1. Add `platform/psx/` with a PSn00bSDK `CMakeLists.txt` and `main.c` (display/draw environments, pad, VSync loop).
-2. Write `gpu_psx.c`: translate `POLY` (flags `PF_QUAD|PF_TEX|PF_GOURAUD|PF_SEMI`) into packed libgpu primitives in the packet buffer.
-3. Optionally rewrite `model.c`'s vertex loop with GTE inline macros (`gte_ldv0`, `gte_rtps`, `gte_stsxy`) and keep the scratch arrays in the 1 KB scratchpad.
-4. Test in DuckStation or PCSX-Redux, then on hardware.
+Done:
+
+1. `platform/psx/`: PSn00bSDK `CMakeLists.txt` + presets, `main.c` (display/draw environments,
+   BIOS pad with DualShock analog sticks, VSync loop), `iso.xml` + `system.cnf` for the CD image.
+2. `gpu_psx.c`: translates each engine `POLY` into a libgpu packet (`POLY_GT4/GT3/FT4/FT3/G4/G3/F4/F3`,
+   plus a `DR_TPAGE` for untextured semi-transparent prims), links them in OT order and calls `DrawOTag`.
+3. Frame pacing: the game logic stays at 60 ticks per second. If a frame takes longer than one
+   vblank, `main.c` runs extra `game_step` ticks (up to 3) so the game keeps real-time speed at a
+   lower frame rate.
+4. CI builds `deadbird.exe`, `deadbird.bin` and `deadbird.cue` (`Actions → build → Deadbird-ps1`).
+
+Still to do:
+
+- Test in DuckStation / PCSX-Redux, then on hardware.
+- Speed: vertex transforms still run in C on the CPU. Swapping `model.c`/`level.c` inner loops to
+  GTE macros (`gte_ldv0`, `gte_rtps`, `gte_stsxy`, `gte_nclip`) with scratchpad buffers is the big win.
+- The level and textures are linked into the EXE (~0.9 MB). Streaming them from CD would free RAM.

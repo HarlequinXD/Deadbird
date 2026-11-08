@@ -7,6 +7,8 @@
 void game_init(void);
 /* advance one frame with the current pad state and render it into VRAM */
 void game_frame(u32 pad);
+/* advance one 60 Hz tick without drawing (catch-up when a frame took longer than 1/60 s) */
+void game_step(u32 pad);
 /* VRAM rectangle (320x240) that should be shown this frame */
 void game_display_area(int *x, int *y);
 /* draw the on-screen touch pad (Android) into the frame */

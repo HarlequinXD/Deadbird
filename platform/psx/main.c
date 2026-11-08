@@ -48,7 +48,7 @@ static u32 read_pad(void)
 
 int main(int argc, const char **argv)
 {
-    int dx, dy;
+    int dx, dy, last;
     (void)argc; (void)argv;
     ResetGraph(0);
     SetVideoMode(MODE_NTSC);
@@ -62,9 +62,20 @@ int main(int argc, const char **argv)
     game_set_touch_ui(0);
     SetDispMask(1);
 
+    last = VSync(-1);
     for (;;) {
-        game_frame(read_pad());                         /* simulate + build + submit this frame */
+        u32 pad = read_pad();
+        int now, ticks;
+        game_frame(pad);                                /* simulate + build + submit this frame */
+        DrawSync(0);                                    /* the GPU must finish before we show it */
         VSync(0);
+        /* the game is written for 60 Hz ticks: if this frame took longer (heavy rooms on a real
+           33 MHz PS1), run the missed ticks without drawing so the game keeps real-time speed */
+        now = VSync(-1);
+        ticks = now - last - 1;
+        if (ticks > 3) ticks = 3;
+        while (ticks-- > 0) game_step(pad);
+        last = VSync(-1);
         game_display_area(&dx, &dy);                    /* show the buffer that was just drawn */
         disp.disp.x = (int16_t)dx;
         disp.disp.y = (int16_t)dy;

@@ -99,9 +99,10 @@ game/              Deadbird itself (platform independent): flow, player movement
 assets/            demon.tim (256x256 8bpp CLUT), demon_mesh.h (488 tris, 16 parts)
 platform/android/  NativeActivity + GLES2 present + touch pad (Gradle project)
 platform/windows/  Win32 + GDI present, XInput (Xbox controller) + keyboard
+platform/psx/      real PS1 build (PSn00bSDK): GPU packet output, DualShock pad, CD image
 platform/headless/ PC test build that renders frames to BMP (used by CI)
 tools/             asset generators (build_demon.py, build_lab.py + lab_textures.py), viewer, bin2c
-docs/PS1_PORT.md   plan for the real PS1 build (PSn00bSDK)
+docs/PS1_PORT.md   notes on the PS1 build (PSn00bSDK)
 ```
 
 ## Controls
@@ -113,6 +114,10 @@ Any of the four controller slots, plugged in before or after starting.
 
 **Keyboard (Windows)**: WASD / arrows move · SHIFT sprint · SPACE jump · Q / E camera ·
 ENTER / ESC pause · F11 or ALT+ENTER fullscreen.
+
+**PS1 / DualShock**: d-pad or left stick move · right stick camera · ✕ jump / confirm ·
+□ or ○ sprint · L1 / R1 swing camera · START pause. Turn on analog mode (DualShock) in the
+emulator for the sticks.
 
 **Touch (Android)** - on-screen PS1 pad:
 
@@ -128,6 +133,14 @@ To build locally: `gradle -p platform/android assembleDebug` with the Android SD
 a single `Deadbird.exe`, no installer or DLLs needed). To build yourself: MinGW-w64
 (`make -C platform/windows`, natively in MSYS2 or cross-compiled from Linux) or Visual Studio
 (`platform/windows/build_msvc.bat` from an x64 Native Tools prompt).
+
+**PS1 disc image**: GitHub Actions builds it on every push (`Actions → build → Deadbird-ps1`).
+It contains `deadbird.bin` + `deadbird.cue` (open the `.cue` in DuckStation, PCSX-Redux,
+Mednafen, ePSXe etc.) and `deadbird.exe` (a PS-EXE you can load directly in PCSX-Redux or
+send to a console with a loader). The disc has no Sony licence data, so it boots in emulators
+(and on modded consoles) but not on a stock PS1. To build it yourself: install the
+[PSn00bSDK](https://github.com/Lameguy64/PSn00bSDK) 0.24 release, set `PSN00BSDK_LIBS`, then
+`cmake --preset default -S platform/psx && cmake --build platform/psx/build`.
 
 **PC headless test**:
 ```
