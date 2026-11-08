@@ -18,6 +18,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <mmsystem.h>
+#include <xinput.h>
 #include <math.h>
 #include <string.h>
 #include "deadbird.h"
@@ -26,7 +27,7 @@
 #include "gpu.h"
 #undef RECT
 
-/* ------------------------------------------------------------------ XInput (loaded at run time) */
+/* ------------------------------------------------------------------ XInput (xinput9_1_0.dll, ships with Windows) */
 typedef struct { WORD buttons; BYTE lt, rt; SHORT lx, ly, rx, ry; } XPad;
 typedef struct { DWORD packet; XPad pad; } XState;
 typedef struct { WORD left, right; } XVibe;
@@ -52,14 +53,10 @@ static XSetStateFn x_set;
 
 static void xinput_load(void)
 {
-    static const char *dlls[] = { "xinput1_4.dll", "xinput1_3.dll", "xinput9_1_0.dll" };
-    int i;
-    for (i = 0; i < 3 && !x_get; i++) {
-        HMODULE m = LoadLibraryA(dlls[i]);
-        if (!m) continue;
-        x_get = (XGetStateFn)(void (*)(void))GetProcAddress(m, "XInputGetState");
-        x_set = (XSetStateFn)(void (*)(void))GetProcAddress(m, "XInputSetState");
-    }
+    /* linked normally (import table) rather than LoadLibrary + GetProcAddress, which antivirus
+       heuristics treat as suspicious; XState/XVibe match XINPUT_STATE/XINPUT_VIBRATION */
+    x_get = (XGetStateFn)(void (*)(void))XInputGetState;
+    x_set = (XSetStateFn)(void (*)(void))XInputSetState;
 }
 
 static int pad_slot = -1, pad_rescan;

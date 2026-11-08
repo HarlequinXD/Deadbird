@@ -46,17 +46,32 @@ jobs:
 
   windows:
     name: Windows EXE
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install MinGW-w64
-        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64
-      - name: Build Deadbird.exe
-        run: make -C platform/windows CC=x86_64-w64-mingw32-gcc CFLAGS="-O2 -std=c99 -Wall -Wextra -Wno-unused-parameter -Werror"
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      # Visual C++ build: MSVC executables with version info + manifest + icon are far less
+      # likely to be flagged by antivirus heuristics than bare MinGW static builds
+      - name: Build Deadbird.exe (MSVC)
+        shell: cmd
+        working-directory: platform/windows
+        run: build_msvc.bat
       - uses: actions/upload-artifact@v4
         with:
           name: Deadbird-windows
           path: platform/windows/Deadbird.exe
+
+  windows-mingw:
+    name: Windows EXE (MinGW check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install MinGW-w64
+        run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+      - name: Build Deadbird.exe
+        run: make -C platform/windows CC=x86_64-w64-mingw32-gcc CFLAGS="-O2 -std=c99 -Wall -Wextra -Wno-unused-parameter -Werror"
 
   ps1:
     name: PS1 disc image
