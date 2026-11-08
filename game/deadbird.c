@@ -34,14 +34,14 @@ static int touch_ui;
 
 /* ------------------------------------------------------------------ touch layout */
 const TouchButton touch_buttons[] = {
-    { 250, 190, 15, BTN_FIRE },
-    { 274, 212, 15, BTN_JUMP },
-    { 298, 190, 15, BTN_RUN },
-    { 274, 166, 15, PAD_TRIANGLE },
-    { 300, 128, 11, PAD_START },
+    { 296, 200, 17, BTN_JUMP },
+    { 258, 210, 15, PAD_CIRCLE },
+    { 240, 160, 12, BTN_CAM_L },
+    { 300, 160, 12, BTN_CAM_R },
+    { 300, 122, 11, PAD_START },
 };
 const int touch_button_count = (int)(sizeof(touch_buttons) / sizeof(touch_buttons[0]));
-static const char *touch_labels[] = { "F", "J", "R", "A", "II" };
+static const char *touch_labels[] = { "J", "R", "<", ">", "II" };
 
 u32 touch_hit(int x, int y)
 {
@@ -70,14 +70,13 @@ int  game_debug_foot_drift(void) { return (int)foot_drift_max; }
 /* ------------------------------------------------------------------ attract autopilot */
 static u32 autopilot(int t)
 {
-    /* wander: walk, run, turn, jump and shoot now and then, so the title shows the locomotion */
+    /* wander: walk, run, curve left and right, jump now and then, stop to idle */
     int ph = t % 900;
     u32 b = PAD_UP;
     if (ph > 200 && ph < 420) b |= BTN_RUN;
-    if ((t / 60) % 5 == 1) b |= PAD_RIGHT;
-    if ((t / 90) % 7 == 3) b |= PAD_LEFT;
+    if ((t / 50) % 6 == 1) b |= PAD_RIGHT;
+    if ((t / 70) % 7 == 4) b |= PAD_LEFT;
     if (ph == 300 || ph == 700) b |= BTN_JUMP;
-    if ((ph > 560 && ph < 640) && (t & 15) == 0) b |= BTN_FIRE;
     if (ph > 840) b = 0;                        /* stop to show the idle stance */
     return b;
 }
@@ -87,6 +86,7 @@ static void start_play(void)
     level_init();
     fx_reset();
     player_reset(&pl, 0, -400, 0);
+    cam_yaw = 0;
     foot_prev_planted[0] = foot_prev_planted[1] = 0;
     cam_yaw = 0;
     gs = GS_PLAY; gs_t = 0;
@@ -97,6 +97,7 @@ static void go_title(void)
     level_init();
     fx_reset();
     player_reset(&pl, -600, -1800, 300);
+    cam_yaw = 300;
     foot_prev_planted[0] = foot_prev_planted[1] = 0;
     gs = GS_TITLE; gs_t = 0;
     title_reset();
@@ -118,13 +119,23 @@ void game_init(void)
 }
 
 /* ------------------------------------------------------------------ simulation */
+static void camera_update(u32 pad)
+{
+    /* MediEvil-style follow camera: L1/R1 (or the < > touch buttons) swing it round; while you
+       move away from it, it slowly drifts back behind your heading */
+    s32 dyaw = ((pl.yaw - cam_yaw + 2048) & 4095) - 2048;
+    if (pad & BTN_CAM_L) cam_yaw -= 40;
+    if (pad & BTN_CAM_R) cam_yaw += 40;
+    if (!(pad & (BTN_CAM_L | BTN_CAM_R)) && pl.speed > 4 && dyaw > -1300 && dyaw < 1300)
+        cam_yaw += dyaw / (pl.speed > 30 ? 28 : 48);
+    cam_yaw &= 4095;
+}
+
 static void simulate(u32 pad)
 {
     int bumped = pl.bump_t;
-    if (player_update(&pl, pad)) {
-        shots_fire(&pl.muzzle, pl.aim_dx, pl.aim_dy, pl.aim_dz);
-        shake = 2;
-    }
+    camera_update(pad);
+    player_update(&pl, pad, cam_yaw);
     if (!bumped && pl.bump_t) shake = 5;
     player_pose(&pl, &demon);
     {   /* measure how far a planted foot moved since last frame (should be 0: no sliding) */
@@ -140,7 +151,6 @@ static void simulate(u32 pad)
             foot_prev_planted[i] = planted;
         }
     }
-    shots_update();
     level_update();
     fx_update();
 }
@@ -167,7 +177,7 @@ static void flow(u32 pad, u32 press)
         break;
     case GS_PAUSE:
         if (press & PAD_START) { gs = GS_PLAY; gs_t = 0; }
-        if (press & (PAD_SELECT | PAD_TRIANGLE)) go_title();
+        if (press & (PAD_SELECT | BTN_JUMP)) go_title();
         break;
     }
 }
@@ -206,13 +216,11 @@ static void draw_world(FrameBuf *fb, PROJ *pr)
     MATRIX view, rx, ry, cam[DEMON_NBONES];
     SVECTOR tgt; VECTOR tv;
     DrawCtx ctx;
-    s32 want_d = pl.aiming ? 1500 : 2700, want_h = pl.aiming ? 1500 : 1650, want_s = pl.aiming ? -320 : 0;
-    s32 dyaw, rxv, rzv;
+    s32 want_d = 2900, want_h = 1750, want_s = 0;
+    s32 rxv, rzv;
     int b, sx = 0, sy = 0;
 
-    /* third-person chase camera: swings in behind the player's heading, over the shoulder when aiming */
-    dyaw = ((pl.yaw - cam_yaw + 2048) & 4095) - 2048;
-    cam_yaw = (cam_yaw + dyaw / 8) & 4095;
+    /* third-person follow camera (heading set in camera_update) */
     cam_dist += (want_d - cam_dist) / 8;
     cam_h += (want_h - cam_h) / 8;
     cam_side += (want_s - cam_side) / 8;
@@ -234,52 +242,31 @@ static void draw_world(FrameBuf *fb, PROJ *pr)
     blob_shadow(fb, &view, pr, pl.x, pl.z);
     for (b = 0; b < DEMON_NBONES; b++) mat_mul(&view, &pl.world[b], &cam[b]);
     model_draw_mats(&demon, cam, &ctx, fb);
-    player_draw_gun(&pl, fb, &view, pr);
-    shots_draw(fb, &view, pr, frame_count);
     fx_draw(fb, &view, pr);
     embers_draw(fb, frame_count, 30);
 
-    /* crosshair: where the cannon points, 5000 units ahead */
-    if (pl.aiming && gs == GS_PLAY) {
-        SVECTOR w; VECTOR c; s16 cx, cy;
-        w.vx = (s16)(pl.muzzle.vx + (pl.aim_dx * 5000 >> 12));
-        w.vy = (s16)pl.muzzle.vy;
-        w.vz = (s16)(pl.muzzle.vz + (pl.aim_dz * 5000 >> 12));
-        mat_apply(&view, &w, &c);
-        if (rot_trans_pers(pr, &c, &cx, &cy)) {
-            quad_g(fb, cx - 9, cy - 1, cx - 3, cy + 1, RGB(255, 120, 40), RGB(255, 120, 40), NO_SEMI, 1);
-            quad_g(fb, cx + 3, cy - 1, cx + 9, cy + 1, RGB(255, 120, 40), RGB(255, 120, 40), NO_SEMI, 1);
-            quad_g(fb, cx - 1, cy - 9, cx + 1, cy - 3, RGB(255, 120, 40), RGB(255, 120, 40), NO_SEMI, 1);
-            quad_g(fb, cx - 1, cy + 3, cx + 1, cy + 9, RGB(255, 120, 40), RGB(255, 120, 40), NO_SEMI, 1);
-        }
-    }
 }
 
 static void draw_hud(FrameBuf *fb)
 {
-    char buf[16];
-    int n = level_totems_destroyed();
-    /* bone-framed panel: name + totem counter */
-    quad_g(fb, 8, 8, 124, 38, RGB(30, 6, 8), RGB(10, 2, 3), NO_SEMI, 5);
-    quad_g(fb, 6, 6, 126, 40, RGB(150, 120, 96), RGB(70, 44, 34), NO_SEMI, 6);
+    /* bone-framed name plate */
+    quad_g(fb, 8, 8, 124, 26, RGB(30, 6, 8), RGB(10, 2, 3), NO_SEMI, 5);
+    quad_g(fb, 6, 6, 126, 28, RGB(150, 120, 96), RGB(70, 44, 34), NO_SEMI, 6);
     tri_f(fb, 6, 6, 18, 6, 6, -2, RGB(140, 110, 86), NO_SEMI, 6);
     tri_f(fb, 126, 6, 114, 6, 126, -2, RGB(140, 110, 86), NO_SEMI, 6);
     text(fb, "DEADBIRD", 14, 12, 1, 200, 4);
-    memcpy(buf, "TOTEMS 0/5", 11);
-    buf[7] = (char)('0' + n);
-    text(fb, buf, 14, 25, 1, n == 5 ? 255 : 140, 4);
     if (pl.speed > 30) text(fb, "RUN", 96, 12, 1, 120, 4);
 }
 
 static void draw_controls(FrameBuf *fb)
 {
     static const char *lines[][2] = {
-        { "UP / DOWN",   "WALK FORWARD / BACK" },
-        { "LEFT / RIGHT", "TURN - TANK CONTROLS" },
+        { "D-PAD",        "MOVE - RELATIVE TO CAMERA" },
         { "HOLD R",       "RUN" },
         { "J",            "JUMP" },
-        { "HOLD A",       "AIM HAND CANNON" },
-        { "F",            "FIRE" },
+        { "<  >",         "SWING THE CAMERA" },
+        { "",             "CAMERA FOLLOWS BEHIND" },
+        { "",             "AS YOU MOVE" },
         { "II",           "PAUSE" },
     };
     int i;
@@ -321,7 +308,7 @@ void game_frame(u32 pad)
             quad_g(fb, 0, 0, 320, 240, RGB(90, 100, 100), RGB(90, 100, 100), SEMI_SUB, 4);
             text_hell(fb, "PAUSED", 160, 80, 3, frame_count, 2);
             text_center(fb, "II  RESUME", 160, 130, 1, 200, 2);
-            text_center(fb, "A  QUIT TO TITLE", 160, 146, 1, 200, 2);
+            text_center(fb, "J  QUIT TO TITLE", 160, 146, 1, 200, 2);
         }
         if (touch_ui) draw_touch(fb);
     }

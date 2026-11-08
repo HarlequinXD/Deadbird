@@ -5,9 +5,7 @@
 
 #define WALK_SPEED  18
 #define RUN_SPEED   42
-#define BACK_SPEED  -10
-#define AIM_SPEED   10
-#define TURN_RATE   46
+#define TURN_MAX    260          /* fastest turn toward the pressed direction (per frame) */
 #define HIP_HALF    118          /* feet stand this far either side of the root */
 #define ANKLE_H     164          /* ankle above the ground */
 #define JUMP_V      -80
@@ -135,7 +133,7 @@ static void build_pose(Player *p)
     s16 *v = p->pose.v;
     s32 fx[2], fy[2], fz[2], py, drop, trx, prz, pry, tryv;
     int i, k, prog = 0, swinging = 0;
-    int bump = p->bump_t * ONE / 22, land = p->land_t * ONE / 16, rec = p->recoil_t;
+    int bump = p->bump_t * ONE / 22, land = p->land_t * ONE / 16;
     int run = iabs(p->speed) > 26;
 
     for (i = 0; i < 2; i++) {
@@ -155,10 +153,10 @@ static void build_pose(Player *p)
     p->bob = py;
 
     /* lean: into speed and acceleration, back when braking; bank into turns */
-    trx = -(p->speed * 5) - p->accel * 30 - (land * 220 >> 12) + (bump * 300 >> 12) + rec * 10;
+    trx = -(p->speed * 5) - p->accel * 30 - (land * 220 >> 12) + (bump * 300 >> 12);
     if (!p->grounded) trx -= 60;
     trx = clamp(trx, -420, 320);
-    prz = clamp(-p->turn * p->speed / 8, -180, 180);
+    prz = clamp(-p->turn * p->speed / 30, -200, 200);
     /* stride twist: hips follow the forward foot, chest counter-rotates */
     pry = clamp((fz[0] - fz[1]) * 3 / 8, -140, 140);
     tryv = -pry * 3 / 4;
@@ -186,44 +184,49 @@ static void build_pose(Player *p)
         v[i == 0 ? AP_LFZ : AP_RFZ] = (s16)fz[i];
     }
 
-    /* aiming / firing: cannon arm straight forward at shoulder height, left hand steadies it */
-    if (p->aiming) {
-        v[AP_RHX] = -60;  v[AP_RHY] = (s16)(-1440 + py - rec * 10); v[AP_RHZ] = (s16)(650 - rec * 16);
-        v[AP_LHX] = 30;   v[AP_LHY] = (s16)(-1380 + py);            v[AP_LHZ] = 400;
-        v[AP_TRY] = (s16)(v[AP_TRY] - 60);
-        v[AP_HRY] = (s16)(-pry - v[AP_TRY]);
-    }
 }
 
-int player_update(Player *p, u32 pad)
+/* d-pad direction -> angle (4096 = 360), 0 = away from the camera */
+static int pad_angle(u32 pad, int *ok)
+{
+    int dx = ((pad & PAD_RIGHT) != 0) - ((pad & PAD_LEFT) != 0);
+    int dz = ((pad & PAD_UP) != 0) - ((pad & PAD_DOWN) != 0);
+    static const s16 ang[3][3] = {          /* [dz+1][dx+1] */
+        { 2560, 2048, 1536 },
+        { 3072,    0, 1024 },
+        { 3584,    0,  512 },
+    };
+    *ok = dx || dz;
+    return ang[dz + 1][dx + 1];
+}
+
+void player_update(Player *p, u32 pad, int cam_yaw)
 {
     u32 press;
     s32 target, d, step, nx, nz, cnx = 0, cnz = 0, gy;
-    int fired = 0;
+    int moving, want, diff, rate;
 
     p->prev = p->pad; p->pad = pad;
     press = p->pad & ~p->prev;
 
     if (p->bump_t) p->bump_t--;
     if (p->land_t) p->land_t--;
-    if (p->recoil_t) p->recoil_t--;
-    if (p->fire_cool) p->fire_cool--;
-    if (p->aiming > 1) p->aiming--;
-    else if (!(pad & BTN_AIM)) p->aiming = 0;
-    if (pad & BTN_AIM) p->aiming = 1 > p->aiming ? 1 : p->aiming;
 
-    /* tank controls: left/right turn, up forward, down back */
+    /* camera-relative: turn toward the pressed direction, then move forward */
+    want = (cam_yaw + pad_angle(pad, &moving)) & 4095;
     p->turn = 0;
-    if (pad & PAD_LEFT)  p->turn = -TURN_RATE;
-    if (pad & PAD_RIGHT) p->turn = TURN_RATE;
-    if (!p->grounded) p->turn /= 2;
-    p->yaw = (p->yaw + p->turn) & 4095;
-
     target = 0;
-    if (pad & PAD_UP) target = (pad & BTN_RUN) && !p->aiming ? RUN_SPEED : WALK_SPEED;
-    if (pad & PAD_DOWN) target = BACK_SPEED;
-    if (p->aiming && target > AIM_SPEED) target = AIM_SPEED;
-    if (p->bump_t > 12) target = 0;
+    if (moving && p->bump_t < 12) {
+        diff = ((want - p->yaw + 2048) & 4095) - 2048;
+        rate = p->grounded ? TURN_MAX : TURN_MAX / 3;
+        p->turn = (int)clamp(diff * 3 / 8, -rate, rate);
+        if (p->turn == 0 && diff) p->turn = diff > 0 ? 1 : -1;
+        p->yaw = (p->yaw + p->turn) & 4095;
+        target = (pad & BTN_RUN) ? RUN_SPEED : WALK_SPEED;
+        /* slow down while swinging round a sharp corner */
+        if (diff > 1200 || diff < -1200) target = target / 4;
+        else if (diff > 600 || diff < -600) target = target / 2;
+    }
     if (p->land_t > 8 && p->grounded) target = target / 2;
     d = target - p->speed;
     step = d / 6 + (d > 0) - (d < 0);
@@ -270,22 +273,13 @@ int player_update(Player *p, u32 pad)
 
     if (p->grounded) update_feet(p); else air_feet(p);
 
-    /* fire the hand cannon (hip fire raises the arm for a moment) */
-    if ((press & BTN_FIRE) && !p->fire_cool) {
-        p->fire_cool = 12;
-        p->recoil_t = 10;
-        if (p->aiming < 2) p->aiming = p->aiming ? 1 : 30;
-        if (p->aiming == 1 || p->aiming > 20) fired = 1;
-    }
     build_pose(p);
-    return fired;
 }
 
 void player_pose(Player *p, const Model *m)
 {
     VECTOR off;
     MATRIX root, ry;
-    SVECTOR mz;
     rig_solve(m, &p->pose, p->bone_pose, &off);
     mat_rot_y(&ry, p->yaw);
     mat_translate(&ry, p->x, p->y, p->z);
@@ -293,20 +287,4 @@ void player_pose(Player *p, const Model *m)
     mat_translate(&root, off.vx, off.vy, off.vz);
     mat_mul(&ry, &root, &root);
     model_skeleton(m, &root, p->bone_pose, p->world);
-    /* muzzle at the end of the barrel (fist local -X) */
-    mz.vx = -360; mz.vy = 0; mz.vz = 0;
-    mat_apply(&p->world[DEMON_BONE_FIST_R], &mz, &p->muzzle);
-    rotate(p->yaw, 0, ONE, &p->aim_dx, &p->aim_dz);
-    p->aim_dy = 0;
-}
-
-void player_draw_gun(const Player *p, FrameBuf *fb, const MATRIX *view, const PROJ *pr)
-{
-    MATRIX cam;
-    mat_mul(view, &p->world[DEMON_BONE_FIST_R], &cam);
-    /* hellforged hand cannon: breech over the fist, long barrel, glowing muzzle collar */
-    draw_box(fb, &cam, -190, -62, -58, -10, 58, 58, 0x4a464e, pr, -2, 0);
-    draw_box(fb, &cam, -340, -38, -38, -190, 38, 38, 0x5e5a64, pr, -2, 0);
-    draw_box(fb, &cam, -362, -48, -48, -330, 48, 48, 0xc02810, pr, -3, 0);
-    draw_box(fb, &cam, -150, -110, -14, -60, -62, 14, 0x8a2414, pr, -2, 0);      /* sight fin */
 }

@@ -69,28 +69,25 @@ int main(int argc, char **argv)
     for (i = 0; i < 6; i++) { run(PAD_UP, 4); sprintf(name, "04_walk_%d", i); write_bmp(out, name); }
     run(PAD_UP | PAD_CIRCLE, 40);
     for (i = 0; i < 4; i++) { run(PAD_UP | PAD_CIRCLE, 3); sprintf(name, "05_run_%d", i); write_bmp(out, name); }
-    run(PAD_UP | PAD_CIRCLE | PAD_RIGHT, 30);
+    run(PAD_UP | PAD_CIRCLE | PAD_RIGHT, 14);
     write_bmp(out, "06_run_turn_lean");
+    run(PAD_RIGHT | PAD_CIRCLE, 30);
     run(PAD_UP | PAD_CIRCLE, 1); run(PAD_UP | PAD_CIRCLE | PAD_CROSS, 1);
     run(PAD_UP | PAD_CIRCLE, 12);
     write_bmp(out, "07_jump");
     run(PAD_UP, 40);
     run(0, 30);
-    run(PAD_TRIANGLE, 20);
-    write_bmp(out, "08_aim");
-    run(PAD_TRIANGLE | PAD_SQUARE, 1); run(PAD_TRIANGLE, 6);
-    write_bmp(out, "09_fire");
-    /* turn toward a pillar and walk into it for the bump reaction */
-    run(PAD_LEFT, 44);
-    for (i = 0; i < 400; i++) { game_frame(PAD_UP); frames_run++; }
-    write_bmp(out, "10_after_walk");
-    /* turn on the spot: feet step around */
-    run(PAD_RIGHT, 10);
-    write_bmp(out, "11_turn_in_place");
+    write_bmp(out, "08_stop");
+    run(PAD_DOWN, 20);
+    write_bmp(out, "09_turn_back_toward_camera");
+    run(PAD_R1, 30);
+    write_bmp(out, "10_camera_swing");
+    for (i = 0; i < 400; i++) { game_frame(PAD_LEFT); frames_run++; }
+    write_bmp(out, "11_after_walk");
     /* side-on gait strips (walk, then run) for checking stride vs speed */
     game_set_touch_ui(0);
     game_debug_side_cam(1);
-    run(PAD_LEFT, 50); run(0, 40);
+    run(0, 40);
     for (i = 0; i < 8; i++) { run(PAD_UP, 3); sprintf(name, "12_side_walk_%d", i); write_bmp(out, name); }
     run(PAD_UP | PAD_CIRCLE, 30);
     for (i = 0; i < 8; i++) { run(PAD_UP | PAD_CIRCLE, 2); sprintf(name, "13_side_run_%d", i); write_bmp(out, name); }

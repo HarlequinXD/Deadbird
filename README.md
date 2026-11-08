@@ -1,6 +1,6 @@
 # Deadbird
 
-A **third-person shooter** built on a **true PS1-style engine**. You play Deadbird in a hellish test
+A **third-person action game** built on a **true PS1-style engine**. You play Deadbird in a hellish test
 level. The engine is written so it can run on a real PlayStation later. For now it ships on
 **Android**, using a fast software model of the PS1's graphics chip.
 
@@ -8,10 +8,11 @@ level. The engine is written so it can run on a real PlayStation later. For now 
 
 - **Title**: hell sky, embers, DEADBIRD logo and menu (PLAY / CONTROLS) over the live level,
   with Deadbird roaming on autopilot.
-- **Tank controls**: up/down walk forward/back, left/right turn, hold R to run, J to jump,
-  hold A to aim the hand cannon, F to fire (hip-fire also works).
+- **Camera-relative controls** (MediEvil-style): the d-pad moves Deadbird relative to the view,
+  she turns quickly to face the pressed direction (slowing for sharp turns); hold R to run,
+  J to jump. The follow camera drifts back behind her as she moves; L1/R1 (or < >) swing it.
 - **Test level**: floor with lava seams, boundary walls, a low platform, stairs to a high
-  platform, a ramp, pillars and a wall to run into, and 5 skull totems to shoot (3 hits each, they respawn).
+  platform, a ramp, pillars and a wall to run into, and skull totems.
 - **Procedural full-body IK locomotion** (`game/player.c`, rig in `game/rig.c`, solver in `engine/ik.c`):
   - each foot is **locked to the ground in world space** while planted; a foot only steps when
     the body has moved or turned away from it, so **feet never slide** (the headless test measures
@@ -23,10 +24,7 @@ level. The engine is written so it can run on a real PlayStation later. For now 
     counter-twist with the stride, arms counter-swing (pump when running), gait bob
   - **jump** with tucked legs and a landing dip; **bump reaction** (head snaps back, arms brace,
     recoil off the wall, camera shake) when you walk into something
-  - **aiming** drives the cannon arm with IK, the other hand steadies it, recoil kicks back
-- **Hand cannon**: box-modelled hellforged cannon attached to the right fist bone, projectiles
-  with trails, sparks on impact.
-- **Camera**: chase camera behind the heading; over-the-shoulder with a crosshair when aiming.
+- **Camera**: third-person follow camera.
 
 ## What "true PS1" means here
 
@@ -41,7 +39,7 @@ level. The engine is written so it can run on a real PlayStation later. For now 
 | TIM textures | `engine/tim.*` loads `.tim` files straight into VRAM |
 | 320×240 display | double-buffered at VRAM (0,0)/(0,240); Android scales it up with nearest filtering, 4:3 letterbox |
 
-A full game frame (level, player, projectiles, HUD) takes **~1.3 ms** on a PC, so phones have lots of headroom.
+A full game frame (level, player, HUD) takes **~1.3 ms** on a PC, so phones have lots of headroom.
 
 ## Layout
 
@@ -66,8 +64,8 @@ docs/PS1_PORT.md   plan for the real PS1 build (PSn00bSDK)
 
 On-screen PS1 pad (Android) or a PS1 pad:
 
-- **D-pad**: tank controls (menus: up/down; tap a menu row to pick it)
-- **R** (○) run · **J** (✕) jump · **A** (△ / R1) aim · **F** (□) fire · **II** (START) pause
+- **D-pad**: move relative to the camera (menus: up/down; tap a menu row to pick it)
+- **R** (○ / □) run · **J** (✕) jump · **< >** (L1 / R1) swing camera · **II** (START) pause
 
 ## Building
 
