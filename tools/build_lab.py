@@ -25,7 +25,7 @@ import lab_textures as TX
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # face flags (must match game/lab.c)
-F_QUAD, F_ADD, F_HALF, F_DOUBLE, F_PULSE, F_FLOOR, F_EMIT = 1, 2, 4, 8, 16, 32, 64
+F_QUAD, F_ADD, F_HALF, F_DOUBLE, F_PULSE, F_FLOOR, F_EMIT, F_ANIMUV = 1, 2, 4, 8, 16, 32, 64, 128
 
 faces = []        # dict(p=[4 or 3 xyz], uv=[(u,v)], page, flags, anim, emit)
 occluders = []    # (x0,y0,z0,x1,y1,z1) blocks light
@@ -62,6 +62,8 @@ def add_quad(o, U, V_, tex, flags=0, anim=0, emit=None, uvr=None, nd=None):
         U = -U
     page, t = tid(tex)
     uv = tile_uv(page, t, *(uvr or (0, 0, 63, 63)))
+    if tex in TX.ANIMATED:
+        flags |= F_ANIMUV
     faces.append(dict(p=[o, o + U, o + V_, o + U + V_], uv=uv, page=page, flags=flags | F_QUAD,
                       anim=anim, emit=emit, area=CUR[0]))
 
@@ -171,17 +173,23 @@ def area(name, x0, z0, x1, z1, H, kind):
     return CUR[0]
 
 
+# per-wall overrides: the Research Lab's north wall is a bank of live monitors
+SIDE_STYLE = {
+    ('Research Lab', 'N'): (['lab_panel'], ['wall_vitals', 'wall_graph', 'wall_vitals', 'wall_graph']),
+    ('Reactor Core', 'S'): (['reactor_plate', 'base_hazard'], ['reactor_warning', 'wall_graph', 'reactor_plate', 'wall_vitals']),
+}
+
 ROOM_STYLE = {
     'Loading Dock':        (['base_plain', 'base_pipes', 'base_plain', 'base_hazard'],
                             ['dock_plate', 'dock_number', 'dock_plate', 'mid_poster_danger', 'dock_plate', 'mid_arrow']),
     'Security Checkpoint': (['base_plain', 'base_vent'],
-                            ['checkpoint_panel', 'mid_panel', 'mid_authorized', 'mid_panel', 'mid_monitor']),
+                            ['checkpoint_panel', 'mid_panel', 'mid_authorized', 'mid_panel', 'wall_graph']),
     'Processing Hall':     (['base_pipes', 'base_plain', 'base_vent'],
                             ['processing_panel', 'mid_vpipes', 'mid_panel', 'mid_poster_power']),
     'Extraction Hall':     (['base_plain', 'base_pipes', 'base_vent', 'base_plain'],
-                            ['extraction_panel', 'mid_panel', 'mid_poster_power', 'mid_vpipes', 'mid_monitor', 'mid_poster_danger']),
+                            ['extraction_panel', 'mid_panel', 'mid_poster_power', 'mid_vpipes', 'wall_graph', 'mid_poster_danger']),
     'Containment Block':   (['cell_wall'], ['cell_wall', 'cell_warning', 'cell_wall', 'mid_poster_danger']),
-    'Research Lab':        (['lab_panel'], ['lab_panel', 'lab_poster', 'lab_panel', 'mid_monitor']),
+    'Research Lab':        (['lab_panel'], ['lab_panel', 'lab_poster', 'lab_panel', 'wall_vitals']),
     'Server Vault':        (['base_plain', 'base_vent'], ['vault_panel', 'vault_panel', 'mid_authorized']),
     'Pipe Gallery':        (['gallery_pipes'], ['gallery_pipes', 'mid_vpipes', 'gallery_pipes', 'mid_poster_danger']),
     'Turbine Hall':        (['base_pipes', 'base_hazard', 'base_plain'], ['turbine_panel', 'mid_vpipes', 'turbine_panel', 'mid_poster_danger']),
@@ -198,6 +206,8 @@ def tex_cell(o, R, D, a, b, h0, h1, tu0, hv0, tile, flags=0, emit=None, sub=SUB)
     nv = max(1, int(math.ceil((h1 - h0) / sub - 1e-6)))
     page, t = tid(tile)
     tx, ty = (t % 4) * 64, (t // 4) * 64
+    if tile in TX.ANIMATED:
+        flags |= F_ANIMUV
     def U_(p): return int(round(min(63, max(0, (p - tu0) / TEX_M * 63))))
     def V_(p): return int(round(min(63, max(0, (p - hv0) / TEX_M * 63))))
     for j in range(nv):
@@ -268,6 +278,7 @@ def build_shell(ai, floor_tex=None, ceil_tex=None):
     for s, (o, d, L, n) in sides.items():
         if s in a.get('open', ()):
             continue
+        sstyle = SIDE_STYLE.get((a['name'], s), style)
         holes = sorted(a.get('doors', {}).get(s, []))
         cuts = [0]
         for c0, c1 in holes:
@@ -276,7 +287,7 @@ def build_shell(ai, floor_tex=None, ceil_tex=None):
         for k in range(0, len(cuts), 2):
             p, q = cuts[k], cuts[k + 1]
             if q - p > 1:
-                wall_section(o, d, p, q, H, n, style, hall, door_p=(k > 0), door_q=(k + 2 < len(cuts)), seed=k * 3 + len(s))
+                wall_section(o, d, p, q, H, n, sstyle, hall, door_p=(k > 0), door_q=(k + 2 < len(cuts)), seed=k * 3 + len(s))
                 w0 = o + d * p - n * WALL_T
                 w1 = o + d * q
                 colliders.append((min(w0[0], w1[0]), min(w0[2], w1[2]), max(w0[0], w1[0]), max(w0[2], w1[2]), 9000))
@@ -473,10 +484,10 @@ def extraction_pod(x, z, facing, anim):
     anchors.setdefault('pods', []).append((x, z, r))
     # console beside it
     cx, cz = x + math.cos(facing) * 900, z - math.sin(facing) * 900
-    console(cx, cz, facing + math.pi, 'screen_vitals')
+    console(cx, cz, facing + math.pi, 'scr_vitals')
 
 
-def console(x, z, facing, screen='screen_graph', y=0):
+def console(x, z, facing, screen='scr_graph', y=0):
     """desk + slanted keyboard + monitor; facing = direction the operator looks (radians, 0 = +z)"""
     c, s = math.cos(facing), math.sin(facing)
     fwd, right = V(s, 0, c), V(c, 0, -s)
@@ -491,7 +502,7 @@ def console(x, z, facing, screen='screen_graph', y=0):
         add_quad(a + V(0, -800, 0), b - a, V(0, 800, 0), 'machine_panel', nd=n)
     add_quad(corners[0] + V(0, -800, 0), corners[1] - corners[0], corners[3] - corners[0], 'keyboard', nd=V(0, -1, 0))
     scr = o + fwd * (d - 40) - right * 380 + V(0, -1500, 0)
-    add_quad(scr, right * 760, V(0, 560, 0) + fwd * 0, screen, F_EMIT, 1, (150, 150, 150), nd=-fwd)
+    add_quad(scr, right * 760, V(0, 560, 0), screen, F_EMIT, 1, (150, 150, 150), nd=-fwd)
     add_quad(scr + fwd * 60, right * 760, V(0, 560, 0), 'dark_metal', nd=fwd)
     add_quad(scr + V(0, 0, 0), fwd * 60, V(0, 560, 0), 'dark_metal', nd=-right)
     add_quad(scr + right * 760, fwd * 60, V(0, 560, 0), 'dark_metal', nd=right)
@@ -499,7 +510,7 @@ def console(x, z, facing, screen='screen_graph', y=0):
     xs = [p[0] for p in corners]; zs = [p[2] for p in corners]
     colliders.append((min(xs), min(zs), max(xs), max(zs), 800 - y))
     occluders.append((min(xs), y - 800, min(zs), max(xs), y, max(zs)))
-    lights.append((scr + right * 380 - fwd * 300 + V(0, 280, 0), V(0.35, 0.5, 0.45) if screen == 'screen_graph' else V(0.6, 0.2, 0.15), 1300))
+    lights.append((scr + right * 380 - fwd * 300 + V(0, 280, 0), V(0.35, 0.5, 0.45) if screen == 'scr_graph' else V(0.6, 0.2, 0.15), 1300))
 
 
 def rack(x, z, nd):
@@ -629,9 +640,9 @@ for px in (-3800, -200):
 box(-3800, -3800, -23800, -200, -3400, -23000, 'beam', 'beam', cell=1200, collide=False)
 add_quad(V(-3400, -3420, -23800), V(2800, 0, 0), V(0, 0, 800), 'floor_light', F_EMIT | F_PULSE, 5, (180, 60, 50), nd=V(0, 1, 0))
 lights.append((V(-2000, -3200, -23400), V(1.2, 0.2, 0.15), 3200))
-console(-5000, -27200, math.pi, 'screen_graph')
-console(1000, -27200, math.pi, 'screen_vitals')
-console(1200, -22900, 0.0, 'screen_graph')
+console(-5000, -27200, math.pi, 'scr_graph')
+console(1000, -27200, math.pi, 'scr_vitals')
+console(1200, -22900, 0.0, 'scr_graph')
 ceiling_lights(CHECK, (0.75, 0.8, 0.85), 7000, 4000)
 
 # ---------------- Processing Hall: machines down both long walls, overhead pipes
@@ -645,7 +656,7 @@ for zz in (-14800, -9200):
     cylinder(V(-10000, -4600, zz), 260, 0, 16000, 8, 'pipe', axis='x')
 for zz in (-13200, -10800):
     cylinder(V(-10000, -5100, zz), 150, 0, 16000, 6, 'pipe', axis='x')
-console(4500, -12000, math.pi / 2, 'screen_graph')
+console(4500, -12000, math.pi / 2, 'scr_graph')
 ceiling_lights(PROC, (0.75, 0.78, 0.85), 7500, 4000)
 
 # ---------------- Extraction Hall: the great tank, four pods, catwalk
@@ -684,7 +695,7 @@ box(-6000, -CW_H, 8000, 2000, 0, 10000, 'floor_grate', 'plate_side', cell=900)
 stairs(-8200, 8400, -6000, 10000, CW_H, 'x')
 rail_x(-6000, 2000, 8000, CW_H)
 rail_z(8000, 10000, 2000, CW_H)
-console(-2000, 9500, 0.0, 'screen_vitals', y=-CW_H)
+console(-2000, 9500, 0.0, 'scr_vitals', y=-CW_H)
 for (x, z) in ((-4500, -3800), (500, -3800)):
     pillar(x, z + 400, 6500)
 ceiling_lights(EXTR, (0.8, 0.84, 0.92), 8500, 4700)
@@ -712,12 +723,9 @@ for (lx, lz) in ((-25000, 3000), (-19000, 3000)):
 
 # ---------------- Research Lab: monitor wall, operator desks, autopsy table, specimen bench
 CUR[0] = LAB
-for k, scr in enumerate(('screen_graph', 'screen_vitals', 'screen_graph', 'screen_vitals')):
-    x0 = -25600 + k * 2300
-    add_quad(V(x0 + 1900, -3300, 22000 - 6), V(-1900, 0, 0), V(0, 1400, 0), scr, F_EMIT, 1, (160, 160, 160), nd=V(0, 0, -1))
 lights.append((V(-21500, -2600, 21300), V(0.4, 0.55, 0.5), 5000))
 for xx in (-25000, -22800, -20600, -18400):
-    console(xx, 20600, 0.0, 'screen_graph' if xx < -21500 else 'screen_vitals')
+    console(xx, 20600, 0.0, 'scr_graph' if xx < -21500 else 'scr_vitals')
 TBX = -18800
 box(TBX - 700, -800, 15600, TBX + 700, 0, 16400, 'dark_metal', 'machine_panel', cell=800)
 box(TBX - 500, -900, 15850, TBX + 300, -800, 16150, 'shini_body', 'shini_body', cell=900, collide=False, occl=False)
@@ -748,8 +756,7 @@ ceiling_lights(VAULT, (0.5, 0.6, 0.8), 6500, 4500)
 
 # ---------------- Pipe Gallery: giant pipes along the east wall, high pipes on the west
 CUR[0] = GALL
-for (yy, r) in ((-860, 760), (-2900, 500)):
-    cylinder(V(11000 - r - 60, yy, 2000), r, 0, 24000, 10, 'pipe', axis='z')
+cylinder(V(11000 - 820, -860, 2000), 760, 0, 24000, 10, 'pipe', axis='z')      # the big main on the floor
 colliders.append((11000 - 1600, 2000, 11000, 26000, 1620))
 occluders.append((11000 - 1600, -1620, 2000, 11000, 0, 26000))
 for zz in range(4000, 26000, 4000):
@@ -770,7 +777,7 @@ stairs(18000, -12000, 20000, -10400, 1040, 'z', up_positive=False)
 rail_x(20000, 22500, -12000, 1040)
 rail_z(-18000, -12000, 18000, 1040)
 for zz in (-17000, -15000, -13200):
-    console(21700, zz, math.pi / 2, 'screen_graph', y=-1040)
+    console(21700, zz, math.pi / 2, 'scr_graph', y=-1040)
 cylinder(V(6300, -6200, -11000), 400, 0, 16200, 8, 'pipe', axis='x')
 ceiling_lights(TURB, (0.72, 0.72, 0.78), 9000, 5000)
 
@@ -795,7 +802,7 @@ sprites.append((RC[0], -2600, RC[1], 2300, 255, 150, 60, 6, CORE))
 anchors['reactor'] = (RC[0], -2600, RC[1])
 for k in range(6):
     a = k * math.pi / 3 + math.pi / 6
-    console(RC[0] + math.sin(a) * 5200, RC[1] + math.cos(a) * 5200, a + math.pi, 'screen_graph' if k % 2 else 'screen_vitals')
+    console(RC[0] + math.sin(a) * 5200, RC[1] + math.cos(a) * 5200, a + math.pi, 'scr_graph' if k % 2 else 'scr_vitals')
 for (lx, lz) in ((16000, 2000), (27000, 2000), (16000, 14000), (27000, 14000)):
     lights.append((V(lx, -8500, lz), V(0.7, 0.7, 0.76), 10000))
 # ------------------------------------------------------------------ lighting bake

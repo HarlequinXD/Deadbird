@@ -14,6 +14,8 @@ Pages (8bpp, 256x256 = 16 tiles each):
   FLOOR  floors, ceilings, stairs
   PROPS  machines and props (screens, racks, glass, plasma, crates, captives...)
   TRIM   trim for 3D props (pipes, beams, hazard, grates, plates)
+  ANIM   animated screens: 4-frame strips (wall monitors with graphs / shinigami vitals, desk
+         screens); the game steps along the strip
 """
 import numpy as np
 
@@ -1020,6 +1022,80 @@ def generator_side():
     return img
 
 
+# ================================================================ ANIM: animated screens
+# Each screen is a strip of 4 frames along one row of the page; faces map frame 0 and the game
+# steps the U coordinate along the strip (+64 texels per frame), the PS1 way.
+SCREEN_FRAMES = 4
+
+
+def _graph_screen(img, x0, y0, x1, y1, k, pct):
+    rect(img, x0, y0, x1, y1, (8, 26, 16))
+    for x in range(x0, x1, 6):
+        img[y0:y1, x] = (16, 46, 28)
+    for y in range(y0, y1, 6):
+        img[y, x0:x1] = (16, 46, 28)
+    w = x1 - x0
+    ph = k * 2 * np.pi / SCREEN_FRAMES
+    mid = (y0 + y1 - 8) / 2
+    amp = (y1 - y0 - 12) / 3
+    pts = mid + amp * np.sin(np.linspace(0, 4 * np.pi, w) + ph) * (0.7 + 0.3 * np.cos(np.linspace(0, 2 * np.pi, w) - ph))
+    for i in range(w - 1):
+        a, b = int(pts[i]), int(pts[i + 1])
+        img[min(a, b):max(a, b) + 1, x0 + i] = (90, 255, 130)
+    text(img, 'OUT %d%%' % pct, x0 + 2, y1 - 6, (150, 255, 170))
+
+
+def _vitals_screen(img, x0, y0, x1, y1, k, soul):
+    rect(img, x0, y0, x1, y1, (26, 6, 8))
+    beat = [0, 0, 0, 0, 0, 1, -5, 8, -3, 0, 0, 0, 0, 0, 0, 0]
+    base = y0 + 7
+    prev = base
+    for x in range(x0 + 1, x1 - 1):
+        y = base + beat[(x - k * 4) % 16]
+        img[min(prev, y):max(prev, y) + 1, x] = (255, 70, 60)
+        prev = y
+    text(img, 'SOUL %02d%%' % soul, x0 + 2, y0 + 17, (255, 200, 80))
+    if k % 2 == 0:
+        text(img, 'CRITICAL', x0 + 2, y0 + 24, (255, 60, 40))
+    bw = (x1 - x0 - 4) * soul // 100 + 1
+    rect(img, x0 + 2, y1 - 5, x1 - 2, y1 - 2, (60, 14, 14))
+    rect(img, x0 + 2, y1 - 5, x0 + 2 + bw, y1 - 2, (255, 60, 40))
+
+
+def _wall_frame(kind, k):
+    def f():
+        img = panel_base((92, 98, 108))
+        bevel(img, 5, 6, 59, 48, (36, 38, 44), w=2)              # monitor bezel on the wall
+        if kind == 'graph':
+            _graph_screen(img, 8, 9, 56, 45, k, (97, 98, 99, 98)[k])
+        else:
+            _vitals_screen(img, 8, 9, 56, 45, k, (7, 7, 6, 6)[k])
+        img[9:45, 8] *= 1.3
+        rect(img, 27, 48, 37, 54, (50, 52, 58))                  # wall bracket
+        img[54:56, 25:39] *= 0.5                                 # its shadow
+        rect(img, 50, 49, 53, 51, (40, 255, 80) if k % 2 else (20, 90, 30))   # power led
+        return grime(img, 0.2, 261)
+    f.__name__ = 'wall_%s%s' % (kind, '' if k == 0 else '_f%d' % k)
+    return f
+
+
+def _bare_frame(kind, k):
+    def f():
+        img = new((60, 66, 70))
+        if kind == 'graph':
+            _graph_screen(img, 2, 2, 62, 62, k, (97, 98, 99, 98)[k])
+        else:
+            _vitals_screen(img, 2, 2, 62, 62, k, (7, 7, 6, 6)[k])
+        return img
+    f.__name__ = 'scr_%s%s' % (kind, '' if k == 0 else '_f%d' % k)
+    return f
+
+
+ANIM = [_wall_frame('graph', k) for k in range(4)] + [_wall_frame('vitals', k) for k in range(4)] + \
+       [_bare_frame('graph', k) for k in range(4)] + [_bare_frame('vitals', k) for k in range(4)]
+ANIMATED = {'wall_graph', 'wall_vitals', 'scr_graph', 'scr_vitals'}
+
+
 WALL1 = [base_plain, base_pipes, base_vent, base_hazard, mid_panel, mid_poster_power, mid_poster_danger,
          mid_authorized, mid_vpipes, mid_monitor, mid_arrow, top_circuit, top_beam, door_jamb_l, door_jamb_r, door_lintel]
 WALL2 = [dock_plate, dock_number, checkpoint_panel, processing_panel, extraction_panel, cell_wall, cell_warning,
@@ -1030,9 +1106,9 @@ FLOOR = [floor_plate, floor_grate, floor_edge, floor_hazard, floor_arrow, floor_
 PROPS = [machine_panel, screen_graph, screen_vitals, server_rack, glass, energy, coil, crate,
          canister, machine_base, keyboard, cage_bars, fan, shini_body, shini_skull, lamp_glow]
 TRIM = [dark_metal, hazard, pipe, bulkhead, beam, cables, floor_light, plate_side, catwalk, generator_side]
-PAGES = [WALL1, PROPS, WALL2, FLOOR, TRIM]               # page index = position here
-PAGE_VRAM = [(384, 0), (512, 0), (384, 256), (512, 256), (640, 256)]
-PAGE_NAMES = ['wall1', 'props', 'wall2', 'floor', 'trim']
+PAGES = [WALL1, PROPS, WALL2, FLOOR, TRIM, ANIM]         # page index = position here
+PAGE_VRAM = [(384, 0), (512, 0), (384, 256), (512, 256), (640, 256), (896, 0)]
+PAGE_NAMES = ['wall1', 'props', 'wall2', 'floor', 'trim', 'anim']
 TRANSPARENT = {'cage_bars', 'fan', 'lamp_glow', 'energy'}
 
 

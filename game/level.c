@@ -11,6 +11,8 @@
 #define F_PULSE  16
 #define F_FLOOR  32
 #define F_EMIT   64
+#define F_ANIMUV 128          /* animated screen: U steps along a 4-frame strip */
+#define SCREEN_FRAME_TICKS 8
 
 #define FOG_NEAR 8000
 #define FOG_FAR  18000
@@ -19,8 +21,8 @@
 #define MAXCV    1400
 
 static TimInfo page_tim[LAB_NPAGES];
-static const unsigned char *const page_data[LAB_NPAGES] = { lab_tim0, lab_tim1, lab_tim2, lab_tim3, lab_tim4 };
-static const int page_size[LAB_NPAGES] = { LAB_TIM0_SIZE, LAB_TIM1_SIZE, LAB_TIM2_SIZE, LAB_TIM3_SIZE, LAB_TIM4_SIZE };
+static const unsigned char *const page_data[LAB_NPAGES] = { lab_tim0, lab_tim1, lab_tim2, lab_tim3, lab_tim4, lab_tim5 };
+static const int page_size[LAB_NPAGES] = { LAB_TIM0_SIZE, LAB_TIM1_SIZE, LAB_TIM2_SIZE, LAB_TIM3_SIZE, LAB_TIM4_SIZE, LAB_TIM5_SIZE };
 static int uploaded, polys_drawn, frame_t, flat;
 
 void level_debug_flat(int on) { flat = on; }
@@ -326,7 +328,8 @@ static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const L
             }
             {
                 u8 u[4], v[4];
-                for (k = 0; k < n; k++) { u[k] = f->uv[k * 2]; v[k] = f->uv[k * 2 + 1]; }
+                int du = (f->flags & F_ANIMUV) ? ((t / SCREEN_FRAME_TICKS) & 3) * 64 : 0;
+                for (k = 0; k < n; k++) { u[k] = (u8)(f->uv[k * 2] + du); v[k] = f->uv[k * 2 + 1]; }
                 emit(fb, f, x, y, u, v, r, g, b, n, za);
             }
         } else {
@@ -342,6 +345,10 @@ static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const L
                 in[k].r = f->rgb[c * 3] << 4; in[k].g = f->rgb[c * 3 + 1] << 4; in[k].b = f->rgb[c * 3 + 2] << 4;
             }
             m = clip_poly(in, n, out, oo);
+            if (f->flags & F_ANIMUV) {
+                int du = ((t / SCREEN_FRAME_TICKS) & 3) * 64 * 256;
+                for (j = 0; j < m; j++) out[j].u += du;
+            }
             for (j = 1; j + 1 < m; j++) {
                 const CV *tv[3];
                 s16 x[3], y[3];

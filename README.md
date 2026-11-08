@@ -44,14 +44,18 @@ controller support), using a fast software model of the PS1's graphics chip.
   10. *Reactor Core* - the soul reactor (copper coil, pulsing plasma), ring of consoles
   The route test walks it end to end: about 35 s sprinting, 1.5 min walking - before enemies.
 - **Textures with the detail painted in** (`tools/lab_textures.py`, sheet in
-  `docs/lab_textures.png`): 74 procedural 64x64 tiles on five 8bpp CLUT pages at a fixed
+  `docs/lab_textures.png`): 90 procedural 64x64 tiles on six 8bpp CLUT pages at a fixed
   **32 texels per metre** - one tile covers 2 x 2 m. Walls are built in 2 m bands: a base band
   (kickplates, painted pipes and valves, vents, hazard paint), a middle band (panels, posters,
-  "AUTHORIZED PERSONNEL ONLY", wall monitors, room stencils like DOCK 07 / CHECKPOINT /
+  "AUTHORIZED PERSONNEL ONLY", **animated wall monitors**, room stencils like DOCK 07 / CHECKPOINT /
   REACTOR CORE 5, cell warnings, claw marks) and a top band (circuitry, I-beam + cable tray).
   Every doorway gets painted chevron jambs and an EXIT lintel. Each room has its own wall set;
   floors and ceilings have hazard lines, arrows, grates, drains, guide-light strips and painted
-  cable trays. No floating decal polygons - details are part of the wall texture. Baked
+  cable trays. No floating decal polygons - details are part of the wall texture.
+  Screens are painted tiles with a 4-frame animation strip (the game steps the texture
+  coordinate along it every 8 frames): plant output graphs ("OUT 97% / 98% / 99%") and
+  captive shinigami vitals (scrolling heartbeat, "SOUL 07% -> 06%", blinking CRITICAL). The
+  Research Lab's north wall is a bank of them; desk consoles use bare-screen strips. Baked
   bevels, grime and occlusion in the paint; PS1 4x4 ordered dither.
 - **PS1-style level rendering**: about 8,300 textured quads (1 m polygons) with **baked
   vertex lighting**: 139 coloured lights, shadow rays against every solid object, ambient
