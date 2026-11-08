@@ -32,6 +32,7 @@ typedef struct {
     s32 x, y, z;               /* root: on the ground, between the feet */
     int yaw;                   /* 4096 = 360 deg, 0 faces +Z */
     s32 speed, vy;             /* forward speed (units/frame), vertical velocity (Y down) */
+    s32 kx, kz;                /* knockback velocity (bump reaction) */
     int turn;                  /* yaw rate this frame */
     s32 accel;
     int grounded, air_t, land_t, bump_t;

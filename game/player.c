@@ -5,7 +5,7 @@
 
 #define WALK_SPEED  18
 #define RUN_SPEED   42
-#define TURN_MAX    260          /* fastest turn toward the pressed direction (per frame) */
+#define TURN_MAX    110          /* fastest turn toward the pressed direction (per frame, ~10 deg) */
 #define HIP_HALF    118          /* feet stand this far either side of the root */
 #define ANKLE_H     164          /* ankle above the ground */
 #define JUMP_V      -80
@@ -98,17 +98,18 @@ static void update_feet(Player *p)
     {
         int can = busy < 0;
         /* running: the next step may start before the other foot lands (flight phase) */
-        if (busy >= 0 && iabs(p->speed) > 30) {
+        if (busy >= 0 && (iabs(p->speed) > 30 || iabs(p->turn) > 30)) {
             Foot *b = &p->foot[busy];
             can = (b->swing_len - b->swing) * 10 > b->swing_len * 6;
         }
         if (can) {
             int pick = busy >= 0 ? 1 - busy : (err[0] >= err[1] ? 0 : 1);
-            s32 thr = iabs(p->speed) < 3 && iabs(p->turn) == 0 ? 45 : 40 + iabs(p->speed) * 2;
+            int pivot = iabs(p->turn) > 30 && iabs(p->speed) < 10;      /* turning on the spot */
+            s32 thr = pivot ? 30 : (iabs(p->speed) < 3 ? 45 : 40 + iabs(p->speed) * 2);
             Foot *f = &p->foot[pick];
             if (!f->swing && err[pick] > thr) {
                 f->sx = f->x; f->sy = f->y; f->sz = f->z;
-                f->swing_len = f->swing = iabs(p->speed) < 3 ? 12 : len;
+                f->swing_len = f->swing = pivot ? 8 : (iabs(p->speed) < 3 ? 12 : len);
             }
         }
     }
@@ -133,7 +134,7 @@ static void build_pose(Player *p)
     s16 *v = p->pose.v;
     s32 fx[2], fy[2], fz[2], py, drop, trx, prz, pry, tryv;
     int i, k, prog = 0, swinging = 0;
-    int bump = p->bump_t * ONE / 22, land = p->land_t * ONE / 16;
+    int bump = p->bump_t > 16 ? (24 - p->bump_t) * ONE / 8 : p->bump_t * ONE / 16, land = p->land_t * ONE / 16;
     int run = iabs(p->speed) > 26;
 
     for (i = 0; i < 2; i++) {
@@ -153,29 +154,29 @@ static void build_pose(Player *p)
     p->bob = py;
 
     /* lean: into speed and acceleration, back when braking; bank into turns */
-    trx = -(p->speed * 5) - p->accel * 30 - (land * 220 >> 12) + (bump * 300 >> 12);
+    trx = -(p->speed * 5) - p->accel * 30 - (land * 220 >> 12) + (bump * 340 >> 12);
     if (!p->grounded) trx -= 60;
     trx = clamp(trx, -420, 320);
-    prz = clamp(-p->turn * p->speed / 30, -200, 200);
+    prz = clamp(p->turn * p->speed / 24, -200, 200);         /* lean into the turn */
     /* stride twist: hips follow the forward foot, chest counter-rotates */
-    pry = clamp((fz[0] - fz[1]) * 3 / 8, -140, 140);
+    pry = clamp(-(fz[0] - fz[1]) * 3 / 8, -140, 140);
     tryv = -pry * 3 / 4;
 
     for (k = 0; k < AP_COUNT; k++) v[k] = 0;
     v[AP_PX] = 0; v[AP_PY] = (s16)py; v[AP_PZ] = (s16)(-(bump * 90 >> 12));
     v[AP_PRX] = 0; v[AP_PRY] = (s16)pry; v[AP_PRZ] = (s16)prz;
     v[AP_TRX] = (s16)trx; v[AP_TRY] = (s16)tryv; v[AP_TRZ] = (s16)(prz / 2);
-    v[AP_HRX] = (s16)(-trx * 6 / 10 + (bump * 220 >> 12)); v[AP_HRY] = (s16)(-pry - tryv);
+    v[AP_HRX] = (s16)(-trx * 6 / 10 + (bump * 300 >> 12)); v[AP_HRY] = (s16)(-pry - tryv);
 
     /* arms: counter-swing with the legs, pumping when running */
     for (i = 0; i < 2; i++) {
         int sg = i == 0 ? 1 : -1;
         s32 hx = sg * (run ? 165 : 235), hy = (run ? -1260 : -1010) + py, hz = (run ? 230 : 40) - fz[i] * (run ? 9 : 7) / 10;
         if (!p->grounded) { hx = sg * 330; hy = -1660 + py; hz = 120; }
-        /* bump: brace forward */
-        hx += ((sg * 170 - hx) * bump) >> 12;
-        hy += ((-1480 + py - hy) * bump) >> 12;
-        hz += ((300 - hz) * bump) >> 12;
+        /* bump: arms fly up and out as she is thrown back */
+        hx += ((sg * 330 - hx) * bump) >> 12;
+        hy += ((-1560 + py - hy) * bump) >> 12;
+        hz += ((180 - hz) * bump) >> 12;
         v[i == 0 ? AP_LHX : AP_RHX] = (s16)hx;
         v[i == 0 ? AP_LHY : AP_RHY] = (s16)hy;
         v[i == 0 ? AP_LHZ : AP_RHZ] = (s16)hz;
@@ -216,7 +217,7 @@ void player_update(Player *p, u32 pad, int cam_yaw)
     want = (cam_yaw + pad_angle(pad, &moving)) & 4095;
     p->turn = 0;
     target = 0;
-    if (moving && p->bump_t < 12) {
+    if (moving && p->bump_t < 8) {
         diff = ((want - p->yaw + 2048) & 4095) - 2048;
         rate = p->grounded ? TURN_MAX : TURN_MAX / 3;
         p->turn = (int)clamp(diff * 3 / 8, -rate, rate);
@@ -247,11 +248,21 @@ void player_update(Player *p, u32 pad, int cam_yaw)
         rotate(p->yaw, 0, p->speed >= 0 ? ONE : -ONE, &fwx, &fwz);
         into = (fwx * cnx + fwz * cnz) >> 12;
         if (into < -2000 && iabs(p->speed) > 8 && p->bump_t == 0) {
-            p->bump_t = 22;                               /* hit reaction: recoil off the wall */
-            p->speed = -p->speed / 3;
+            /* hit reaction: stop dead and get knocked back off the wall */
+            s32 k = 6 + iabs(p->speed) / 3;
+            p->bump_t = 24;
+            p->kx = cnx * k >> 12; p->kz = cnz * k >> 12;
+            p->speed = 0;
         }
     }
     p->x = nx; p->z = nz;
+    /* knockback slide (pushes out through collision too) */
+    if (p->kx || p->kz) {
+        s32 kx = p->x + p->kx, kz = p->z + p->kz;
+        level_collide(&kx, &kz, p->y, 200, &cnx, &cnz);
+        p->x = kx; p->z = kz;
+        p->kx = p->kx * 13 / 16; p->kz = p->kz * 13 / 16;
+    }
 
     /* vertical */
     if (p->grounded) {
