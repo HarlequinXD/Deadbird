@@ -71,9 +71,9 @@ int main(void)
     for (f = 0; f < 90; f++) { player_update(&pl, 0, 512, 2400); player_pose(&pl, &m); }
     {
         int dv = player_input_angle(pl.vx, pl.vz);
-        printf("wall slide test: x %d z %d, facing %d, moving %d (want ~1024), speed %d, push %d, phase %d\n",
-               (int)pl.x, (int)pl.z, pl.yaw, dv, (int)pl.speed, pl.pushw, pl.phase);
-        if (pl.x < -100 || pl.yaw < 850 || pl.yaw > 1200 || pl.speed < 12 || pl.pushw > 1000) { printf("FAIL: doesn't walk along the wall\n"); fails++; }
+        printf("wall slide test: x %d z %d, facing %d, moving %d (want ~1024), speed %d, phase %d\n",
+               (int)pl.x, (int)pl.z, pl.yaw, dv, (int)pl.speed, pl.phase);
+        if (pl.x < -100 || pl.yaw < 850 || pl.yaw > 1200 || pl.speed < 12) { printf("FAIL: doesn't walk along the wall\n"); fails++; }
     }
     printf("%d random frames: max move %d u/f, max turn %d, max drop %d, %d jumps/falls, %d failures\n",
            60 * 60 * 5, max_jump, max_turn, max_drop, air_starts, fails);

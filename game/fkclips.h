@@ -6,5 +6,4 @@ extern const FKClip clip_run;
 extern const FKClip clip_idle;
 extern const FKClip clip_air;
 extern const FKClip clip_land;
-extern const FKClip clip_push;
 #endif

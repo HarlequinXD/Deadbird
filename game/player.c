@@ -119,7 +119,7 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
             s32 into = -((p->vx * cnx + p->vz * cnz) >> 12);
             if (into > 0) { p->vx += cnx * into >> 12; p->vz += cnz * into >> 12; }   /* slide along it */
         }
-        if (wish && ((wx * cnx + wz * cnz) >> 12) < -2900 && p->grounded && p->speed16 < 20 * SUB) p->pushing = 1;
+        p->pushing = 1;                                   /* touching a wall this frame */
     }
     p->x16 = nx; p->z16 = nz;
     p->x = nx >> 4; p->z = nz >> 4;
@@ -188,10 +188,10 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         p->phase &= 16383;
         p->idle_t++;
         p->airw += ((p->grounded ? 0 : 4096) - p->airw) / (p->grounded ? 2 : 4);
-        p->pushw += ((p->pushing ? 4096 : 0) - p->pushw) / 6;
         /* lean into acceleration, bank into turns */
         {
-            s32 acc = p->speed16 - p->prev_speed16;
+            /* (a wall stopping you is not braking: no lean back off it) */
+            s32 acc = p->pushing ? 0 : p->speed16 - p->prev_speed16;
             int lean_t = (int)clamp(-acc * 16 * 16 / 12, -16 * 16, 12 * 16);
             int bank_t = (int)clamp((s32)p->turn * p->speed * 16 / 280, -22 * 16, 22 * 16);
             if (!p->grounded) { lean_t = 0; bank_t /= 2; }
@@ -223,8 +223,6 @@ static void build_pose(Player *p)
         fk_sample(&clip_air, (s32)t << 8, &a);
         fk_blend(o, &a, p->airw, o);
     }
-    /* walking into a wall: lean and push */
-    if (p->pushw > 0) { fk_sample(&clip_push, 0, &a); fk_blend(o, &a, p->pushw, o); }
     /* landing dip: quick crouch, slow recovery, scaled by impact */
     if (p->land_t < 20) {
         w = p->land_t < 3 ? p->land_t * 4096 / 3 : (20 - p->land_t) * 4096 / 17;

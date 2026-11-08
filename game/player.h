@@ -3,7 +3,7 @@
  *   - Quake-style ground physics: friction, acceleration toward the wished velocity,
  *     stop speed, limited air control, gravity + jump
  *   - camera-relative stick: half push walks, full push (or the run button) runs
- *   - wall sliding; pushing straight into a wall makes her lean and push against it
+ *   - walls stop you or slide you along them (no hit reaction)
  *   - step-up smoothing and a landing dip
  *   - the body turns toward where she is actually moving, leans into acceleration and
  *     banks into turns
@@ -31,12 +31,12 @@ typedef struct {
     s32 speed;                 /* horizontal speed, units per frame */
     s32 speed16, prev_speed16;
     int turn;                  /* yaw change this frame */
-    int grounded, air_t, pushing;
+    int grounded, air_t, pushing;  /* pushing = touching a wall this frame */
     int land_t, land_amp;      /* landing dip */
     s32 step_off;              /* visual offset after stepping up/down a ledge */
     int phase;                 /* gait clock, 1/256 frames of the 64-frame cycles */
     int idle_t;
-    int runw, amp, airw, pushw;/* blend weights 0..4096 */
+    int runw, amp, airw;       /* blend weights 0..4096 */
     int lean, bank;            /* degrees * 16 */
     s32 drop;                  /* smoothed grounding drop */
     u32 pad, prev;
