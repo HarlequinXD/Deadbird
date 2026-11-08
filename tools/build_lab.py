@@ -173,23 +173,27 @@ def area(name, x0, z0, x1, z1, H, kind):
     return CUR[0]
 
 
-# per-wall overrides: the Research Lab's north wall is a bank of live monitors
-SIDE_STYLE = {
-    ('Research Lab', 'N'): (['lab_panel'], ['wall_vitals', 'wall_graph', 'wall_vitals', 'wall_graph']),
-    ('Reactor Core', 'S'): (['reactor_plate', 'base_hazard'], ['reactor_warning', 'wall_graph', 'reactor_plate', 'wall_vitals']),
+# The world is laid out on a 2 m tile grid. Most wall tiles repeat a room's pattern; special
+# tiles are placed by hand, one tile each: (room, wall side) -> [(position along the wall, tile)]
+# (x for N/S walls, z for E/W walls; the tile whose 2 m column contains it is replaced).
+PLACED = {
+    ('Security Checkpoint', 'S'): [(-2000, 'wall_graph')],
+    ('Extraction Hall', 'N'):     [(1000, 'wall_vitals')],       # the great tank's captive, seen from the catwalk
+    ('Research Lab', 'N'):        [(-23000, 'wall_vitals'), (-19000, 'wall_graph')],
+    ('Reactor Core', 'S'):        [(25000, 'wall_graph')],
 }
 
 ROOM_STYLE = {
     'Loading Dock':        (['base_plain', 'base_pipes', 'base_plain', 'base_hazard'],
                             ['dock_plate', 'dock_number', 'dock_plate', 'mid_poster_danger', 'dock_plate', 'mid_arrow']),
     'Security Checkpoint': (['base_plain', 'base_vent'],
-                            ['checkpoint_panel', 'mid_panel', 'mid_authorized', 'mid_panel', 'wall_graph']),
+                            ['checkpoint_panel', 'mid_panel', 'mid_authorized', 'mid_panel']),
     'Processing Hall':     (['base_pipes', 'base_plain', 'base_vent'],
                             ['processing_panel', 'mid_vpipes', 'mid_panel', 'mid_poster_power']),
     'Extraction Hall':     (['base_plain', 'base_pipes', 'base_vent', 'base_plain'],
-                            ['extraction_panel', 'mid_panel', 'mid_poster_power', 'mid_vpipes', 'wall_graph', 'mid_poster_danger']),
+                            ['extraction_panel', 'mid_panel', 'mid_poster_power', 'mid_vpipes', 'mid_poster_danger']),
     'Containment Block':   (['cell_wall'], ['cell_wall', 'cell_warning', 'cell_wall', 'mid_poster_danger']),
-    'Research Lab':        (['lab_panel'], ['lab_panel', 'lab_poster', 'lab_panel', 'wall_vitals']),
+    'Research Lab':        (['lab_panel'], ['lab_panel', 'lab_poster', 'lab_panel']),
     'Server Vault':        (['base_plain', 'base_vent'], ['vault_panel', 'vault_panel', 'mid_authorized']),
     'Pipe Gallery':        (['gallery_pipes'], ['gallery_pipes', 'mid_vpipes', 'gallery_pipes', 'mid_poster_danger']),
     'Turbine Hall':        (['base_pipes', 'base_hazard', 'base_plain'], ['turbine_panel', 'mid_vpipes', 'turbine_panel', 'mid_poster_danger']),
@@ -278,7 +282,7 @@ def build_shell(ai, floor_tex=None, ceil_tex=None):
     for s, (o, d, L, n) in sides.items():
         if s in a.get('open', ()):
             continue
-        sstyle = SIDE_STYLE.get((a['name'], s), style)
+        place = PLACED.get((a['name'], s), [])
         holes = sorted(a.get('doors', {}).get(s, []))
         cuts = [0]
         for c0, c1 in holes:
@@ -287,7 +291,7 @@ def build_shell(ai, floor_tex=None, ceil_tex=None):
         for k in range(0, len(cuts), 2):
             p, q = cuts[k], cuts[k + 1]
             if q - p > 1:
-                wall_section(o, d, p, q, H, n, sstyle, hall, door_p=(k > 0), door_q=(k + 2 < len(cuts)), seed=k * 3 + len(s))
+                wall_section(o, d, p, q, H, n, style, hall, door_p=(k > 0), door_q=(k + 2 < len(cuts)), seed=k * 3 + len(s), place=place)
                 w0 = o + d * p - n * WALL_T
                 w1 = o + d * q
                 colliders.append((min(w0[0], w1[0]), min(w0[2], w1[2]), max(w0[0], w1[0]), max(w0[2], w1[2]), 9000))
@@ -301,7 +305,7 @@ def build_shell(ai, floor_tex=None, ceil_tex=None):
             door_frame(o + d * c0, d * (c1 - c0), n)
 
 
-def wall_section(o, d, p, q, H, n, style, hall, door_p=False, door_q=False, lintel=False, seed=0):
+def wall_section(o, d, p, q, H, n, style, hall, door_p=False, door_q=False, lintel=False, seed=0, place=()):
     """wall from p to q along d (base point o), facing n, in 2 m texture bands:
          0-2 m base (kickplate, painted pipes, vents, hazard paint)
          2-4 m middle (panels, posters, signs, monitors, room stencils)
@@ -331,6 +335,11 @@ def wall_section(o, d, p, q, H, n, style, hall, door_p=False, door_q=False, lint
             k = ci + seed
             bt = style[0][k % len(style[0])]
             mt = style[1][k % len(style[1])]
+            ctr = base + right * ((a + b) / 2)                 # world centre of this 2 m column
+            along = ctr[0] if abs(right[0]) > 0.5 else ctr[2]
+            for (pos, tile) in place:
+                if -TEX_M / 2 <= (pos - along) * (1 if (right[0] + right[2]) > 0 else -1) < TEX_M / 2 and b - a > TEX_M * 0.9:
+                    mt = tile
             if door_left and ci == 0:
                 bt = mt = 'door_jamb_r'
             if door_right and ci == len(cols) - 1:

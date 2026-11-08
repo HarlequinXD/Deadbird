@@ -54,8 +54,10 @@ controller support), using a fast software model of the PS1's graphics chip.
   cable trays. No floating decal polygons - details are part of the wall texture.
   Screens are painted tiles with a 4-frame animation strip (the game steps the texture
   coordinate along it every 8 frames): plant output graphs ("OUT 97% / 98% / 99%") and
-  captive shinigami vitals (scrolling heartbeat, "SOUL 07% -> 06%", blinking CRITICAL). The
-  Research Lab's north wall is a bank of them; desk consoles use bare-screen strips. Baked
+  captive shinigami vitals (scrolling heartbeat, "SOUL 07% -> 06%", blinking CRITICAL).
+  The world is laid out on the 2 m tile grid: walls repeat their room's pattern, and special
+  tiles like screens are placed by hand, one tile each (`PLACED` in `tools/build_lab.py`) -
+  five wall screens in the whole plant. Desk consoles use bare-screen strips. Baked
   bevels, grime and occlusion in the paint; PS1 4x4 ordered dither.
 - **PS1-style level rendering**: about 8,300 textured quads (1 m polygons) with **baked
   vertex lighting**: 139 coloured lights, shadow rays against every solid object, ambient
