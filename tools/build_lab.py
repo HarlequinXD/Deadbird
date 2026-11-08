@@ -61,11 +61,20 @@ def add_quad(o, U, V_, tex, flags=0, anim=0, emit=None, uvr=None, nd=None):
         o = o + U
         U = -U
     page, t = tid(tex)
-    uv = tile_uv(page, t, *(uvr or (0, 0, 63, 63)))
+    u0, v0, u1, v1 = uvr or (0, 0, 63, 63)
     if tex in TX.ANIMATED:
         flags |= F_ANIMUV
-    faces.append(dict(p=[o, o + U, o + V_, o + U + V_], uv=uv, page=page, flags=flags | F_QUAD,
-                      anim=anim, emit=emit, area=CUR[0]))
+    # no polygon edge over ~2 m: long polygons sort and cull by their middle and pop in and out
+    nu = max(1, int(math.ceil(np.linalg.norm(U) / 2100.0)))
+    nv = max(1, int(math.ceil(np.linalg.norm(V_) / 2100.0)))
+    for j in range(nv):
+        for i in range(nu):
+            a0, a1, b0, b1 = i / nu, (i + 1) / nu, j / nv, (j + 1) / nv
+            uv = tile_uv(page, t, int(round(u0 + (u1 - u0) * a0)), int(round(v0 + (v1 - v0) * b0)),
+                         int(round(u0 + (u1 - u0) * a1)), int(round(v0 + (v1 - v0) * b1)))
+            q = o + U * a0 + V_ * b0
+            faces.append(dict(p=[q, q + U / nu, q + V_ / nv, q + U / nu + V_ / nv], uv=uv, page=page, flags=flags | F_QUAD,
+                              anim=anim, emit=emit, area=CUR[0]))
 
 
 def add_tri(a, b, c, tex, flags=0, anim=0, emit=None, nd=None):
@@ -116,8 +125,10 @@ def box(x0, y0, z0, x1, y1, z1, top='dark_metal', side='dark_metal', front=None,
 
 
 def cylinder(c, r, y0, y1, n, tex, flags=0, anim=0, emit=None, inward=False, axis='y', cap=None, rep=1):
-    """n-sided cylinder along an axis; c is the centre of the base on that axis (y0..y1 span)"""
+    """n-sided cylinder along an axis; c is the centre of the base on that axis (y0..y1 span).
+    Long cylinders are cut every 2 m along the axis (no huge polygons: they sort and cull badly)."""
     c = np.asarray(c, float)
+    rep = max(rep, int(math.ceil(abs(y1 - y0) / 2000.0)))
     for i in range(n):
         a0, a1 = 2 * math.pi * i / n, 2 * math.pi * (i + 1) / n
         def ring(a, h):
@@ -661,10 +672,6 @@ for x in (-7800, -5200, 1200, 3800):
     machine(x - 1000, -9600, x + 1000, -8000, 2600, (0, 0, -1))
     lights.append((V(x, -1200, -14000), V(1.1, 0.5, 0.2), 2400))
     lights.append((V(x, -1200, -10000), V(1.1, 0.5, 0.2), 2400))
-for zz in (-14800, -9200):
-    cylinder(V(-10000, -4600, zz), 260, 0, 16000, 8, 'pipe', axis='x')
-for zz in (-13200, -10800):
-    cylinder(V(-10000, -5100, zz), 150, 0, 16000, 6, 'pipe', axis='x')
 console(4500, -12000, math.pi / 2, 'scr_graph')
 ceiling_lights(PROC, (0.75, 0.78, 0.85), 7500, 4000)
 
@@ -765,9 +772,6 @@ ceiling_lights(VAULT, (0.5, 0.6, 0.8), 6500, 4500)
 
 # ---------------- Pipe Gallery: giant pipes along the east wall, high pipes on the west
 CUR[0] = GALL
-cylinder(V(11000 - 820, -860, 2000), 760, 0, 24000, 10, 'pipe', axis='z')      # the big main on the floor
-colliders.append((11000 - 1600, 2000, 11000, 26000, 1620))
-occluders.append((11000 - 1600, -1620, 2000, 11000, 0, 26000))
 for zz in range(4000, 26000, 4000):
     box(9100, -5600, zz - 120, 11000, -5300, zz + 120, 'beam', 'beam', cell=1200, collide=False, occl=False)
 for k in range(6):
@@ -787,7 +791,6 @@ rail_x(20000, 22500, -12000, 1040)
 rail_z(-18000, -12000, 18000, 1040)
 for zz in (-17000, -15000, -13200):
     console(21700, zz, math.pi / 2, 'scr_graph', y=-1040)
-cylinder(V(6300, -6200, -11000), 400, 0, 16200, 8, 'pipe', axis='x')
 ceiling_lights(TURB, (0.72, 0.72, 0.78), 9000, 5000)
 
 # ---------------- Reactor Core: the soul reactor, conduits, ring of consoles
