@@ -1,5 +1,5 @@
 #include "level.h"
-#include "ik.h"
+#include "gte.h"
 #include "fx.h"
 
 /* ------------------------------------------------------------------ layout */

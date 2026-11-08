@@ -8,29 +8,24 @@ level. The engine is written so it can run on a real PlayStation later. For now 
 
 - **Title**: hell sky, embers, DEADBIRD logo and menu (PLAY / CONTROLS) over the live level,
   with Deadbird roaming on autopilot.
-- **Camera-relative controls** (MediEvil-style) with a **floating analog stick** on the left of
-  the touch screen: push a little to walk, push far to run (speed scales smoothly in between);
-  R sprints, J jumps. The direction you hold is locked to the camera angle when you started
-  pushing, so the follow camera (which drifts back behind her, or swings with L1/R1 / < >)
-  never steers you. She turns fast, and skids round when you reverse.
+- **Movement ported from Slayer from Hell** (`game/player.c`): Quake-style ground physics with
+  friction, acceleration toward the stick direction, a stop speed, limited air control, gravity
+  and jump. Floating analog stick on the left of the touch screen: half push walks, push past 70%
+  (or hold R) runs. Walls slide you along them; hit one fast and you **bounce off it** (bump
+  reaction + camera shake), walk into one and she leans in and pushes. Ledges you step up are
+  smoothed, and landings dip by how hard you hit.
+- **Facing, lean and bank** (from Slayer's `Hero.java`): the body turns toward where she is
+  actually moving, leans into acceleration (back when braking) and banks into turns.
+- **Keyframed animation only - no IK** (`game/fk.c`, clips in `game/fkclips.c`, authored by
+  `tools/make_fkclips.py`): every clip is joint angles. Idle, walk and run cycles share one clock
+  that **advances with distance travelled** (cycle distance is measured from the clip's own foot
+  travel), so stride keeps up with ground speed; walk and run blend by speed. Air (tuck on the
+  way up, reach on the way down), landing crouch, wall push and bump recoil are blended on top.
+  The only runtime adjustment is lowering the whole body so the lowest foot touches the floor.
 - **Test level**: floor with lava seams, boundary walls, a low platform, stairs to a high
   platform, a ramp, pillars and a wall to run into, and skull totems.
-- **Authored walk / run / idle cycles** (`game/lococlips.c`): pelvis bob and twist, torso
-  drive and lean, head, arm swing (walk) and bent-arm pump (run), played through the IK rig.
-  The cycles are driven by a **gait phase that advances with distance travelled**, and walk
-  and run blend by speed.
-- **Full-body IK locomotion** (`game/player.c`, rig in `game/rig.c`, solver in `engine/ik.c`):
-  - each foot is **locked to the ground in world space** while planted; a foot only steps when
-    the body has moved or turned away from it, so **feet never slide** (the headless test measures
-    planted-foot drift every frame and fails CI if it is not 0)
-  - stride length, cadence and stance time come from the **actual velocity**; running has a
-    flight phase, heel kick and knee drive; standing / turning on the spot uses a step planner
-  - **foot IK** onto stairs, platforms and the ramp: each foot samples the ground; the pelvis drops so both feet reach
-  - **lean** into speed and acceleration (back when braking), **bank** into turns, hip/chest
-    counter-twist with the stride, arms counter-swing (pump when running), gait bob
-  - **jump** with tucked legs and a landing dip; **bump reaction** (head snaps back, arms brace,
-    recoil off the wall, camera shake) when you walk into something
-- **Camera**: third-person follow camera.
+- **Camera**: third-person follow camera that drifts back behind you as you move; swing it with
+  L1/R1 (< >) or by dragging a finger on the right side of the screen.
 
 ## What "true PS1" means here
 
@@ -57,8 +52,7 @@ engine/            portable PS1 engine (C99, fixed point, no malloc)
   gpu_soft.c       software PS1 GPU (Android/PC only; PS1 uses the real GPU)
   tim.[ch]         TIM loader -> VRAM
   model.[ch]       rigid hierarchical models (one GTE matrix per body part)
-  ik.[ch]          fixed-point two-bone IK
-game/              Deadbird itself (platform independent): flow, player + IK locomotion, rig, level, HUD, fx, title
+game/              Deadbird itself (platform independent): flow, player movement + keyframed animation, level, HUD, fx, title
 assets/            demon.tim (256x256 8bpp CLUT), demon_mesh.h (488 tris, 16 parts)
 platform/android/  NativeActivity + GLES2 present + touch pad (Gradle project)
 platform/headless/ PC test build that renders frames to BMP (used by CI)
@@ -81,7 +75,7 @@ To build locally: `gradle -p platform/android assembleDebug` with the Android SD
 **PC headless test**:
 ```
 make -C platform/headless
-./platform/headless/deadbird_headless out_dir   # scripted play-through: frames, timing, RAM use, foot-slide check
+./platform/headless/deadbird_headless out_dir   # scripted play-through: frames, timing, RAM use
 make -C platform/headless gaittest && ./platform/headless/gaittest gait.bmp   # side-on walk/run sheet
 ```
 

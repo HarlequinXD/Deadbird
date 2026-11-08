@@ -13,7 +13,7 @@
 #include "hud.h"
 #include "fx.h"
 #include "title.h"
-#include "ik.h"
+#include "gte.h"
 #undef DEMON_MESH_NO_DATA
 #include "demon_tim.h"
 #include "demon_mesh.h"
@@ -32,8 +32,6 @@ static int stick_on, stick_ox, stick_oy, stick_x, stick_y;   /* floating touch s
 static int ref_on, ref_yaw, ref_dir;                           /* camera reference lock */
 #define STICK_R 34
 static int debug_side_cam;
-static s32 foot_drift_max, foot_prev[2][3];
-static int foot_prev_planted[2];
 static int touch_ui;
 
 /* ------------------------------------------------------------------ touch layout */
@@ -64,12 +62,12 @@ void game_set_stick(int active, int ox, int oy, int x, int y)
     stick_on = active; stick_ox = ox; stick_oy = oy; stick_x = x; stick_y = y;
 }
 
+void game_cam_drag(int dx) { if (gs == GS_PLAY) { cam_yaw = (cam_yaw + dx * 12) & 4095; ref_on = 0; } }
 void game_touch_tap(int x, int y) { if (gs == GS_TITLE) title_tap(x, y); }
 void game_set_touch_ui(int on) { touch_ui = on; }
 void game_display_area(int *x, int *y) { *x = disp_x; *y = disp_y; }
 int  game_phase(void) { return gs; }
 void game_debug_side_cam(int on) { debug_side_cam = on; }
-int  game_debug_foot_drift(void) { return (int)foot_drift_max; }
 
 /* ------------------------------------------------------------------ attract autopilot */
 static u32 autopilot(int t)
@@ -91,7 +89,6 @@ static void start_play(void)
     fx_reset();
     player_reset(&pl, 0, -400, 0);
     cam_yaw = 0;
-    foot_prev_planted[0] = foot_prev_planted[1] = 0;
     cam_yaw = 0;
     gs = GS_PLAY; gs_t = 0;
 }
@@ -102,7 +99,6 @@ static void go_title(void)
     fx_reset();
     player_reset(&pl, -600, -1800, 300);
     cam_yaw = 300;
-    foot_prev_planted[0] = foot_prev_planted[1] = 0;
     gs = GS_TITLE; gs_t = 0;
     title_reset();
 }
@@ -115,6 +111,7 @@ void game_init(void)
     demon.prims = (const DPRIM *)demon_prims; demon.nprims = DEMON_NPRIMS;
     demon.bones = (const DBONE *)demon_bones; demon.nbones = DEMON_NBONES;
     demon.tpage = tim.tpage; demon.clut = tim.clut;
+    player_init(&demon);
     hud_init();
     title_init();
     cam_dist = 2700; cam_h = 1650;
@@ -131,7 +128,7 @@ static void camera_update(u32 pad)
     if (pad & BTN_CAM_L) cam_yaw -= 40;
     if (pad & BTN_CAM_R) cam_yaw += 40;
     if (!(pad & (BTN_CAM_L | BTN_CAM_R)) && pl.speed > 4 && dyaw > -1300 && dyaw < 1300)
-        cam_yaw += dyaw / (pl.speed > 30 ? 28 : 48);
+        cam_yaw += dyaw / (pl.speed > 40 ? 28 : 48);
     cam_yaw &= 4095;
 }
 
@@ -168,19 +165,6 @@ static void simulate(u32 pad)
     player_update(&pl, pad, myaw, mmag);
     if (!bumped && pl.bump_t) shake = 5;
     player_pose(&pl, &demon);
-    {   /* measure how far a planted foot moved since last frame (should be 0: no sliding) */
-        int i;
-        for (i = 0; i < 2; i++) {
-            int planted = pl.grounded && pl.foot[i].swing == 0;
-            if (planted && foot_prev_planted[i]) {
-                s32 d = (pl.foot[i].x - foot_prev[i][0]) * (pl.foot[i].x - foot_prev[i][0])
-                      + (pl.foot[i].z - foot_prev[i][2]) * (pl.foot[i].z - foot_prev[i][2]);
-                if (d > foot_drift_max) foot_drift_max = d;
-            }
-            foot_prev[i][0] = pl.foot[i].x; foot_prev[i][1] = pl.foot[i].y; foot_prev[i][2] = pl.foot[i].z;
-            foot_prev_planted[i] = planted;
-        }
-    }
     level_update();
     fx_update();
 }
@@ -288,7 +272,7 @@ static void draw_hud(FrameBuf *fb)
     tri_f(fb, 6, 6, 18, 6, 6, -2, RGB(140, 110, 86), NO_SEMI, 6);
     tri_f(fb, 126, 6, 114, 6, 126, -2, RGB(140, 110, 86), NO_SEMI, 6);
     text(fb, "DEADBIRD", 14, 12, 1, 200, 4);
-    if (pl.speed > 30) text(fb, "RUN", 96, 12, 1, 120, 4);
+    if (pl.speed > 40) text(fb, "RUN", 96, 12, 1, 120, 4);
 }
 
 static void draw_controls(FrameBuf *fb)
@@ -298,8 +282,8 @@ static void draw_controls(FrameBuf *fb)
         { "HOLD R",       "SPRINT" },
         { "J",            "JUMP" },
         { "<  >",         "SWING THE CAMERA" },
-        { "",             "CAMERA FOLLOWS BEHIND" },
-        { "",             "AS YOU MOVE" },
+        { "RIGHT THUMB",  "DRAG TO TURN THE CAMERA" },
+        { "",             "CAMERA FOLLOWS YOU" },
         { "II",           "PAUSE" },
     };
     int i;

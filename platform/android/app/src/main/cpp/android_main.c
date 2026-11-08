@@ -34,6 +34,8 @@ static int game_started;
 static struct { int id, x, y, down; } touches[MAX_TOUCH];
 /* floating stick: the first finger that lands on the left side of the screen away from buttons */
 static int stick_id = -1, stick_ox, stick_oy, stick_x, stick_y;
+/* look finger: lands on the right side away from buttons and drags the camera round (Slayer style) */
+static int look_id = -1, look_x;
 
 static GLuint shader(GLenum type, const char *src)
 {
@@ -173,6 +175,11 @@ static void touch_set(int id, float px, float py, int down)
         else stick_id = -1;
         return;
     }
+    if (id == look_id) {
+        if (down) { game_cam_drag(fx - look_x); look_x = fx; }
+        else look_id = -1;
+        return;
+    }
     for (i = 0; i < MAX_TOUCH; i++) {
         if (touches[i].down && touches[i].id == id) break;
         if (!touches[i].down && free_slot < 0) free_slot = i;
@@ -201,6 +208,11 @@ static int32_t on_input(struct android_app *app, AInputEvent *ev)
                 game_touch_tap(tx, ty);
                 break;
             }
+            if (look_id < 0 && tx >= SCREEN_W * 45 / 100 && ty > 40 && !touch_hit(tx, ty)) {
+                look_id = pid; look_x = tx;
+                game_touch_tap(tx, ty);
+                break;
+            }
             touch_set(pid, AMotionEvent_getX(ev, idx), AMotionEvent_getY(ev, idx), 1);
             game_touch_tap(tx, ty);
             break;
@@ -215,7 +227,7 @@ static int32_t on_input(struct android_app *app, AInputEvent *ev)
             break;
         case AMOTION_EVENT_ACTION_CANCEL:
             memset(touches, 0, sizeof(touches));
-            stick_id = -1;
+            stick_id = -1; look_id = -1;
             break;
         }
         return 1;
@@ -243,7 +255,7 @@ static void on_cmd(struct android_app *app, int32_t cmd)
         break;
     case APP_CMD_LOST_FOCUS:
         memset(touches, 0, sizeof(touches));
-        stick_id = -1;
+        stick_id = -1; look_id = -1;
         break;
     }
 }

@@ -1,4 +1,4 @@
-/* Headless test harness: plays the game without a window (title -> versus CPU with a
+/* Headless test harness: plays the game without a window (title -> play with a
    scripted player), writes frames as BMP and reports timing + memory. Used by CI. */
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,7 +40,6 @@ static void write_bmp(const char *dir, const char *name)
 }
 
 static int frames_run;
-static int isqrt_i(int v) { int r = 0; while ((r + 1) * (r + 1) <= v) r++; return r; }
 static void run(u32 pad, int n) { int i; for (i = 0; i < n; i++) { game_frame(pad); frames_run++; } }
 
 int main(int argc, char **argv)
@@ -106,8 +105,6 @@ int main(int argc, char **argv)
     for (i = 0; i < 8; i++) { run(0, 2); sprintf(name, "13_side_run_%d", i); write_bmp(out, name); }
     game_set_stick(0, 0, 0, 0, 0);
     game_debug_side_cam(0);
-    printf("planted-foot slide: max %d units per frame (0 = feet never slide)\n", (int)isqrt_i(game_debug_foot_drift()));
-    if (game_debug_foot_drift() != 0) { printf("FAIL: a planted foot slid\n"); return 1; }
     printf("ran %d frames, %.3f ms/frame avg\n", frames_run,
            (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC / frames_run);
     return 0;

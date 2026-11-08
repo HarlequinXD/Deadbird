@@ -33,4 +33,7 @@ static inline s32 normal_clip(s32 x0, s32 y0, s32 x1, s32 y1, s32 x2, s32 y2)
     return (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
 }
 
+/* integer square root (32-bit) */
+u32 isqrt(u32 x);
+
 #endif

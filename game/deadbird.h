@@ -13,13 +13,14 @@ void game_display_area(int *x, int *y);
 void game_set_touch_ui(int on);
 /* floating analog stick in screen pixels: origin where the thumb landed, current position */
 void game_set_stick(int active, int ox, int oy, int x, int y);
+/* look finger dragged horizontally by dx screen pixels: swings the camera */
+void game_cam_drag(int dx);
 /* a finger went down at a screen point (menus) */
 void game_touch_tap(int x, int y);
 /* current flow state (title, intro, fight, ko, ...) for tests */
 int  game_phase(void);
-/* test hooks: side-on camera, and the largest squared distance a planted foot slid in one frame */
+/* test hook: side-on camera */
 void game_debug_side_cam(int on);
-int  game_debug_foot_drift(void);
 
 /* touch layout in 320x240 screen space, shared with the platform's hit testing */
 typedef struct { s16 x, y, r; u32 button; } TouchButton;

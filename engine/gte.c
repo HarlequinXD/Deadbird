@@ -80,3 +80,15 @@ int rot_trans_pers(const PROJ *p, const VECTOR *c, s16 *sx, s16 *sy)
     *sx = (s16)x; *sy = (s16)y;
     return 1;
 }
+
+u32 isqrt(u32 x)
+{
+    u32 r = 0, b = 1u << 30;
+    while (b > x) b >>= 2;
+    while (b) {
+        if (x >= r + b) { x -= r + b; r = (r >> 1) + b; }
+        else r >>= 1;
+        b >>= 2;
+    }
+    return r;
+}
