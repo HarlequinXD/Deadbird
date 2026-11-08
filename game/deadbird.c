@@ -10,6 +10,8 @@
 #include "model.h"
 #include "player.h"
 #include "level.h"
+#include "ik.h"
+#include "fk.h"
 #include "hud.h"
 #include "fx.h"
 #include "title.h"
@@ -26,7 +28,7 @@ static Model demon;
 static TimInfo tim;
 static Player pl;
 static int gs, gs_t, frame_count, shake;
-static s32 cam_yaw, cam_dist, cam_h, cam_side;
+static s32 cam_yaw, cam_dist, cam_h, cam_side, cam_clip = 2900;
 static u32 prev_pad, cur_pad;
 static int stick_on, stick_ox, stick_oy, stick_x, stick_y;   /* floating touch stick (screen px) */
 #define STICK_R 34
@@ -85,20 +87,27 @@ static u32 autopilot(int t)
 
 static void start_play(void)
 {
+    s32 sx, sz;
+    int syaw;
     level_init();
     fx_reset();
-    player_reset(&pl, 0, -400, 0);
-    cam_yaw = 0;
-    cam_yaw = 0;
+    level_spawn(&sx, &sz, &syaw);
+    player_reset(&pl, sx, sz, syaw);
+    cam_yaw = syaw;
+    cam_clip = 2900;
     gs = GS_PLAY; gs_t = 0;
 }
 
 static void go_title(void)
 {
+    s32 sx, sz;
+    int syaw;
     level_init();
     fx_reset();
-    player_reset(&pl, -600, -1800, 300);
-    cam_yaw = 300;
+    level_spawn(&sx, &sz, &syaw);
+    player_reset(&pl, sx - 600, sz + 600, syaw + 300);
+    cam_yaw = syaw + 300;
+    cam_clip = 2900;
     gs = GS_TITLE; gs_t = 0;
     title_reset();
 }
@@ -222,6 +231,32 @@ static void draw_touch(FrameBuf *fb)
     }
 }
 
+/* the shinigami held in the great tank: hangs arms out, head bowed, slowly turning */
+static void draw_captive(FrameBuf *fb, const MATRIX *view, const DrawCtx *ctx0)
+{
+    static MATRIX pose[DEMON_NBONES], world[DEMON_NBONES];
+    MATRIX root, ry, cam[DEMON_NBONES];
+    VECTOR off, c;
+    FKPose p;
+    DrawCtx ctx = *ctx0;
+    int i, b;
+    for (i = 0; i < FK_COUNT; i++) p.v[i] = 0;
+    p.v[FK_LSD] = 18; p.v[FK_RSD] = 18; p.v[FK_LSS] = 12; p.v[FK_RSS] = 12; p.v[FK_LEL] = 24; p.v[FK_REL] = 24;
+    p.v[FK_HRX] = -38 + (isin(frame_count * 9) * 4 >> 12); p.v[FK_TRX] = -6;
+    p.v[FK_LHP] = 12; p.v[FK_LKN] = 40; p.v[FK_LAN] = 30; p.v[FK_RHP] = -6; p.v[FK_RKN] = 26; p.v[FK_RAN] = 34;
+    p.v[FK_LAB] = 4; p.v[FK_RAB] = 4;
+    fk_bones(&demon, &p, pose, &off);
+    level_tank(&c);
+    mat_rot_y(&ry, frame_count * 3);
+    mat_translate(&ry, c.vx, c.vy + 900 + (isin(frame_count * 14) * 60 >> 12), c.vz);
+    mat_identity(&root);
+    mat_mul(&ry, &root, &root);
+    model_skeleton(&demon, &root, pose, world);
+    for (b = 0; b < DEMON_NBONES; b++) mat_mul(view, &world[b], &cam[b]);
+    ctx.r = 60; ctx.g = 120; ctx.b = 150;
+    model_draw_mats(&demon, cam, &ctx, fb);
+}
+
 static void draw_world(FrameBuf *fb, PROJ *pr)
 {
     MATRIX view, rx, ry, cam[DEMON_NBONES];
@@ -238,24 +273,38 @@ static void draw_world(FrameBuf *fb, PROJ *pr)
     if (shake > 0) { sx = (int)(fx_rand() % 41) - 20; sy = (int)(fx_rand() % 31) - 15; shake--; }
 
     mat_rot_x(&rx, 150); mat_rot_y(&ry, -cam_yaw - (debug_side_cam ? 1024 : 0)); mat_mul(&rx, &ry, &view);
-    /* look-at point: chest height, shifted sideways for the over-the-shoulder view */
+    /* look-at point: chest height */
     rxv = (icos(cam_yaw) * cam_side) >> 12; rzv = (-isin(cam_yaw) * cam_side) >> 12;
     tgt.vx = (s16)(-(pl.x + rxv) + sx); tgt.vy = (s16)(-(pl.y - cam_h + 300) + sy); tgt.vz = (s16)(-(pl.z + rzv));
     view.t[0] = view.t[1] = view.t[2] = 0;
     mat_apply(&view, &tgt, &tv);
-    view.t[0] = tv.vx; view.t[1] = tv.vy + 300; view.t[2] = tv.vz + cam_dist;
+    {
+        /* indoor camera: pull in in front of walls, props and the ceiling */
+        VECTOR off, back, head, campos;
+        s32 d;
+        int f;
+        off.vx = 0; off.vy = 300; off.vz = cam_dist;
+        mat_rot_tapply(&view, &off, &back);
+        campos.vx = (pl.x + rxv) - back.vx; campos.vy = (pl.y - cam_h + 300) - back.vy; campos.vz = (pl.z + rzv) - back.vz;
+        head.vx = pl.x; head.vy = pl.y - 1500; head.vz = pl.z;
+        f = level_clip_segment(&head, &campos, 160);
+        d = cam_dist * f / 4096 - 120;
+        if (d < 450) d = 450;
+        if (d < cam_clip) cam_clip = d;
+        else cam_clip += (d - cam_clip) / 10;
+    }
+    view.t[0] = tv.vx; view.t[1] = tv.vy + 300; view.t[2] = tv.vz + cam_clip;
 
     pr->h = 250; pr->ofx = SCREEN_W / 2; pr->ofy = SCREEN_H / 2; pr->near_z = 120;
     ctx.proj = *pr; ctx.ot_shift = 4; ctx.cull_sign = 1; ctx.r = ctx.g = ctx.b = 128;
 
-    sky_draw(fb, frame_count, cam_yaw);
+    quad_g(fb, 0, 0, SCREEN_W, SCREEN_H, RGB(3, 4, 7), RGB(1, 1, 3), NO_SEMI, OT_LEN - 1);
     level_draw(fb, &view, pr, frame_count);
-    blob_shadow(fb, &view, pr, pl.x, pl.z);
+    draw_captive(fb, &view, &ctx);
+    blob_shadow(fb, &view, pr, pl.x, level_ground(pl.x, pl.z, pl.y), pl.z);
     for (b = 0; b < DEMON_NBONES; b++) mat_mul(&view, &pl.world[b], &cam[b]);
     model_draw_mats(&demon, cam, &ctx, fb);
     fx_draw(fb, &view, pr);
-    embers_draw(fb, frame_count, 30);
-
 }
 
 static void draw_hud(FrameBuf *fb)

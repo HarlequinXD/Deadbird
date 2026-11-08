@@ -25,7 +25,7 @@ int main(void)
     m.prims = (const DPRIM *)demon_prims; m.nprims = DEMON_NPRIMS;
     m.bones = (const DBONE *)demon_bones; m.nbones = DEMON_NBONES;
     player_init(&m);
-    player_reset(&pl, 0, -400, 0);
+    player_reset(&pl, 0, -3000, 0);
     px = pl.x; py = pl.y; pz = pl.z;
     for (f = 0; f < 60 * 60 * 5; f++) {
         if (--hold <= 0) {
@@ -47,7 +47,7 @@ int main(void)
         }
         {   /* stuck inside geometry? */
             s32 cx = pl.x, cz = pl.z, nx, nz;
-            if (level_collide(&cx, &cz, pl.y, 150, &nx, &nz)) { if (fails++ < 10) printf("frame %d: inside a wall\n", f); }
+            if (level_collide(&cx, &cz, pl.y, 150, &nx, &nz)) { if (fails++ < 3) printf("frame %d: inside a wall at %d %d y %d (pushed to %d %d)\n", f, (int)pl.x, (int)pl.z, (int)pl.y, (int)cx, (int)cz); }
         }
         if (pl.grounded != prev_g) { flick++; if (!pl.grounded) air_starts++; }
         if (pl.drop > max_drop) max_drop = (int)pl.drop;
@@ -58,6 +58,7 @@ int main(void)
         px = pl.x; py = pl.y; pz = pl.z;
     }
     /* scenario 0: walking / running straight on flat ground: a planted hoof must stay put */
+    level_debug_flat(1);
     {
         int pass, worst = 0;
         for (pass = 0; pass < 2; pass++) {
@@ -91,14 +92,16 @@ int main(void)
         printf("turn test: facing %d, moving %d (want ~1024), speed %d\n", pl.yaw, dv, (int)pl.speed);
         if (pl.yaw < 900 || pl.yaw > 1150 || dv < 900 || dv > 1150 || pl.speed < 50) { printf("FAIL: can't turn while running\n"); fails++; }
     }
-    /* scenario 2: walk into a wall at 45 degrees: she must slide along it, facing along it, walking */
-    player_reset(&pl, -800, 2100, 0);
-    for (f = 0; f < 90; f++) { player_update(&pl, 0, 512, 2400); player_pose(&pl, &m); }
+    level_debug_flat(0);
+    /* scenario 2: walk into the hall's south wall at 45 degrees: she must slide along it,
+       facing along it, walking */
+    player_reset(&pl, -1000, -3900, 2048);
+    for (f = 0; f < 60; f++) { player_update(&pl, 0, 1536, 2400); player_pose(&pl, &m); }
     {
         int dv = player_input_angle(pl.vx, pl.vz);
         printf("wall slide test: x %d z %d, facing %d, moving %d (want ~1024), speed %d, phase %d\n",
                (int)pl.x, (int)pl.z, pl.yaw, dv, (int)pl.speed, pl.phase);
-        if (pl.x < -100 || pl.yaw < 850 || pl.yaw > 1200 || pl.speed < 12) { printf("FAIL: doesn't walk along the wall\n"); fails++; }
+        if (pl.x < -500 || pl.yaw < 850 || pl.yaw > 1200 || pl.speed < 12) { printf("FAIL: doesn't walk along the wall\n"); fails++; }
     }
     printf("%d random frames: max move %d u/f, max turn %d, max drop %d, %d jumps/falls, %d failures\n",
            60 * 60 * 5, max_jump, max_turn, max_drop, air_starts, fails);

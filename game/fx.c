@@ -173,14 +173,14 @@ void arena_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
         }
 }
 
-void blob_shadow(FrameBuf *fb, const MATRIX *view, const PROJ *pr, s32 x, s32 z)
+void blob_shadow(FrameBuf *fb, const MATRIX *view, const PROJ *pr, s32 x, s32 y, s32 z)
 {
     static const s16 ox[8] = { 420, 300, 0, -300, -420, -300, 0, 300 };
     static const s16 oz[8] = { 0, 220, 300, 220, 0, -220, -300, -220 };
     s16 cx, cy, px[8], py[8];
     SVECTOR w; VECTOR c;
     int k;
-    w.vx = (s16)x; w.vy = -4; w.vz = (s16)z;
+    w.vx = (s16)x; w.vy = (s16)(y - 4); w.vz = (s16)z;
     mat_apply(view, &w, &c);
     if (!rot_trans_pers(pr, &c, &cx, &cy)) return;
     for (k = 0; k < 8; k++) {

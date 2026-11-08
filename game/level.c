@@ -1,62 +1,57 @@
 #include "level.h"
-#include "gte.h"
-#include "fx.h"
+#include "tim.h"
+#include "lab_data.h"
 
-/* ------------------------------------------------------------------ layout */
-#define ARENA 4000
-static const Box boxes[] = {
-    /* boundary walls */
-    {     0, -ARENA - 100, ARENA + 200, 100, 1400, 0x3a1416 },
-    {     0,  ARENA + 100, ARENA + 200, 100, 1400, 0x3a1416 },
-    { -ARENA - 100,     0, 100, ARENA, 1400, 0x34121a },
-    {  ARENA + 100,     0, 100, ARENA, 1400, 0x34121a },
-    /* low platform (step up onto it) */
-    {  1600,  1200, 700, 700, 150, 0x5a2a1e },
-    /* stairs up to a high platform */
-    { -2200,     0, 500, 200, 130, 0x4e2420 },
-    { -2200,   400, 500, 200, 260, 0x4e2420 },
-    { -2200,   800, 500, 200, 390, 0x4e2420 },
-    { -2200,  1200, 500, 200, 520, 0x4e2420 },
-    { -2200,  2100, 500, 700, 520, 0x5a2a1e },
-    /* platform at the top of the ramp */
-    {  2900, -3350, 500, 450, 520, 0x5a2a1e },
-    /* pillars and a wall to run into */
-    {   600, -1500, 250, 250, 2200, 0x2e1014 },
-    {  -900, -2400, 250, 250, 2200, 0x2e1014 },
-    {  2600,  -600, 300, 300, 2200, 0x2e1014 },
-    {     0,  2700, 1200, 150, 900, 0x3e161a },
-};
-#define NBOX ((int)(sizeof(boxes) / sizeof(boxes[0])))
+/* face flags (tools/build_lab.py) */
+#define F_QUAD   1
+#define F_ADD    2
+#define F_HALF   4
+#define F_DOUBLE 8
+#define F_PULSE  16
+#define F_FLOOR  32
+#define F_EMIT   64
 
-/* ramp: x 2400..3400, rising from y 0 at z = -1600 to y -520 at z = -2900 */
-#define RAMP_X0 2400
-#define RAMP_X1 3400
-#define RAMP_Z0 -1600
-#define RAMP_Z1 -2900
-#define RAMP_H  520
+#define FOG_NEAR 6500
+#define FOG_FAR  15500
+#define NEAR_Z   140
+#define GUARD    3                 /* guard band: x,y within +-3z keeps screen coords inside 11 bits */
+#define MAXCV    1400
 
-Totem totems[NTOTEMS];
-static const s16 totem_pos[NTOTEMS][2] = { { -2200, 2300 }, { 1600, 1200 }, { 2900, -3400 }, { -3000, -2800 }, { 3200, 2900 } };
-#define TOTEM_R 140
-#define TOTEM_H 760
+static TimInfo page_tim[2];
+static int uploaded, polys_drawn, frame_t, flat;
 
-static s32 ramp_height(s32 x, s32 z)
+void level_debug_flat(int on) { flat = on; }
+
+void level_init(void)
 {
-    if (x < RAMP_X0 || x > RAMP_X1 || z > RAMP_Z0 || z < RAMP_Z1) return 1;      /* 1 = not on the ramp */
-    return -(RAMP_H * (RAMP_Z0 - z) / (RAMP_Z0 - RAMP_Z1));
+    if (!uploaded) {
+        tim_upload(lab_tim0, LAB_TIM0_SIZE, &page_tim[0]);
+        tim_upload(lab_tim1, LAB_TIM1_SIZE, &page_tim[1]);
+        uploaded = 1;
+    }
+    frame_t = 0;
 }
 
+void level_spawn(s32 *x, s32 *z, int *yaw) { *x = LAB_SPAWN_X; *z = LAB_SPAWN_Z; *yaw = LAB_SPAWN_YAW; }
+void level_tank(VECTOR *c) { c->vx = LAB_TANK_X; c->vy = LAB_TANK_Y; c->vz = LAB_TANK_Z; }
+int  level_polys_drawn(void) { return polys_drawn; }
+int  level_data_bytes(void)
+{
+    return (int)(sizeof(lab_verts) + sizeof(lab_faces) + sizeof(lab_chunks) + sizeof(lab_boxes) + sizeof(lab_sprites)
+                 + sizeof(lab_fans) + sizeof(lab_rings) + sizeof(lab_pods) + sizeof(lab_ceil));
+}
+
+/* ------------------------------------------------------------------ collision */
 s32 level_ground(s32 x, s32 z, s32 cur_y)
 {
-    s32 best = 0, r;
+    s32 best = 0;
     int i;
-    for (i = 0; i < NBOX; i++) {
-        const Box *b = &boxes[i];
-        if (x < b->cx - b->hx || x > b->cx + b->hx || z < b->cz - b->hz || z > b->cz + b->hz) continue;
+    if (flat) return 0;
+    for (i = 0; i < LAB_NBOXES; i++) {
+        const LabBox *b = &lab_boxes[i];
+        if (x < b->x0 || x > b->x1 || z < b->z0 || z > b->z1) continue;
         if (-b->h >= cur_y - STEP_HEIGHT && -b->h < best) best = -b->h;
     }
-    r = ramp_height(x, z);
-    if (r <= 0 && r >= cur_y - STEP_HEIGHT && r < best) best = r;
     return best;
 }
 
@@ -84,299 +79,377 @@ static int push_box(s32 *x, s32 *z, s32 r, s32 bx0, s32 bz0, s32 bx1, s32 bz1, s
 int level_collide(s32 *x, s32 *z, s32 y, s32 r, s32 *nx, s32 *nz)
 {
     int i, hit = 0;
-    for (i = 0; i < NBOX; i++) {
-        const Box *b = &boxes[i];
+    if (flat) return 0;
+    for (i = 0; i < LAB_NBOXES; i++) {
+        const LabBox *b = &lab_boxes[i];
         if (-b->h >= y - STEP_HEIGHT) continue;        /* low enough to step onto */
-        hit |= push_box(x, z, r, b->cx - b->hx, b->cz - b->hz, b->cx + b->hx, b->cz + b->hz, nx, nz);
-    }
-    for (i = 0; i < NTOTEMS; i++) {
-        Totem *t = &totems[i];
-        if (t->dead_t) continue;
-        hit |= push_box(x, z, r, t->x - TOTEM_R, t->z - TOTEM_R, t->x + TOTEM_R, t->z + TOTEM_R, nx, nz);
+        hit |= push_box(x, z, r, b->x0, b->z0, b->x1, b->z1, nx, nz);
     }
     return hit;
 }
 
-void level_init(void)
+/* slab test of a segment against one box, t in 0..4096 (4096 = no hit) */
+static s32 seg_box(const VECTOR *a, const VECTOR *d, s32 x0, s32 y0, s32 z0, s32 x1, s32 y1, s32 z1)
 {
-    int i;
-    for (i = 0; i < NTOTEMS; i++) {
-        totems[i].x = totem_pos[i][0]; totems[i].z = totem_pos[i][1];
-        totems[i].y = level_ground(totems[i].x, totems[i].z, -2000);
-        totems[i].hp = 3; totems[i].flash = 0; totems[i].dead_t = 0;
-    }
-}
-
-int level_totems_destroyed(void)
-{
-    int i, n = 0;
-    for (i = 0; i < NTOTEMS; i++) n += totems[i].dead_t > 0;
-    return n;
-}
-
-void level_update(void)
-{
-    int i;
-    for (i = 0; i < NTOTEMS; i++) {
-        Totem *t = &totems[i];
-        if (t->flash > 0) t->flash--;
-        if (t->dead_t > 0 && ++t->dead_t > 600) { t->dead_t = 0; t->hp = 3; }   /* respawn */
-    }
-}
-
-static int point_in_box(const VECTOR *p, s32 x0, s32 y0, s32 z0, s32 x1, s32 y1, s32 z1)
-{
-    return p->vx >= x0 && p->vx <= x1 && p->vy >= y0 && p->vy <= y1 && p->vz >= z0 && p->vz <= z1;
-}
-
-int level_ray(const VECTOR *a, const VECTOR *b, VECTOR *hit)
-{
-    /* marched test (8 samples) - cheap and good enough for fast projectiles */
-    int s, i;
-    for (s = 1; s <= 8; s++) {
-        VECTOR p;
-        p.vx = a->vx + (b->vx - a->vx) * s / 8;
-        p.vy = a->vy + (b->vy - a->vy) * s / 8;
-        p.vz = a->vz + (b->vz - a->vz) * s / 8;
-        for (i = 0; i < NTOTEMS; i++) {
-            const Totem *t = &totems[i];
-            if (!t->dead_t && point_in_box(&p, t->x - TOTEM_R, t->y - TOTEM_H, t->z - TOTEM_R, t->x + TOTEM_R, t->y, t->z + TOTEM_R)) {
-                *hit = p; return 2 + i;
-            }
+    s32 lo = 0, hi = 4096;
+    const s32 p[3] = { a->vx, a->vy, a->vz }, dd[3] = { d->vx, d->vy, d->vz };
+    const s32 mn[3] = { x0, y0, z0 }, mx[3] = { x1, y1, z1 };
+    int k;
+    for (k = 0; k < 3; k++) {
+        if (dd[k] == 0) {
+            if (p[k] < mn[k] || p[k] > mx[k]) return 4096;
+        } else {
+            s32 t0 = (s32)(((long long)(mn[k] - p[k]) << 12) / dd[k]);
+            s32 t1 = (s32)(((long long)(mx[k] - p[k]) << 12) / dd[k]);
+            if (t0 > t1) { s32 s = t0; t0 = t1; t1 = s; }
+            if (t0 > lo) lo = t0;
+            if (t1 < hi) hi = t1;
+            if (lo > hi) return 4096;
         }
-        for (i = 0; i < NBOX; i++) {
-            const Box *bx = &boxes[i];
-            if (point_in_box(&p, bx->cx - bx->hx, -bx->h, bx->cz - bx->hz, bx->cx + bx->hx, 0, bx->cz + bx->hz)) { *hit = p; return 1; }
-        }
-        if (p.vy >= 0 || (ramp_height(p.vx, p.vz) <= 0 && p.vy >= ramp_height(p.vx, p.vz))) { *hit = p; return 1; }
     }
-    return 0;
+    return lo;
 }
+
+int level_clip_segment(const VECTOR *a, const VECTOR *b, s32 m)
+{
+    VECTOR d;
+    s32 best = 4096, t;
+    int i;
+    d.vx = b->vx - a->vx; d.vy = b->vy - a->vy; d.vz = b->vz - a->vz;
+    for (i = 0; i < LAB_NBOXES; i++) {
+        const LabBox *bx = &lab_boxes[i];
+        s32 top = -bx->h - m;
+        if (a->vx >= bx->x0 - m && a->vx <= bx->x1 + m && a->vz >= bx->z0 - m && a->vz <= bx->z1 + m && a->vy >= top)
+            continue;                                   /* starting inside (standing on it) */
+        t = seg_box(a, &d, bx->x0 - m, top, bx->z0 - m, bx->x1 + m, 0, bx->z1 + m);
+        if (t < best) best = t;
+    }
+    /* ceiling of the room the segment starts in */
+    for (i = 0; i < LAB_NCEIL; i++) {
+        const LabBox *c = &lab_ceil[i];
+        s32 cy = -c->h + m;
+        if (a->vx < c->x0 || a->vx > c->x1 || a->vz < c->z0 || a->vz > c->z1) continue;
+        if (b->vy < cy && d.vy < 0) {
+            t = (s32)(((long long)(cy - a->vy) << 12) / d.vy);
+            if (t >= 0 && t < best) best = t;
+        }
+        break;
+    }
+    return (int)best;
+}
+
+void level_update(void) { frame_t++; }
 
 /* ------------------------------------------------------------------ drawing */
-#define FLOOR_BIAS 10000     /* floor sits under everything: sort it at the far end of the OT */
-static int fog_scale(s32 z)
+typedef struct { s32 x, y, z; s32 u, v, r, g, b; } CV;     /* view-space vertex for clipping */
+
+static VECTOR cvv[MAXCV];
+static s16 csx[MAXCV], csy[MAXCV];
+static u8 cout_[MAXCV];        /* outcode: 1 behind near, 2..16 outside guard band */
+
+static int pulse(int anim, int t)
 {
-    int f = 4096 - (z - 2500) * 4096 / 11000;
-    return f < 300 ? 300 : (f > 4096 ? 4096 : f);
+    switch (anim) {
+    case 0: return 4096;
+    case 1: return ((t * 37) % 241 < 3) ? 3000 : 4096 - (isin(t * 60) * 120 >> 12);   /* screens: flicker */
+    case 2: return 3600 + (isin(t * 22) * 900 >> 12);                                   /* main tank */
+    case 3: return 3500 + (isin(t * 30) * 900 >> 12);
+    case 4: return 3500 + (isin(t * 30 + 2048) * 900 >> 12);
+    case 5: return (t & 32) ? 4096 : 900;                                                /* alarm blink */
+    case 6: return 3400 + (isin(t * 50) * 1100 >> 12);                                  /* reactor plasma */
+    default: return 3400 + (isin(t * 50 + 1365) * 1100 >> 12);
+    }
 }
 
-/* one face of a box, subdivided into cells so big walls don't vanish at the near plane */
-static void draw_face(FrameBuf *fb, const MATRIX *cam, const VECTOR *o, const VECTOR *du, const VECTOR *dv,
-                      int nu, int nv, int shade, u32 col, const PROJ *pr, int bias)
+static int fog(s32 z)
 {
-    static s16 sx[9][9], sy[9][9];
-    static s32 sz[9][9];
-    static u8 ok[9][9];
-    int i, j, k;
-    int cr = (int)(col >> 16) & 255, cg = (int)(col >> 8) & 255, cb = (int)col & 255;
-    if (nu > 8) nu = 8;
-    if (nv > 8) nv = 8;
-    for (j = 0; j <= nv; j++)
-        for (i = 0; i <= nu; i++) {
-            SVECTOR w; VECTOR c;
-            w.vx = (s16)(o->vx + du->vx * i / nu + dv->vx * j / nv);
-            w.vy = (s16)(o->vy + du->vy * i / nu + dv->vy * j / nv);
-            w.vz = (s16)(o->vz + du->vz * i / nu + dv->vz * j / nv);
-            mat_apply(cam, &w, &c);
-            ok[j][i] = (u8)rot_trans_pers(pr, &c, &sx[j][i], &sy[j][i]);
-            sz[j][i] = c.vz;
-        }
-    for (j = 0; j < nv; j++)
-        for (i = 0; i < nu; i++) {
-            static const int ci[4] = { 0, 1, 0, 1 }, cj[4] = { 0, 0, 1, 1 };
-            POLY *p;
-            s32 z;
-            if (!ok[j][i] || !ok[j][i + 1] || !ok[j + 1][i] || !ok[j + 1][i + 1]) continue;
-            if (normal_clip(sx[j][i], sy[j][i], sx[j][i + 1], sy[j][i + 1], sx[j + 1][i], sy[j + 1][i]) <= 0) continue;
-            p = prim_alloc(fb);
-            if (!p) return;
-            memset(p, 0, sizeof(*p));
-            p->code = PF_QUAD | PF_GOURAUD;
-            for (k = 0; k < 4; k++) {
-                int x = i + ci[k], y = j + cj[k];
-                int f = fog_scale(sz[y][x]) * shade >> 12;
-                /* checker every other cell for a hint of tiling */
-                int chk = ((i + j) & 1) ? 4096 : 3600;
-                f = f * chk >> 12;
-                p->v[k].x = sx[y][x]; p->v[k].y = sy[y][x];
-                p->v[k].r = (u8)(cr * f >> 12); p->v[k].g = (u8)(cg * f >> 12); p->v[k].b = (u8)(cb * f >> 12);
+    if (z <= FOG_NEAR) return 4096;
+    if (z >= FOG_FAR) return 0;
+    return (int)((FOG_FAR - z) * 4096 / (FOG_FAR - FOG_NEAR));
+}
+
+static u8 outcode(const VECTOR *c)
+{
+    u8 o = 0;
+    if (c->vz < NEAR_Z) o |= 1;
+    if (c->vx > c->vz * GUARD) o |= 2;
+    if (c->vx < -c->vz * GUARD) o |= 4;
+    if (c->vy > c->vz * GUARD) o |= 8;
+    if (c->vy < -c->vz * GUARD) o |= 16;
+    return o;
+}
+
+static s32 plane_d(const CV *v, int p)
+{
+    switch (p) {
+    case 0: return v->z - NEAR_Z;
+    case 1: return v->z * GUARD - v->x;
+    case 2: return v->z * GUARD + v->x;
+    case 3: return v->z * GUARD - v->y;
+    default: return v->z * GUARD + v->y;
+    }
+}
+
+static int clip_poly(CV *in, int n, CV *out, u8 planes)
+{
+    CV buf[12];
+    CV *src = in, *dst = buf;
+    int p, i, m = n;
+    for (p = 0; p < 5; p++) {
+        if (!(planes & (1 << p))) continue;
+        {
+            int k = 0;
+            for (i = 0; i < m; i++) {
+                const CV *a = &src[i], *b = &src[(i + 1) % m];
+                s32 da = plane_d(a, p), db = plane_d(b, p);
+                if (da >= 0) dst[k++] = *a;
+                if ((da >= 0) != (db >= 0)) {
+                    s32 t = (s32)(((long long)da << 12) / (da - db));
+                    CV *c = &dst[k++];
+                    c->x = a->x + (((b->x - a->x) * (long long)t) >> 12);
+                    c->y = a->y + (((b->y - a->y) * (long long)t) >> 12);
+                    c->z = a->z + (((b->z - a->z) * (long long)t) >> 12);
+                    c->u = a->u + (((b->u - a->u) * t) >> 12);
+                    c->v = a->v + (((b->v - a->v) * t) >> 12);
+                    c->r = a->r + (((b->r - a->r) * t) >> 12);
+                    c->g = a->g + (((b->g - a->g) * t) >> 12);
+                    c->b = a->b + (((b->b - a->b) * t) >> 12);
+                }
+                if (k >= 11) break;
             }
-            z = (sz[j][i] + sz[j][i + 1] + sz[j + 1][i] + sz[j + 1][i + 1]) >> 2;
-            ot_add(fb, bias == FLOOR_BIAS ? OT_LEN - 20 : (z >> 4) + bias, p);
+            m = k;
         }
+        if (m < 3) return 0;
+        src = dst;
+        dst = (dst == buf) ? out : buf;
+    }
+    for (i = 0; i < m; i++) out[i] = src[i];
+    return m;
 }
 
-static int cells(s32 len, int subdiv) { int n = subdiv ? (int)(len / 700) + 1 : 1; return n > 8 ? 8 : n; }
-
-void draw_box(FrameBuf *fb, const MATRIX *cam, s32 x0, s32 y0, s32 z0, s32 x1, s32 y1, s32 z1,
-              u32 col, const PROJ *pr, int bias, int sub)
+static void emit(FrameBuf *fb, const LabFace *f, const s16 *x, const s16 *y, const u8 *u, const u8 *v,
+                 const int *r, const int *g, const int *b, int n, s32 z)
 {
-    VECTOR o, u, v;
-    s32 w = x1 - x0, h = y1 - y0, d = z1 - z0;
-    /* top (y0 is the upper face in Y-down space) */
-    o.vx = x0; o.vy = y0; o.vz = z1; u.vx = w; u.vy = 0; u.vz = 0; v.vx = 0; v.vy = 0; v.vz = -d;
-    draw_face(fb, cam, &o, &u, &v, cells(w, sub), cells(d, sub), 4096, col, pr, bias);
-    /* front (+z) */
-    o.vx = x1; o.vy = y0; o.vz = z1; u.vx = -w; u.vy = 0; u.vz = 0; v.vx = 0; v.vy = h; v.vz = 0;
-    draw_face(fb, cam, &o, &u, &v, cells(w, sub), cells(h, sub), 2900, col, pr, bias);
-    /* back (-z) */
-    o.vx = x0; o.vy = y0; o.vz = z0; u.vx = w; u.vy = 0; u.vz = 0; v.vx = 0; v.vy = h; v.vz = 0;
-    draw_face(fb, cam, &o, &u, &v, cells(w, sub), cells(h, sub), 2300, col, pr, bias);
-    /* left (-x) */
-    o.vx = x0; o.vy = y0; o.vz = z1; u.vx = 0; u.vy = 0; u.vz = -d; v.vx = 0; v.vy = h; v.vz = 0;
-    draw_face(fb, cam, &o, &u, &v, cells(d, sub), cells(h, sub), 3300, col, pr, bias);
-    /* right (+x) */
-    o.vx = x1; o.vy = y0; o.vz = z0; u.vx = 0; u.vy = 0; u.vz = d; v.vx = 0; v.vy = h; v.vz = 0;
-    draw_face(fb, cam, &o, &u, &v, cells(d, sub), cells(h, sub), 2600, col, pr, bias);
+    POLY *p = prim_alloc(fb);
+    int k, otz;
+    if (!p) return;
+    p->code = PF_TEX | PF_GOURAUD | (n == 4 ? PF_QUAD : 0);
+    if (f->flags & (F_ADD | F_HALF)) p->code |= PF_SEMI;
+    p->tpage = get_tpage(TP_8BIT, (f->flags & F_ADD) ? SEMI_ADD : SEMI_HALF, 384 + f->page * 128, 0);
+    p->clut = get_clut(0, 485 + f->page);
+    for (k = 0; k < n; k++) {
+        p->v[k].x = x[k]; p->v[k].y = y[k]; p->v[k].u = u[k]; p->v[k].v = v[k];
+        p->v[k].r = (u8)(r[k] > 255 ? 255 : r[k]); p->v[k].g = (u8)(g[k] > 255 ? 255 : g[k]); p->v[k].b = (u8)(b[k] > 255 ? 255 : b[k]);
+    }
+    otz = (int)(z >> 4) + ((f->flags & F_FLOOR) ? 8 : 0);
+    ot_add(fb, otz, p);
+    polys_drawn++;
+}
+
+static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const LabChunk *ch, int t)
+{
+    int i, k;
+    if (ch->nv > MAXCV) return;
+    for (i = 0; i < ch->nv; i++) {
+        const LabVert *lv = &lab_verts[ch->v0 + i];
+        SVECTOR s; s.vx = lv->x; s.vy = lv->y; s.vz = lv->z;
+        mat_apply(view, &s, &cvv[i]);
+        cout_[i] = outcode(&cvv[i]);
+        if (!(cout_[i] & 1)) {
+            csx[i] = (s16)(pr->ofx + cvv[i].vx * pr->h / cvv[i].vz);
+            csy[i] = (s16)(pr->ofy + cvv[i].vy * pr->h / cvv[i].vz);
+        }
+    }
+    for (i = 0; i < ch->nf; i++) {
+        const LabFace *f = &lab_faces[ch->f0 + i];
+        int n = (f->flags & F_QUAD) ? 4 : 3;
+        u8 oa = 0xff, oo = 0;
+        s32 zs = 0, zmax = 0;
+        int pm = pulse(f->anim, t);
+        for (k = 0; k < n; k++) {
+            int vi = f->v[k];
+            oa &= cout_[vi]; oo |= cout_[vi];
+            zs += cvv[vi].vz;
+            if (cvv[vi].vz > zmax) zmax = cvv[vi].vz;
+        }
+        if (oa) continue;                              /* all corners outside one plane */
+        if (zmax < NEAR_Z) continue;
+        if (!oo) {
+            s16 x[4], y[4];
+            int r[4], g[4], b[4];
+            s32 za = zs / n;
+            int fg;
+            if (za > FOG_FAR) continue;
+            for (k = 0; k < n; k++) { x[k] = csx[f->v[k]]; y[k] = csy[f->v[k]]; }
+            if (!(f->flags & F_DOUBLE) && normal_clip(x[0], y[0], x[1], y[1], x[2], y[2]) <= 0) continue;
+            fg = fog(za) * pm >> 12;
+            for (k = 0; k < n; k++) {
+                r[k] = f->rgb[k * 3] * fg >> 12; g[k] = f->rgb[k * 3 + 1] * fg >> 12; b[k] = f->rgb[k * 3 + 2] * fg >> 12;
+            }
+            {
+                u8 u[4], v[4];
+                for (k = 0; k < n; k++) { u[k] = f->uv[k * 2]; v[k] = f->uv[k * 2 + 1]; }
+                emit(fb, f, x, y, u, v, r, g, b, n, za);
+            }
+        } else {
+            /* crosses the near plane / guard band: clip in view space, draw as a fan */
+            static const int order4[4] = { 0, 1, 3, 2 }, order3[3] = { 0, 1, 2 };
+            const int *ord = n == 4 ? order4 : order3;
+            CV in[4], out[12];
+            int m, j;
+            for (k = 0; k < n; k++) {
+                int c = ord[k], vi = f->v[c];
+                in[k].x = cvv[vi].vx; in[k].y = cvv[vi].vy; in[k].z = cvv[vi].vz;
+                in[k].u = f->uv[c * 2] << 8; in[k].v = f->uv[c * 2 + 1] << 8;
+                in[k].r = f->rgb[c * 3] << 4; in[k].g = f->rgb[c * 3 + 1] << 4; in[k].b = f->rgb[c * 3 + 2] << 4;
+            }
+            m = clip_poly(in, n, out, oo);
+            for (j = 1; j + 1 < m; j++) {
+                const CV *tv[3];
+                s16 x[3], y[3];
+                u8 u[3], v[3];
+                int r[3], g[3], b[3];
+                s32 za;
+                int fg;
+                tv[0] = &out[0]; tv[1] = &out[j]; tv[2] = &out[j + 1];
+                for (k = 0; k < 3; k++) {
+                    x[k] = (s16)(pr->ofx + tv[k]->x * pr->h / tv[k]->z);
+                    y[k] = (s16)(pr->ofy + tv[k]->y * pr->h / tv[k]->z);
+                }
+                if (!(f->flags & F_DOUBLE) && normal_clip(x[0], y[0], x[1], y[1], x[2], y[2]) <= 0) continue;
+                za = (tv[0]->z + tv[1]->z + tv[2]->z) / 3;
+                fg = fog(za) * pm >> 12;
+                for (k = 0; k < 3; k++) {
+                    u[k] = (u8)(tv[k]->u >> 8); v[k] = (u8)(tv[k]->v >> 8);
+                    r[k] = (tv[k]->r >> 4) * fg >> 12; g[k] = (tv[k]->g >> 4) * fg >> 12; b[k] = (tv[k]->b >> 4) * fg >> 12;
+                }
+                emit(fb, f, x, y, u, v, r, g, b, 3, za);
+            }
+        }
+    }
+}
+
+/* camera-facing additive quad with a texture tile from page B */
+static void billboard(FrameBuf *fb, const MATRIX *view, const PROJ *pr, s32 wx, s32 wy, s32 wz, s32 size,
+                      int tile, int r, int g, int b, int bias)
+{
+    SVECTOR s; VECTOR c;
+    POLY *p;
+    s32 hs, x, y;
+    int k, tu = (tile & 3) * 64, tv = (tile >> 2) * 64, fg;
+    s.vx = (s16)wx; s.vy = (s16)wy; s.vz = (s16)wz;
+    mat_apply(view, &s, &c);
+    if (c.vz < NEAR_Z + size / 2 || c.vz > FOG_FAR) return;
+    hs = size * pr->h / c.vz;
+    if (hs < 1) return;
+    if (hs > 400) hs = 400;
+    x = pr->ofx + c.vx * pr->h / c.vz; y = pr->ofy + c.vy * pr->h / c.vz;
+    if (x + hs < 0 || x - hs > SCREEN_W || y + hs < 0 || y - hs > SCREEN_H) return;
+    p = prim_alloc(fb);
+    if (!p) return;
+    fg = fog(c.vz);
+    p->code = PF_TEX | PF_QUAD | PF_SEMI;
+    p->tpage = get_tpage(TP_8BIT, SEMI_ADD, 384 + 128, 0);
+    p->clut = get_clut(0, 486);
+    for (k = 0; k < 4; k++) {
+        p->v[k].x = (s16)(x + ((k & 1) ? hs : -hs));
+        p->v[k].y = (s16)(y + ((k & 2) ? hs : -hs));
+        p->v[k].u = (u8)(tu + ((k & 1) ? 63 : 0));
+        p->v[k].v = (u8)(tv + ((k & 2) ? 63 : 0));
+        p->v[k].r = (u8)(r * fg >> 12); p->v[k].g = (u8)(g * fg >> 12); p->v[k].b = (u8)(b * fg >> 12);
+    }
+    ot_add(fb, (int)(c.vz >> 4) + bias, p);
+    polys_drawn++;
+}
+
+/* a world-space quad (corners in Z order), textured from page B, optional additive */
+static void world_quad(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const SVECTOR *w, int tile,
+                       int r, int g, int b, int add, int bias)
+{
+    VECTOR c[4];
+    POLY *p;
+    int k, tu = (tile & 3) * 64, tv = (tile >> 2) * 64, fg;
+    s32 z = 0;
+    for (k = 0; k < 4; k++) {
+        mat_apply(view, &w[k], &c[k]);
+        if (outcode(&c[k])) return;
+        z += c[k].vz;
+    }
+    z >>= 2;
+    if (z > FOG_FAR) return;
+    p = prim_alloc(fb);
+    if (!p) return;
+    fg = fog(z);
+    p->code = PF_TEX | PF_QUAD | PF_GOURAUD | (add ? PF_SEMI : 0);
+    p->tpage = get_tpage(TP_8BIT, SEMI_ADD, 384 + 128, 0);
+    p->clut = get_clut(0, 486);
+    for (k = 0; k < 4; k++) {
+        p->v[k].x = (s16)(pr->ofx + c[k].vx * pr->h / c[k].vz);
+        p->v[k].y = (s16)(pr->ofy + c[k].vy * pr->h / c[k].vz);
+        p->v[k].u = (u8)(tu + ((k & 1) ? 63 : 0));
+        p->v[k].v = (u8)(tv + ((k & 2) ? 63 : 0));
+        p->v[k].r = (u8)(r * fg >> 12); p->v[k].g = (u8)(g * fg >> 12); p->v[k].b = (u8)(b * fg >> 12);
+    }
+    ot_add(fb, (int)(z >> 4) + bias, p);
+    polys_drawn++;
 }
 
 void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
 {
-    int i, j;
-    /* floor: 10x10 grid of big tiles, glowing lava seams on a few */
-    for (j = 0; j < 10; j++)
-        for (i = 0; i < 10; i++) {
-            VECTOR o, u, v;
-            int lava = ((i * 7 + j * 3) % 9) == 0;
-            int glow = 150 + (isin(t * 40 + i * 900 + j * 500) * 70 >> 12);
-            o.vx = -ARENA + i * 800; o.vy = 0; o.vz = -ARENA + (j + 1) * 800;
-            u.vx = 800; u.vy = 0; u.vz = 0; v.vx = 0; v.vy = 0; v.vz = -800;
-            draw_face(fb, view, &o, &u, &v, 2, 2, 4096,
-                      lava ? (u32)((glow << 16) | ((glow / 4) << 8) | 12) : ((i + j) & 1 ? 0x3c1a1a : 0x321416),
-                      pr, FLOOR_BIAS);
-        }
-    for (i = 0; i < NBOX; i++) {
-        const Box *b = &boxes[i];
-        draw_box(fb, view, b->cx - b->hx, -b->h, b->cz - b->hz, b->cx + b->hx, 0, b->cz + b->hz, b->col, pr, -8, 1);
-    }
-    /* ramp: sloped top + side walls */
-    {
-        VECTOR o, u, v;
-        o.vx = RAMP_X0; o.vy = 0; o.vz = RAMP_Z0;
-        u.vx = RAMP_X1 - RAMP_X0; u.vy = 0; u.vz = 0;
-        v.vx = 0; v.vy = -RAMP_H; v.vz = RAMP_Z1 - RAMP_Z0;
-        draw_face(fb, view, &o, &u, &v, 2, 3, 3900, 0x5a2a1e, pr, -8);
-        o.vx = RAMP_X1; o.vy = 0; o.vz = RAMP_Z0; u.vx = 0; u.vy = -RAMP_H; u.vz = RAMP_Z1 - RAMP_Z0; v.vx = 0; v.vy = RAMP_H; v.vz = 0;
-        draw_face(fb, view, &o, &u, &v, 3, 1, 2600, 0x4e2420, pr, -8);
-        {
-            /* left side wall: triangle approximated by a quad strip */
-            VECTOR o2, u2, v2;
-            o2.vx = RAMP_X0; o2.vy = -RAMP_H; o2.vz = RAMP_Z1; u2.vx = 0; u2.vy = RAMP_H; u2.vz = RAMP_Z0 - RAMP_Z1; v2.vx = 0; v2.vy = RAMP_H; v2.vz = 0;
-            draw_face(fb, view, &o2, &u2, &v2, 3, 1, 3300, 0x4e2420, pr, -8);
-        }
-    }
-    /* skull totems: bone pillar with a skull block and glowing eyes */
-    for (i = 0; i < NTOTEMS; i++) {
-        const Totem *tt = &totems[i];
-        u32 base = tt->flash ? 0xfff0c0 : 0x8a7a64, head = tt->flash ? 0xffffff : 0xb8a888;
-        s32 sink;
-        if (tt->dead_t) {                                /* crumbles into the floor */
-            sink = tt->dead_t * 24;
-            if (sink > TOTEM_H) continue;
-        } else sink = 0;
-        draw_box(fb, view, tt->x - 110, tt->y - 520 + sink, tt->z - 110, tt->x + 110, tt->y, tt->z + 110, base, pr, -4, 0);
-        draw_box(fb, view, tt->x - 150, tt->y - TOTEM_H + sink, tt->z - 150, tt->x + 150, tt->y - 520 + sink, tt->z + 150, head, pr, -4, 0);
-        if (!tt->dead_t) {
-            /* eyes on all four faces, additive glow */
-            for (j = 0; j < 4; j++) {
-                static const s8 dx[4] = { 0, 0, 1, -1 }, dz[4] = { 1, -1, 0, 0 };
-                int e;
-                for (e = -1; e <= 1; e += 2) {
-                    SVECTOR w; VECTOR c; s16 sx, sy;
-                    POLY *q;
-                    int s, k;
-                    w.vx = (s16)(tt->x + dx[j] * 152 + (dz[j] ? e * 60 : 0));
-                    w.vz = (s16)(tt->z + dz[j] * 152 + (dx[j] ? e * 60 : 0));
-                    w.vy = (s16)(tt->y - 660);
-                    mat_apply(view, &w, &c);
-                    if (!rot_trans_pers(pr, &c, &sx, &sy)) continue;
-                    s = 9000 / (c.vz > 300 ? c.vz : 300) + 1;
-                    q = prim_alloc(fb);
-                    if (!q) return;
-                    memset(q, 0, sizeof(*q));
-                    q->code = PF_QUAD | PF_SEMI;
-                    q->tpage = get_tpage(0, SEMI_ADD, 0, 0);
-                    q->v[0].x = (s16)(sx - s); q->v[0].y = (s16)(sy - s);
-                    q->v[1].x = (s16)(sx + s); q->v[1].y = (s16)(sy - s);
-                    q->v[2].x = (s16)(sx - s); q->v[2].y = (s16)(sy + s);
-                    q->v[3].x = (s16)(sx + s); q->v[3].y = (s16)(sy + s);
-                    k = 200 + (isin(t * 90 + i * 700) * 50 >> 12);
-                    q->v[0].r = (u8)k; q->v[0].g = (u8)(k / 3); q->v[0].b = 0;
-                    ot_add(fb, (c.vz >> 4) - 6, q);
-                }
-            }
-        }
-    }
-}
-
-/* ------------------------------------------------------------------ projectiles */
-#define NSHOT 16
-typedef struct { s32 x, y, z, vx, vy, vz; int life; } Shot;
-static Shot shots[NSHOT];
-
-void shots_fire(const VECTOR *from, s32 dx, s32 dy, s32 dz)
-{
-    int i;
-    for (i = 0; i < NSHOT; i++) if (shots[i].life <= 0) break;
-    if (i == NSHOT) return;
-    shots[i].x = from->vx; shots[i].y = from->vy; shots[i].z = from->vz;
-    shots[i].vx = dx * 150 >> 12; shots[i].vy = dy * 150 >> 12; shots[i].vz = dz * 150 >> 12;
-    shots[i].life = 60;
-}
-
-void shots_update(void)
-{
-    int i;
-    for (i = 0; i < NSHOT; i++) {
-        Shot *s = &shots[i];
-        VECTOR a, b, hit;
-        int r;
-        if (s->life <= 0) continue;
-        a.vx = s->x; a.vy = s->y; a.vz = s->z;
-        b.vx = s->x + s->vx; b.vy = s->y + s->vy; b.vz = s->z + s->vz;
-        r = level_ray(&a, &b, &hit);
-        if (r) {
-            fx_hit(&hit, r >= 2 ? 90 : 40, 0);
-            if (r >= 2) {
-                Totem *t = &totems[r - 2];
-                t->flash = 6;
-                if (--t->hp <= 0) { t->dead_t = 1; fx_hit(&hit, 200, 0); }
-            }
-            s->life = 0;
-            continue;
-        }
-        s->x = b.vx; s->y = b.vy; s->z = b.vz;
-        s->life--;
-    }
-}
-
-void shots_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
-{
     int i, k;
-    for (i = 0; i < NSHOT; i++) {
-        Shot *s = &shots[i];
-        if (s->life <= 0) continue;
-        for (k = 0; k < 3; k++) {                     /* head + two fading trail blobs */
-            SVECTOR w; VECTOR c; s16 sx, sy;
-            POLY *q;
-            int sz, b;
-            w.vx = (s16)(s->x - s->vx * k / 2); w.vy = (s16)(s->y - s->vy * k / 2); w.vz = (s16)(s->z - s->vz * k / 2);
-            mat_apply(view, &w, &c);
-            if (!rot_trans_pers(pr, &c, &sx, &sy)) continue;
-            sz = (14000 - k * 3500) / (c.vz > 300 ? c.vz : 300) + 1;
-            b = 255 - k * 70 - (isin(t * 300 + i * 800) * 30 >> 12);
-            q = prim_alloc(fb);
-            if (!q) return;
-            memset(q, 0, sizeof(*q));
-            q->code = PF_QUAD | PF_SEMI;
-            q->tpage = get_tpage(0, SEMI_ADD, 0, 0);
-            q->v[0].x = (s16)(sx - sz); q->v[0].y = (s16)(sy - sz);
-            q->v[1].x = (s16)(sx + sz); q->v[1].y = (s16)(sy - sz);
-            q->v[2].x = (s16)(sx - sz); q->v[2].y = (s16)(sy + sz);
-            q->v[3].x = (s16)(sx + sz); q->v[3].y = (s16)(sy + sz);
-            q->v[0].r = (u8)b; q->v[0].g = (u8)(b * 2 / 5); q->v[0].b = (u8)(b / 8);
-            ot_add(fb, (c.vz >> 4) - 3, q);
+    polys_drawn = 0;
+    for (i = 0; i < LAB_NCHUNKS; i++) {
+        const LabChunk *ch = &lab_chunks[i];
+        SVECTOR s; VECTOR c;
+        s32 r = ch->r;
+        s.vx = ch->cx; s.vy = ch->cy; s.vz = ch->cz;
+        mat_apply(view, &s, &c);
+        if (c.vz < -r || c.vz - r > FOG_FAR) continue;
+        /* frustum: half-widths 160/h and 120/h of z, padded by the radius */
+        if (c.vx * pr->h > (c.vz * 160) + r * (pr->h + 160)) continue;
+        if (-c.vx * pr->h > (c.vz * 160) + r * (pr->h + 160)) continue;
+        if (c.vy * pr->h > (c.vz * 120) + r * (pr->h + 120)) continue;
+        if (-c.vy * pr->h > (c.vz * 120) + r * (pr->h + 120)) continue;
+        draw_chunk(fb, view, pr, ch, t);
+    }
+    /* light halos */
+    for (i = 0; i < LAB_NSPRITES; i++) {
+        const LabSprite *s = &lab_sprites[i];
+        int pm = pulse(s->anim, t);
+        billboard(fb, view, pr, s->x, s->y, s->z, s->size, 15, s->r * pm >> 13, s->g * pm >> 13, s->b * pm >> 13, -4);
+    }
+    /* energy rings rising through the tanks */
+    for (i = 0; i < LAB_NRINGS; i++) {
+        const LabRing *rg = &lab_rings[i];
+        s32 span = rg->yb - rg->yt;                 /* positive: bottom is below top */
+        int ring;
+        for (ring = 0; ring < 3; ring++) {
+            s32 y = rg->yb - ((t * 14 + ring * span / 3) % span);
+            int glow = 46 + (isin(t * 40 + ring * 1365) * 20 >> 12);
+            for (k = 0; k < 12; k++) {
+                SVECTOR w[4];
+                int a0 = k * 4096 / 12, a1 = (k + 1) * 4096 / 12;
+                s32 r = rg->r;
+                w[0].vx = (s16)(rg->x + (icos(a0) * r >> 12)); w[0].vz = (s16)(rg->z + (isin(a0) * r >> 12)); w[0].vy = (s16)(y - 90);
+                w[1].vx = (s16)(rg->x + (icos(a1) * r >> 12)); w[1].vz = (s16)(rg->z + (isin(a1) * r >> 12)); w[1].vy = (s16)(y - 90);
+                w[2] = w[0]; w[2].vy = (s16)(y + 90);
+                w[3] = w[1]; w[3].vy = (s16)(y + 90);
+                world_quad(fb, view, pr, w, 5, glow / 2, glow + 30, glow + 40, 1, -2);
+            }
         }
+    }
+    /* turbine fans spinning in the reactor */
+    for (i = 0; i < LAB_NFANS; i++) {
+        const LabFan *fn = &lab_fans[i];
+        int a = t * 90 * fn->speed;
+        SVECTOR w[4];
+        static const int cx[4] = { -1, 1, -1, 1 }, cy[4] = { -1, -1, 1, 1 };
+        for (k = 0; k < 4; k++) {
+            s32 lx = cx[k] * fn->r, ly = cy[k] * fn->r;
+            w[k].vx = (s16)(fn->x + ((lx * icos(a) - ly * isin(a)) >> 12));
+            w[k].vy = (s16)(fn->y + ((lx * isin(a) + ly * icos(a)) >> 12));
+            w[k].vz = fn->z;
+        }
+        world_quad(fb, view, pr, w, 12, 110, 110, 110, 0, -1);
     }
 }

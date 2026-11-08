@@ -18,6 +18,6 @@ void embers_draw(FrameBuf *fb, int t, int ot);
 
 /* hell arena floor: basalt tiles with pulsing lava cracks */
 void arena_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t);
-void blob_shadow(FrameBuf *fb, const MATRIX *view, const PROJ *pr, s32 x, s32 z);
+void blob_shadow(FrameBuf *fb, const MATRIX *view, const PROJ *pr, s32 x, s32 y, s32 z);
 
 #endif

@@ -119,6 +119,13 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         }
         p->pushing = 1;                                   /* touching a wall this frame */
     }
+    {   /* wedged between two things (a gap narrower than she is): don't move this frame */
+        s32 cx = nx >> 4, cz = nz >> 4;
+        if (level_collide(&cx, &cz, p->y, RADIUS - 8, &cnx, &cnz)) {
+            nx = p->x16; nz = p->z16;
+            p->vx = 0; p->vz = 0;
+        }
+    }
     p->x16 = nx; p->z16 = nz;
     p->x = nx >> 4; p->z = nz >> 4;
 

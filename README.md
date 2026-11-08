@@ -26,10 +26,29 @@ level. The engine is written so it can run on a real PlayStation later. For now 
 - **Keyframed upper body** (`game/fk.c`, clips in `game/fkclips.c`, authored by
   `tools/make_fkclips.py`): torso, head and arms play idle / walk / run clips in step with the
   legs, blended by speed, with air and landing poses on top.
-- **Test level**: floor with lava seams, boundary walls, a low platform, stairs to a high
-  platform, a ramp, pillars and a wall to run into, and skull totems.
+- **The level: a shinigami energy-extraction plant** (`tools/build_lab.py` → `game/lab_data.h`,
+  drawn by `game/level.c`). This is where they drain shinigami - what Deadbird is - for power:
+  - *Extraction Hall*: the great tank with a captured shinigami hanging in it, energy rings
+    rising through the glass, four extraction pods with caged beings, consoles showing their
+    failing vitals, a catwalk with stairs, pillars, cable trunks, a glowing floor ring
+  - *Reactor*: the soul-reactor core (copper coil, pulsing plasma bands), conduits to the
+    walls, turbine generators with spinning fans, control consoles
+  - *Control Lab*: wall of monitors, operator consoles, server racks, an autopsy table with a
+    shinigami on it, specimen jars of skulls
+  - *Containment*: barred cells with captives under red light, crates and soul canisters
+  - corridors with pipes, cable trays and floor light strips
+- **PS1-style level rendering**: 32 procedural 64x64 sci-fi texture tiles on two 8bpp CLUT
+  pages (panels, rivets, hazard stripes, grates, screens, coils, glass, plasma...) painted with
+  baked bevels, grime and corner occlusion, quantised with 4x4 ordered dither
+  (`docs/lab_page_a.png`, `docs/lab_page_b.png`). About 4,700 textured quads with **baked
+  vertex lighting**: 47 coloured lights, shadow rays against every solid object, ambient
+  occlusion under props and in corners; the GPU gouraud-shades and dithers it. At run time:
+  chunk frustum culling, near-plane + guard-band polygon clipping, distance fog, pulsing
+  screens / plasma / alarm lights, additive light halos, rising energy rings, spinning fans.
+  Typically 500-1,800 level polygons on screen. Tour: `docs/lab_tour.png`.
 - **Camera**: third-person follow camera that drifts back behind you as you move; swing it with
-  L1/R1 (< >) or by dragging a finger on the right side of the screen.
+  L1/R1 (< >) or by dragging a finger on the right side of the screen. Indoors it pulls in in
+  front of walls, machines and the ceiling.
 
 ## What "true PS1" means here
 
@@ -60,7 +79,7 @@ game/              Deadbird itself (platform independent): flow, player movement
 assets/            demon.tim (256x256 8bpp CLUT), demon_mesh.h (488 tris, 16 parts)
 platform/android/  NativeActivity + GLES2 present + touch pad (Gradle project)
 platform/headless/ PC test build that renders frames to BMP (used by CI)
-tools/             asset generator (build_demon.py), viewer, bin2c
+tools/             asset generators (build_demon.py, build_lab.py + lab_textures.py), viewer, bin2c
 docs/PS1_PORT.md   plan for the real PS1 build (PSn00bSDK)
 ```
 

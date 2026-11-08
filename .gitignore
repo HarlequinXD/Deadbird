@@ -8,3 +8,6 @@ platform/android/app/build/
 platform/android/app/.cxx/
 platform/android/local.properties
 *.apk
+platform/headless/stresstest
+platform/headless/labview
+__pycache__/

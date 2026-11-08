@@ -23,3 +23,8 @@ STRESS_SRC := stresstest.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/game/player.c 
               $(ROOT)/game/fkclips.c $(ROOT)/game/level.c $(ROOT)/game/fx.c $(ROOT)/game/hud.c
 stresstest: $(STRESS_SRC)
 	$(CC) $(CFLAGS) $(INC) $(STRESS_SRC) -o $@
+
+# fly-through screenshots of the level (no player)
+LABVIEW_SRC := labview.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/game/level.c
+labview: $(LABVIEW_SRC) $(ROOT)/game/lab_data.h
+	$(CC) $(CFLAGS) $(INC) $(LABVIEW_SRC) -o $@
