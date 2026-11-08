@@ -13,6 +13,7 @@
 #include "hud.h"
 #include "fx.h"
 #include "title.h"
+#include "ik.h"
 #undef DEMON_MESH_NO_DATA
 #include "demon_tim.h"
 #include "demon_mesh.h"
@@ -27,6 +28,9 @@ static Player pl;
 static int gs, gs_t, frame_count, shake;
 static s32 cam_yaw, cam_dist, cam_h, cam_side;
 static u32 prev_pad, cur_pad;
+static int stick_on, stick_ox, stick_oy, stick_x, stick_y;   /* floating touch stick (screen px) */
+static int ref_on, ref_yaw, ref_dir;                           /* camera reference lock */
+#define STICK_R 34
 static int debug_side_cam;
 static s32 foot_drift_max, foot_prev[2][3];
 static int foot_prev_planted[2];
@@ -45,19 +49,19 @@ static const char *touch_labels[] = { "J", "R", "<", ">", "II" };
 
 u32 touch_hit(int x, int y)
 {
-    int i, dx = x - TOUCH_DPAD_X, dy = y - TOUCH_DPAD_Y;
+    int i;
     u32 bits = 0;
-    if (dx * dx + dy * dy <= (TOUCH_DPAD_R + 12) * (TOUCH_DPAD_R + 12) && dx * dx + dy * dy > 36) {
-        int ax = dx < 0 ? -dx : dx, ay = dy < 0 ? -dy : dy;
-        if (ax * 5 > ay * 2) bits |= dx < 0 ? PAD_LEFT : PAD_RIGHT;
-        if (ay * 5 > ax * 2) bits |= dy < 0 ? PAD_UP : PAD_DOWN;
-    }
     for (i = 0; i < touch_button_count; i++) {
         const TouchButton *b = &touch_buttons[i];
-        dx = x - b->x; dy = y - b->y;
+        int dx = x - b->x, dy = y - b->y;
         if (dx * dx + dy * dy <= (b->r + 7) * (b->r + 7)) bits |= b->button;
     }
     return bits;
+}
+
+void game_set_stick(int active, int ox, int oy, int x, int y)
+{
+    stick_on = active; stick_ox = ox; stick_oy = oy; stick_x = x; stick_y = y;
 }
 
 void game_touch_tap(int x, int y) { if (gs == GS_TITLE) title_tap(x, y); }
@@ -131,11 +135,37 @@ static void camera_update(u32 pad)
     cam_yaw &= 4095;
 }
 
+/* stick or d-pad -> world heading + push amount. The heading is measured against the camera
+   yaw captured when you started pushing that way, so a drifting camera can't steer you. */
+static void read_move(u32 pad, int *yaw, int *mag)
+{
+    s32 dx = 0, dz = 0, len;
+    int dir;
+    *mag = 0;
+    if (stick_on) {
+        dx = stick_x - stick_ox; dz = stick_oy - stick_y;
+        len = (s32)isqrt((u32)(dx * dx + dz * dz));
+        if (len > 5) *mag = (int)(len >= STICK_R ? ONE : len * ONE / STICK_R);
+    }
+    if (!*mag) {
+        dx = ((pad & PAD_RIGHT) != 0) - ((pad & PAD_LEFT) != 0);
+        dz = ((pad & PAD_UP) != 0) - ((pad & PAD_DOWN) != 0);
+        if (dx || dz) *mag = 2600;                        /* d-pad walks; hold run to sprint */
+    }
+    if (!*mag) { ref_on = 0; *yaw = pl.yaw; return; }
+    dir = player_input_angle(dx, dz);
+    if (!ref_on || ((((dir - ref_dir + 2048) & 4095) - 2048) > 700) || ((((dir - ref_dir + 2048) & 4095) - 2048) < -700)) {
+        ref_on = 1; ref_yaw = cam_yaw; ref_dir = dir;
+    }
+    *yaw = (ref_yaw + dir) & 4095;
+}
+
 static void simulate(u32 pad)
 {
-    int bumped = pl.bump_t;
+    int bumped = pl.bump_t, myaw, mmag;
     camera_update(pad);
-    player_update(&pl, pad, cam_yaw);
+    read_move(pad, &myaw, &mmag);
+    player_update(&pl, pad, myaw, mmag);
     if (!bumped && pl.bump_t) shake = 5;
     player_pose(&pl, &demon);
     {   /* measure how far a planted foot moved since last frame (should be 0: no sliding) */
@@ -183,30 +213,33 @@ static void flow(u32 pad, u32 press)
 }
 
 /* ------------------------------------------------------------------ rendering */
-static void draw_touch(FrameBuf *fb)
+static void ring(FrameBuf *fb, int cx, int cy, int r, u32 col)
 {
-    static const s16 dir[4][2] = { { 0, -1 }, { 1, 0 }, { 0, 1 }, { -1, 0 } };
-    static const u32 bit[4] = { PAD_UP, PAD_RIGHT, PAD_DOWN, PAD_LEFT };
     static const s16 cs[9] = { 4096, 2896, 0, -2896, -4096, -2896, 0, 2896, 4096 };
     static const s16 sn[9] = { 0, 2896, 4096, 2896, 0, -2896, -4096, -2896, 0 };
-    int i, k;
+    int k;
     for (k = 0; k < 8; k++)
-        tri_f(fb, TOUCH_DPAD_X, TOUCH_DPAD_Y,
-              TOUCH_DPAD_X + (TOUCH_DPAD_R * cs[k] >> 12), TOUCH_DPAD_Y + (TOUCH_DPAD_R * sn[k] >> 12),
-              TOUCH_DPAD_X + (TOUCH_DPAD_R * cs[k + 1] >> 12), TOUCH_DPAD_Y + (TOUCH_DPAD_R * sn[k + 1] >> 12),
-              RGB(50, 12, 8), SEMI_ADD, 0);
-    for (i = 0; i < 4; i++) {
-        int dx = dir[i][0], dy = dir[i][1], c = (cur_pad & bit[i]) ? 220 : 110;
-        tri_f(fb, TOUCH_DPAD_X + dx * 32, TOUCH_DPAD_Y + dy * 32,
-              TOUCH_DPAD_X + dx * 16 - dy * 11, TOUCH_DPAD_Y + dy * 16 + dx * 11,
-              TOUCH_DPAD_X + dx * 16 + dy * 11, TOUCH_DPAD_Y + dy * 16 - dx * 11, RGB(c, c / 3, c / 6), SEMI_ADD, 0);
+        tri_f(fb, cx, cy, cx + (r * cs[k] >> 12), cy + (r * sn[k] >> 12),
+              cx + (r * cs[k + 1] >> 12), cy + (r * sn[k + 1] >> 12), col, SEMI_ADD, 0);
+}
+
+static void draw_touch(FrameBuf *fb)
+{
+    int i;
+    /* floating stick: base where the thumb landed, knob follows (hint shown when idle) */
+    if (stick_on) {
+        s32 dx = stick_x - stick_ox, dy = stick_y - stick_oy, len = (s32)isqrt((u32)(dx * dx + dy * dy));
+        if (len > STICK_R) { dx = dx * STICK_R / len; dy = dy * STICK_R / len; }
+        ring(fb, stick_ox, stick_oy, STICK_R + 4, RGB(46, 10, 6));
+        ring(fb, stick_ox + dx, stick_oy + dy, 15, RGB(150, 46, 18));
+    } else {
+        ring(fb, 52, 184, STICK_R + 4, RGB(26, 6, 4));
+        ring(fb, 52, 184, 13, RGB(60, 18, 8));
     }
     for (i = 0; i < touch_button_count; i++) {
         const TouchButton *b = &touch_buttons[i];
         int lit = (cur_pad & b->button) != 0, c = lit ? 150 : 60;
-        for (k = 0; k < 8; k++)
-            tri_f(fb, b->x, b->y, b->x + (b->r * cs[k] >> 12), b->y + (b->r * sn[k] >> 12),
-                  b->x + (b->r * cs[k + 1] >> 12), b->y + (b->r * sn[k + 1] >> 12), RGB(c, c / 3, c / 5), SEMI_ADD, 0);
+        ring(fb, b->x, b->y, b->r, RGB(c, c / 3, c / 5));
         text_center(fb, touch_labels[i], b->x + 1, b->y - 4, 1, lit ? 255 : 150, 0);
     }
 }
@@ -261,8 +294,8 @@ static void draw_hud(FrameBuf *fb)
 static void draw_controls(FrameBuf *fb)
 {
     static const char *lines[][2] = {
-        { "D-PAD",        "MOVE - RELATIVE TO CAMERA" },
-        { "HOLD R",       "RUN" },
+        { "LEFT THUMB",   "STICK - PUSH FAR TO RUN" },
+        { "HOLD R",       "SPRINT" },
         { "J",            "JUMP" },
         { "<  >",         "SWING THE CAMERA" },
         { "",             "CAMERA FOLLOWS BEHIND" },

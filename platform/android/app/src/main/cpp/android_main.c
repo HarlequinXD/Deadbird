@@ -32,6 +32,8 @@ static int game_started;
 /* active touches */
 #define MAX_TOUCH 10
 static struct { int id, x, y, down; } touches[MAX_TOUCH];
+/* floating stick: the first finger that lands on the left side of the screen away from buttons */
+static int stick_id = -1, stick_ox, stick_oy, stick_x, stick_y;
 
 static GLuint shader(GLenum type, const char *src)
 {
@@ -164,7 +166,13 @@ static void to_frame(float px, float py, int *x, int *y)
 
 static void touch_set(int id, float px, float py, int down)
 {
-    int i, free_slot = -1;
+    int i, free_slot = -1, fx, fy;
+    to_frame(px, py, &fx, &fy);
+    if (id == stick_id) {
+        if (down) { stick_x = fx; stick_y = fy; }
+        else stick_id = -1;
+        return;
+    }
     for (i = 0; i < MAX_TOUCH; i++) {
         if (touches[i].down && touches[i].id == id) break;
         if (!touches[i].down && free_slot < 0) free_slot = i;
@@ -186,9 +194,14 @@ static int32_t on_input(struct android_app *app, AInputEvent *ev)
         switch (act) {
         case AMOTION_EVENT_ACTION_DOWN:
         case AMOTION_EVENT_ACTION_POINTER_DOWN: {
-            int tx, ty;
-            touch_set(AMotionEvent_getPointerId(ev, idx), AMotionEvent_getX(ev, idx), AMotionEvent_getY(ev, idx), 1);
+            int tx, ty, pid = AMotionEvent_getPointerId(ev, idx);
             to_frame(AMotionEvent_getX(ev, idx), AMotionEvent_getY(ev, idx), &tx, &ty);
+            if (stick_id < 0 && tx < SCREEN_W * 45 / 100 && ty > 40 && !touch_hit(tx, ty)) {
+                stick_id = pid; stick_ox = stick_x = tx; stick_oy = stick_y = ty;
+                game_touch_tap(tx, ty);
+                break;
+            }
+            touch_set(pid, AMotionEvent_getX(ev, idx), AMotionEvent_getY(ev, idx), 1);
             game_touch_tap(tx, ty);
             break;
         }
@@ -202,6 +215,7 @@ static int32_t on_input(struct android_app *app, AInputEvent *ev)
             break;
         case AMOTION_EVENT_ACTION_CANCEL:
             memset(touches, 0, sizeof(touches));
+            stick_id = -1;
             break;
         }
         return 1;
@@ -229,6 +243,7 @@ static void on_cmd(struct android_app *app, int32_t cmd)
         break;
     case APP_CMD_LOST_FOCUS:
         memset(touches, 0, sizeof(touches));
+        stick_id = -1;
         break;
     }
 }
@@ -267,7 +282,10 @@ void android_main(struct android_app *app)
             double t = now_s();
             int steps = 0;
             if (next == 0 || t - next > 0.25) next = t;
-            while (t >= next && steps < 4) { game_frame(read_pad()); next += 1.0 / 60.0; steps++; }
+            while (t >= next && steps < 4) {
+                game_set_stick(stick_id >= 0, stick_ox, stick_oy, stick_x, stick_y);
+                game_frame(read_pad()); next += 1.0 / 60.0; steps++;
+            }
         }
         present();
     }

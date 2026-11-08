@@ -154,6 +154,7 @@ int level_ray(const VECTOR *a, const VECTOR *b, VECTOR *hit)
 }
 
 /* ------------------------------------------------------------------ drawing */
+#define FLOOR_BIAS 10000     /* floor sits under everything: sort it at the far end of the OT */
 static int fog_scale(s32 z)
 {
     int f = 4096 - (z - 2500) * 4096 / 11000;
@@ -202,7 +203,7 @@ static void draw_face(FrameBuf *fb, const MATRIX *cam, const VECTOR *o, const VE
                 p->v[k].r = (u8)(cr * f >> 12); p->v[k].g = (u8)(cg * f >> 12); p->v[k].b = (u8)(cb * f >> 12);
             }
             z = (sz[j][i] + sz[j][i + 1] + sz[j + 1][i] + sz[j + 1][i + 1]) >> 2;
-            ot_add(fb, (z >> 4) + bias, p);
+            ot_add(fb, bias == FLOOR_BIAS ? OT_LEN - 20 : (z >> 4) + bias, p);
         }
 }
 
@@ -243,7 +244,7 @@ void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
             u.vx = 800; u.vy = 0; u.vz = 0; v.vx = 0; v.vy = 0; v.vz = -800;
             draw_face(fb, view, &o, &u, &v, 2, 2, 4096,
                       lava ? (u32)((glow << 16) | ((glow / 4) << 8) | 12) : ((i + j) & 1 ? 0x3c1a1a : 0x321416),
-                      pr, 0);
+                      pr, FLOOR_BIAS);
         }
     for (i = 0; i < NBOX; i++) {
         const Box *b = &boxes[i];

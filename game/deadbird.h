@@ -11,6 +11,8 @@ void game_frame(u32 pad);
 void game_display_area(int *x, int *y);
 /* draw the on-screen touch pad (Android) into the frame */
 void game_set_touch_ui(int on);
+/* floating analog stick in screen pixels: origin where the thumb landed, current position */
+void game_set_stick(int active, int ox, int oy, int x, int y);
 /* a finger went down at a screen point (menus) */
 void game_touch_tap(int x, int y);
 /* current flow state (title, intro, fight, ko, ...) for tests */
@@ -21,9 +23,6 @@ int  game_debug_foot_drift(void);
 
 /* touch layout in 320x240 screen space, shared with the platform's hit testing */
 typedef struct { s16 x, y, r; u32 button; } TouchButton;
-#define TOUCH_DPAD_X 46
-#define TOUCH_DPAD_Y 190
-#define TOUCH_DPAD_R 38
 extern const TouchButton touch_buttons[];
 extern const int touch_button_count;
 u32 touch_hit(int x, int y);       /* screen point -> pad bits */

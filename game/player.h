@@ -18,7 +18,7 @@
 #include "demon_mesh.h"
 
 #define BTN_JUMP  PAD_CROSS
-#define BTN_RUN   (PAD_CIRCLE | PAD_SQUARE)
+#define BTN_RUN   (PAD_CIRCLE | PAD_SQUARE)   /* hold to sprint even with a half-pushed stick */
 #define BTN_CAM_L PAD_L1
 #define BTN_CAM_R PAD_R1
 
@@ -36,6 +36,7 @@ typedef struct {
     int turn;                  /* yaw rate this frame */
     s32 accel;
     int grounded, air_t, land_t, bump_t;
+    int gait, phase, idle_t;   /* gait cycle on/off, phase 0..4095, idle clock */
     int bob;                   /* pelvis bob from the gait */
     Foot foot[2];              /* 0 = left, 1 = right */
     u32 pad, prev;
@@ -45,8 +46,11 @@ typedef struct {
 } Player;
 
 void player_reset(Player *p, s32 x, s32 z, int yaw);
-/* cam_yaw: the camera's heading, so the d-pad moves relative to the view */
-void player_update(Player *p, u32 pad, int cam_yaw);
+/* input_yaw: world heading the stick points at (camera-relative, resolved by the caller);
+   input_mag: 0 = stick released, 4096 = fully pushed */
+void player_update(Player *p, u32 pad, int input_yaw, int input_mag);
+/* angle of (dx right, dz forward), 4096 = 360, 0 = forward */
+int  player_input_angle(s32 dx, s32 dz);
 void player_pose(Player *p, const Model *m);
 
 #endif

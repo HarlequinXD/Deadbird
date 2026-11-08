@@ -66,9 +66,12 @@ int main(int argc, char **argv)
     run(0, 20);
     write_bmp(out, "03_idle");
     /* walk cycle: one frame every 4 for a gait strip */
-    for (i = 0; i < 6; i++) { run(PAD_UP, 4); sprintf(name, "04_walk_%d", i); write_bmp(out, name); }
-    run(PAD_UP | PAD_CIRCLE, 40);
-    for (i = 0; i < 4; i++) { run(PAD_UP | PAD_CIRCLE, 3); sprintf(name, "05_run_%d", i); write_bmp(out, name); }
+    game_set_stick(1, 60, 180, 60, 162);                 /* half push forward: walk */
+    for (i = 0; i < 6; i++) { run(0, 4); sprintf(name, "04_walk_%d", i); write_bmp(out, name); }
+    game_set_stick(1, 60, 180, 60, 140);                 /* full push: run */
+    run(0, 40);
+    for (i = 0; i < 4; i++) { run(0, 3); sprintf(name, "05_run_%d", i); write_bmp(out, name); }
+    game_set_stick(0, 0, 0, 0, 0);
     run(PAD_UP | PAD_CIRCLE | PAD_RIGHT, 14);
     write_bmp(out, "06_run_turn_lean");
     run(PAD_RIGHT | PAD_CIRCLE, 30);
@@ -95,9 +98,13 @@ int main(int argc, char **argv)
     game_set_touch_ui(0);
     game_debug_side_cam(1);
     run(0, 40);
-    for (i = 0; i < 8; i++) { run(PAD_UP, 3); sprintf(name, "12_side_walk_%d", i); write_bmp(out, name); }
-    run(PAD_UP | PAD_CIRCLE, 30);
-    for (i = 0; i < 8; i++) { run(PAD_UP | PAD_CIRCLE, 2); sprintf(name, "13_side_run_%d", i); write_bmp(out, name); }
+    game_set_stick(1, 60, 180, 60, 162);
+    run(0, 30);
+    for (i = 0; i < 8; i++) { run(0, 3); sprintf(name, "12_side_walk_%d", i); write_bmp(out, name); }
+    game_set_stick(1, 60, 180, 60, 140);
+    run(0, 40);
+    for (i = 0; i < 8; i++) { run(0, 2); sprintf(name, "13_side_run_%d", i); write_bmp(out, name); }
+    game_set_stick(0, 0, 0, 0, 0);
     game_debug_side_cam(0);
     printf("planted-foot slide: max %d units per frame (0 = feet never slide)\n", (int)isqrt_i(game_debug_foot_drift()));
     if (game_debug_foot_drift() != 0) { printf("FAIL: a planted foot slid\n"); return 1; }
