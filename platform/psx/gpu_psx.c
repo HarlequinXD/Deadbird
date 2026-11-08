@@ -49,7 +49,7 @@ void gpu_fill(const ENGINE_RECT *r, u8 cr, u8 cg, u8 cb)
     setXY0(&f, r->x, r->y);
     setWH(&f, r->w, r->h);
     termPrim(&f);
-    DrawPrim(&f);
+    DrawPrim((const uint32_t *)&f);
     DrawSync(0);
 }
 

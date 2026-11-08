@@ -18,7 +18,7 @@ list(FILTER _engine EXCLUDE REGEX "gpu_soft\\.c$")     # the real GPU replaces t
 file(GLOB _game ${ROOT}/game/*.c)
 
 # only the libraries Deadbird uses (the engine has its own maths, so not psxgte)
-set(PSN00BSDK_EXECUTABLE_LINK_LIBRARIES psxgpu psxapi psxetc c)
+set(PSN00BSDK_EXECUTABLE_LINK_LIBRARIES psxgpu psxetc psxapi c)
 
 psn00bsdk_add_executable(deadbird STATIC main.c gpu_psx.c ${_engine} ${_game})
 target_include_directories(deadbird PRIVATE ${ROOT}/engine ${ROOT}/game ${ROOT}/assets)
