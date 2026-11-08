@@ -13,10 +13,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build headless engine
         run: make -C platform/headless CFLAGS="-O2 -std=c99 -Wall -Wextra -Wno-unused-parameter -Werror"
-      - name: Render test frames
+      - name: Play a match headless + animation contact sheet
         run: |
           mkdir -p frames
           ./platform/headless/deadbird_headless frames
+          ./platform/headless/posetest frames/animations.bmp
       - uses: actions/upload-artifact@v4
         with:
           name: test-frames

@@ -185,9 +185,13 @@ static int32_t on_input(struct android_app *app, AInputEvent *ev)
         size_t i, n = AMotionEvent_getPointerCount(ev);
         switch (act) {
         case AMOTION_EVENT_ACTION_DOWN:
-        case AMOTION_EVENT_ACTION_POINTER_DOWN:
+        case AMOTION_EVENT_ACTION_POINTER_DOWN: {
+            int tx, ty;
             touch_set(AMotionEvent_getPointerId(ev, idx), AMotionEvent_getX(ev, idx), AMotionEvent_getY(ev, idx), 1);
+            to_frame(AMotionEvent_getX(ev, idx), AMotionEvent_getY(ev, idx), &tx, &ty);
+            game_touch_tap(tx, ty);
             break;
+        }
         case AMOTION_EVENT_ACTION_MOVE:
             for (i = 0; i < n; i++)
                 touch_set(AMotionEvent_getPointerId(ev, i), AMotionEvent_getX(ev, i), AMotionEvent_getY(ev, i), 1);

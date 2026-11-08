@@ -981,6 +981,7 @@ with open(f'{OUT}/demon_mesh.h', 'w') as fh:
     fh.write(f'/* right-hand weapon mount: local to bone fist_R, plus forward axis (4096 = 1.0) */\n')
     fh.write(f'#define DEMON_MOUNT_BONE DEMON_BONE_FIST_R\n#define DEMON_MOUNT_X {ml[0]}\n#define DEMON_MOUNT_Y {ml[1]}\n#define DEMON_MOUNT_Z {ml[2]}\n')
     fh.write(f'#define DEMON_MOUNT_DX {int(round(md[0]))}\n#define DEMON_MOUNT_DY {int(round(-md[1]))}\n#define DEMON_MOUNT_DZ {int(round(md[2]))}\n')
+    fh.write('#ifndef DEMON_MESH_NO_DATA\n')
     fh.write('static const DVERT demon_verts[] = {\n')
     for i in vorder:
         x, y, z = fx(P[i] - BPIV[VBONE[i]])
@@ -1000,5 +1001,5 @@ with open(f'{OUT}/demon_mesh.h', 'w') as fh:
         off = BPIV[i] - (BPIV[BPAR[i]] if BPAR[i] >= 0 else 0)
         ox, oy, oz = fx(off)
         fh.write(f'  {{"{n}", {BPAR[i]}, {ox}, {oy}, {oz}, {vs[0]}, {len(vs)}, {ps[0]}, {len(ps)}}},\n')
-    fh.write('};\n')
+    fh.write('};\n#endif /* DEMON_MESH_NO_DATA */\n')
 print('done')

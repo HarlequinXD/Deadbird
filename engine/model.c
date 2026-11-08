@@ -5,28 +5,30 @@ static s16 sx[MODEL_MAX_VERTS], sy[MODEL_MAX_VERTS];
 static s32 sz[MODEL_MAX_VERTS];
 static u8  ok[MODEL_MAX_VERTS];
 
-void model_draw(const Model *m, const MATRIX *root, const MATRIX *pose,
-                const DrawCtx *c, FrameBuf *fb, MATRIX *bone_world)
+void model_skeleton(const Model *m, const MATRIX *root, const MATRIX *pose, MATRIX *out)
 {
-    static MATRIX world[MODEL_MAX_BONES];
-    int b, i, k;
-
+    int b;
     for (b = 0; b < m->nbones && b < MODEL_MAX_BONES; b++) {
         const DBONE *bn = &m->bones[b];
         MATRIX local = pose[b];
         mat_translate(&local, bn->ox, bn->oy, bn->oz);
-        mat_mul(bn->parent >= 0 ? &world[bn->parent] : root, &local, &world[b]);
-        if (bone_world) bone_world[b] = world[b];
+        mat_mul(bn->parent >= 0 ? &out[bn->parent] : root, &local, &out[b]);
+    }
+}
 
+void model_draw_mats(const Model *m, const MATRIX *cam, const DrawCtx *c, FrameBuf *fb)
+{
+    int b, i, k;
+    for (b = 0; b < m->nbones && b < MODEL_MAX_BONES; b++) {
+        const DBONE *bn = &m->bones[b];
         /* transform + project this bone's vertices (RotTransPers) */
         for (i = bn->v0; i < bn->v0 + bn->vn && i < MODEL_MAX_VERTS; i++) {
             SVECTOR sv; VECTOR cv;
             sv.vx = m->verts[i].x; sv.vy = m->verts[i].y; sv.vz = m->verts[i].z;
-            mat_apply(&world[b], &sv, &cv);
+            mat_apply(&cam[b], &sv, &cv);
             ok[i] = (u8)rot_trans_pers(&c->proj, &cv, &sx[i], &sy[i]);
             sz[i] = cv.vz;
         }
-
         /* emit this bone's primitives */
         for (i = bn->p0; i < bn->p0 + bn->pn; i++) {
             const DPRIM *dp = &m->prims[i];
@@ -51,4 +53,13 @@ void model_draw(const Model *m, const MATRIX *root, const MATRIX *pose,
             ot_add(fb, zsum >> c->ot_shift, p);
         }
     }
+}
+
+void model_draw(const Model *m, const MATRIX *root, const MATRIX *pose,
+                const DrawCtx *c, FrameBuf *fb, MATRIX *bone_world)
+{
+    static MATRIX world[MODEL_MAX_BONES];
+    model_skeleton(m, root, pose, world);
+    if (bone_world) memcpy(bone_world, world, sizeof(MATRIX) * (size_t)m->nbones);
+    model_draw_mats(m, world, c, fb);
 }

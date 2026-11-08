@@ -34,6 +34,11 @@ typedef struct {
     u8   r, g, b;        /* modulation colour (128 = texture as is) */
 } DrawCtx;
 
+/* compute every bone's matrix: out[b] = parent * T(offset) * R(pose[b]); root for bones with no parent */
+void model_skeleton(const Model *m, const MATRIX *root, const MATRIX *pose, MATRIX *out);
+/* draw with precomputed bone matrices already in camera space */
+void model_draw_mats(const Model *m, const MATRIX *cam, const DrawCtx *ctx, FrameBuf *fb);
+
 /* pose[i] = rotation of bone i; root_world = model -> camera matrix.
    bone_world (optional, nbones entries) receives each bone's final matrix (for attachments). */
 void model_draw(const Model *m, const MATRIX *root_world, const MATRIX *pose,

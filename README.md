@@ -1,8 +1,29 @@
 # Deadbird
 
-A game built on a **true PS1-style engine**. The engine is written so it can run on a
-real PlayStation later. For now it ships on **Android**, using a fast software model
-of the PS1's graphics chip.
+A **3D demon brawler** (PS1-era 3D fighter style, no martial arts — claws, haymakers, hooves
+and horns) built on a **true PS1-style engine**. The engine is written so it can run on a
+real PlayStation later. For now it ships on **Android**, using a fast software model of the
+PS1's graphics chip.
+
+## The game
+
+- **Title screen**: real-time PS1 fire simulation rising from the bottom (8-bit heat buffer
+  streamed into VRAM every frame, drawn through a fire CLUT with additive blending), hell sky,
+  fire-lettered DEADBIRD logo, menu, and a CPU-vs-CPU brawl running behind it.
+- **Modes**: Versus CPU (best of 3, 60 s rounds), Training (passive dummy, refilling health), Move List.
+- **Deadbird vs Shade**: the same model; Shade is a palette-swapped (CLUT) mirror twin.
+- **Moves**: `L L L` claw jab → hell hook → rake · `L L H` … skull hammer (knockdown) ·
+  `H H` haymaker → hoof stomp · `L H H` · `FWD+H` horn-gore lunge (knockdown) · hold `G` to guard.
+- **Fighting framework** (`game/fighter.*`): state machine, move table with combo chains and
+  input buffering, bone-attached hitboxes vs. pelvis/chest/head hurtboxes, hitstop, knockback,
+  hitstun/blockstun, knockdown → lie → get-up, KO, round/match flow, combo counter.
+- **CPU** (`game/ai.*`): plays through the same pad bits as a human (approach, guard reactions, combo strings).
+- **Full-body IK** (`engine/ik.*`, `game/rig.*`): fixed-point two-bone IK for both arms and
+  legs; animations (`game/clips.c`) are just pelvis/spine/head angles plus wrist and ankle
+  targets, so feet stay planted and fists land where they are aimed.
+- **Hell UI** (`game/hud.*`, `tools/make_font.py`): original fire-gradient pixel font as a
+  4bpp TIM, molten health bars with bone frames, spikes and damage trail, obsidian timer,
+  round-win flames, ROUND / FIGHT! / K.O. / WINS banners, embers, hit sparks and blood.
 
 ![headless test frames](docs/headless_frames.png)
 
@@ -11,7 +32,7 @@ of the PS1's graphics chip.
 | PS1 hardware | Deadbird engine |
 |---|---|
 | MIPS R3000, **no floating point** | engine + game are pure fixed-point C (4096 = 1.0, angles 4096 = 360°) |
-| **2 MB main RAM** | no `malloc`; all buffers are static, compile-time checked against a 2 MB budget (currently ~320 KB) |
+| **2 MB main RAM** | no `malloc`; all buffers are static, compile-time checked against a 2 MB budget (currently ~550 KB) |
 | **1 MB VRAM** (1024×512, 16-bit) | emulated 1 MB VRAM; framebuffers, textures and palettes (CLUTs) live in it exactly where a PS1 would put them |
 | GTE geometry coprocessor | `engine/gte.*`: `MATRIX`/`SVECTOR`, rotate-translate-perspective, `NCLIP` backface test |
 | GPU + ordering tables | `engine/gpu.h`: primitives linked into a depth-sorted ordering table (OT), drawn far → near, no Z-buffer |
@@ -19,7 +40,7 @@ of the PS1's graphics chip.
 | TIM textures | `engine/tim.*` loads `.tim` files straight into VRAM |
 | 320×240 display | double-buffered at VRAM (0,0)/(0,240); Android scales it up with nearest filtering, 4:3 letterbox |
 
-The software GPU draws a full frame in **~0.4 ms** on a PC, so phones have lots of headroom.
+A full game frame (two fighters, arena, fire, HUD) takes **~1 ms** on a PC, so phones have lots of headroom.
 
 ## Layout
 
@@ -31,7 +52,8 @@ engine/            portable PS1 engine (C99, fixed point, no malloc)
   gpu_soft.c       software PS1 GPU (Android/PC only; PS1 uses the real GPU)
   tim.[ch]         TIM loader -> VRAM
   model.[ch]       rigid hierarchical models (one GTE matrix per body part)
-game/              Deadbird itself (platform independent)
+  ik.[ch]          fixed-point two-bone IK
+game/              Deadbird itself (platform independent): flow, fighters, AI, rig, clips, HUD, fx, title
 assets/            demon.tim (256x256 8bpp CLUT), demon_mesh.h (488 tris, 16 parts)
 platform/android/  NativeActivity + GLES2 present + touch pad (Gradle project)
 platform/headless/ PC test build that renders frames to BMP (used by CI)
@@ -39,13 +61,12 @@ tools/             asset generator (build_demon.py), viewer, bin2c
 docs/PS1_PORT.md   plan for the real PS1 build (PSn00bSDK)
 ```
 
-## Controls (test scene)
+## Controls
 
-On-screen PS1 pad (Android) or pad buttons:
+On-screen PS1 pad (Android) or a PS1 pad:
 
-- **D-pad** left/right: orbit camera · up/down: zoom
-- **✕** walk / stop · **○** auto-spin on/off · **△** reset camera · **START** hide/show touch pad
-- **L1/R1** camera pitch
+- **D-pad**: walk toward / back away (menus: up/down; tap a menu row to pick it)
+- **L** (□) light · **H** (△) heavy · **G** (○ / R1) guard · **II** (START) pause
 
 ## Building
 
@@ -55,7 +76,8 @@ To build locally: `gradle -p platform/android assembleDebug` with the Android SD
 **PC headless test**:
 ```
 make -C platform/headless
-./platform/headless/deadbird_headless out_dir   # writes frame_*.bmp, prints timing + RAM use
+./platform/headless/deadbird_headless out_dir   # plays a scripted match, writes frames, timing + RAM use
+./platform/headless/posetest anims.bmp          # contact sheet of every animation through the IK rig
 ```
 
 ## Assets

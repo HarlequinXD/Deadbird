@@ -35,6 +35,7 @@ typedef struct { const char *name; short parent; short ox, oy, oz; unsigned shor
 #define DEMON_MOUNT_DX -4094
 #define DEMON_MOUNT_DY 0
 #define DEMON_MOUNT_DZ 141
+#ifndef DEMON_MESH_NO_DATA
 static const DVERT demon_verts[] = {
   {123,41,0,0}, /* pelvis */
   {87,34,63,0}, /* pelvis */
@@ -652,3 +653,4 @@ static const DBONE demon_bones[] = {
   {"calf_R", 13, -51, 440, 36, 255, 17, 285, 20},
   {"hoof_R", 14, -15, 389, -15, 272, 9, 305, 9},
 };
+#endif /* DEMON_MESH_NO_DATA */
