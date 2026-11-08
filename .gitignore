@@ -1,0 +1,9 @@
+# build outputs
+platform/headless/deadbird_headless
+*.bmp
+platform/android/.gradle/
+platform/android/build/
+platform/android/app/build/
+platform/android/app/.cxx/
+platform/android/local.properties
+*.apk

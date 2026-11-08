@@ -1,0 +1,42 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  engine-test:
+    name: Engine (headless PC render test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build headless engine
+        run: make -C platform/headless CFLAGS="-O2 -std=c99 -Wall -Wextra -Wno-unused-parameter -Werror"
+      - name: Render test frames
+        run: |
+          mkdir -p frames
+          ./platform/headless/deadbird_headless frames
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-frames
+          path: frames/*.bmp
+
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Build debug APK
+        run: gradle -p platform/android assembleDebug --stacktrace
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Deadbird-debug-apk
+          path: platform/android/app/build/outputs/apk/debug/*.apk
