@@ -12,12 +12,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build headless engine
-        run: make -C platform/headless deadbird_headless gaittest CFLAGS="-O2 -std=c99 -Wall -Wextra -Wno-unused-parameter -Werror"
+        run: make -C platform/headless deadbird_headless gaittest stresstest CFLAGS="-O2 -std=c99 -Wall -Wextra -Wno-unused-parameter -Werror"
       - name: Play the test level headless (scripted input)
         run: |
           mkdir -p frames
           ./platform/headless/deadbird_headless frames
           ./platform/headless/gaittest frames/gait_walk_run.bmp
+          ./platform/headless/stresstest
       - uses: actions/upload-artifact@v4
         with:
           name: test-frames

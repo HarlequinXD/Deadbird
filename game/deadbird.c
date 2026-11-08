@@ -29,7 +29,6 @@ static int gs, gs_t, frame_count, shake;
 static s32 cam_yaw, cam_dist, cam_h, cam_side;
 static u32 prev_pad, cur_pad;
 static int stick_on, stick_ox, stick_oy, stick_x, stick_y;   /* floating touch stick (screen px) */
-static int ref_on, ref_yaw, ref_dir;                           /* camera reference lock */
 #define STICK_R 34
 static int debug_side_cam;
 static int touch_ui;
@@ -62,12 +61,13 @@ void game_set_stick(int active, int ox, int oy, int x, int y)
     stick_on = active; stick_ox = ox; stick_oy = oy; stick_x = x; stick_y = y;
 }
 
-void game_cam_drag(int dx) { if (gs == GS_PLAY) { cam_yaw = (cam_yaw + dx * 12) & 4095; ref_on = 0; } }
+void game_cam_drag(int dx) { if (gs == GS_PLAY) { cam_yaw = (cam_yaw + dx * 12) & 4095; } }
 void game_touch_tap(int x, int y) { if (gs == GS_TITLE) title_tap(x, y); }
 void game_set_touch_ui(int on) { touch_ui = on; }
 void game_display_area(int *x, int *y) { *x = disp_x; *y = disp_y; }
 int  game_phase(void) { return gs; }
 void game_debug_side_cam(int on) { debug_side_cam = on; }
+int  game_debug_player_yaw(void) { return pl.yaw; }
 
 /* ------------------------------------------------------------------ attract autopilot */
 static u32 autopilot(int t)
@@ -132,12 +132,11 @@ static void camera_update(u32 pad)
     cam_yaw &= 4095;
 }
 
-/* stick or d-pad -> world heading + push amount. The heading is measured against the camera
-   yaw captured when you started pushing that way, so a drifting camera can't steer you. */
+/* stick or d-pad -> world heading + push amount, relative to where the camera looks right now
+   (Slayer / MediEvil): hold the stick to one side and she keeps turning as the camera follows. */
 static void read_move(u32 pad, int *yaw, int *mag)
 {
     s32 dx = 0, dz = 0, len;
-    int dir;
     *mag = 0;
     if (stick_on) {
         dx = stick_x - stick_ox; dz = stick_oy - stick_y;
@@ -149,12 +148,8 @@ static void read_move(u32 pad, int *yaw, int *mag)
         dz = ((pad & PAD_UP) != 0) - ((pad & PAD_DOWN) != 0);
         if (dx || dz) *mag = 2600;                        /* d-pad walks; hold run to sprint */
     }
-    if (!*mag) { ref_on = 0; *yaw = pl.yaw; return; }
-    dir = player_input_angle(dx, dz);
-    if (!ref_on || ((((dir - ref_dir + 2048) & 4095) - 2048) > 700) || ((((dir - ref_dir + 2048) & 4095) - 2048) < -700)) {
-        ref_on = 1; ref_yaw = cam_yaw; ref_dir = dir;
-    }
-    *yaw = (ref_yaw + dir) & 4095;
+    if (!*mag) { *yaw = pl.yaw; return; }
+    *yaw = (cam_yaw + player_input_angle(dx, dz)) & 4095;
 }
 
 static void simulate(u32 pad)

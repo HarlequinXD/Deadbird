@@ -9,7 +9,7 @@ deadbird_headless: $(SRC) $(wildcard $(ROOT)/engine/*.h) $(wildcard $(ROOT)/game
 	$(CC) $(CFLAGS) $(INC) $(SRC) -o $@
 
 clean:
-	rm -f deadbird_headless *.bmp
+	rm -f deadbird_headless gaittest stresstest *.bmp
 
 
 # side-on walk/run contact sheet driven by the real locomotion code
@@ -17,3 +17,9 @@ GAIT_SRC := gaittest.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/game/player.c $(RO
             $(ROOT)/game/fkclips.c $(ROOT)/game/level.c $(ROOT)/game/fx.c $(ROOT)/game/hud.c
 gaittest: $(GAIT_SRC)
 	$(CC) $(CFLAGS) $(INC) $(GAIT_SRC) -o $@
+
+# long random-input movement run that fails on glitches
+STRESS_SRC := stresstest.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/game/player.c $(ROOT)/game/fk.c \
+              $(ROOT)/game/fkclips.c $(ROOT)/game/level.c $(ROOT)/game/fx.c $(ROOT)/game/hud.c
+stresstest: $(STRESS_SRC)
+	$(CC) $(CFLAGS) $(INC) $(STRESS_SRC) -o $@

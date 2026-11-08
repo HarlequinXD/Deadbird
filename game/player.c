@@ -17,7 +17,7 @@
 #define AIR_CAP    (17 * SUB)     /* air control can only add this much (0.9 m/s) */
 #define GRAVITY    90             /* 18 m/s^2 */
 #define JUMP_V     (-1626)        /* 5.4 m/s */
-#define BUMP_SPEED (24 * SUB)     /* hitting a wall faster than 1.3 m/s bounces you off */
+#define BUMP_SPEED (48 * SUB)     /* only a running, head-on hit bounces you off a wall */
 #define RADIUS     200
 #define RUN_PUSH   2870           /* stick past 70% runs */
 
@@ -90,6 +90,7 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
     s32 wx = 0, wz = 0, wish = 0, nx, nz, ox, oz, cnx, cnz, gy;
     int i;
     p->prev = pad; p->pad = pad;
+    ox = oz = 0;
 
     /* a bump knocks the wind out of you: no control for a moment */
     if (p->bump_t >= 0 && p->bump_t < 14) input_mag = 0;
@@ -110,25 +111,29 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         accelerate(p, wx, wz, wish, AIR_CAP, AIR_ACCEL);
     }
 
-    /* move, then slide along / bounce off walls */
+    /* move, then slide along / bounce off walls (a few passes so corners don't jitter) */
     nx = p->x16 + p->vx; nz = p->z16 + p->vz;
-    ox = nx >> 4; oz = nz >> 4;
-    { s32 cx = ox, cz = oz;
-      p->pushing = 0;
-      if (level_collide(&cx, &cz, p->y, RADIUS, &cnx, &cnz)) {
-          s32 into = -((p->vx * cnx + p->vz * cnz) >> 12);
-          nx += (cx - ox) * SUB; nz += (cz - oz) * SUB;
-          if (into > 0) {
-              if (into > BUMP_SPEED && p->bump_cd == 0 && p->grounded) {
-                  /* hit reaction: bounce back off the wall */
-                  p->vx += cnx * (into + into * 2 / 5) >> 12; p->vz += cnz * (into + into * 2 / 5) >> 12;
-                  p->bump_t = 0; p->bump_cd = 40;
-              } else {
-                  p->vx += cnx * into >> 12; p->vz += cnz * into >> 12;     /* slide */
-              }
-          }
-          if (wish && ((wx * cnx + wz * cnz) >> 12) < -2000 && p->grounded) p->pushing = 1;
-      } }
+    p->pushing = 0;
+    for (i = 0; i < 3; i++) {
+        s32 cx, cz;
+        ox = nx >> 4; oz = nz >> 4; cx = ox; cz = oz;
+        if (!level_collide(&cx, &cz, p->y, RADIUS, &cnx, &cnz)) break;
+        nx += (cx - ox) * SUB; nz += (cz - oz) * SUB;
+        {
+            s32 into = -((p->vx * cnx + p->vz * cnz) >> 12);
+            if (into > 0) {
+                if (i == 0 && into > BUMP_SPEED && into * 4 > p->speed16 * 3 && p->bump_cd == 0 && p->grounded) {
+                    /* running straight into it: bounce back (hit reaction) */
+                    s32 k = into + into / 3;
+                    p->vx += cnx * k >> 12; p->vz += cnz * k >> 12;
+                    p->bump_t = 0; p->bump_cd = 45;
+                } else {
+                    p->vx += cnx * into >> 12; p->vz += cnz * into >> 12;     /* slide along it */
+                }
+            }
+        }
+        if (wish && ((wx * cnx + wz * cnz) >> 12) < -2900 && p->grounded && p->speed16 < 20 * SUB) p->pushing = 1;
+    }
     p->x16 = nx; p->z16 = nz;
     p->x = nx >> 4; p->z = nz >> 4;
     if (p->bump_cd) p->bump_cd--;
@@ -136,7 +141,8 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
     /* vertical */
     if (p->grounded) {
         gy = level_ground(p->x, p->z, p->y);
-        if (gy > p->y + 60) { p->grounded = 0; p->vy = 0; p->air_t = 0; }   /* walked off a ledge */
+        /* stairs and small drops: stay glued to the ground; only a real ledge makes you fall */
+        if (gy > p->y + STEP_HEIGHT) { p->grounded = 0; p->vy = 0; p->air_t = 0; }
         else if (gy != p->y) { p->step_off += p->y - gy; p->y = gy; p->y16 = gy * SUB; }
     }
     if (!p->grounded) {
@@ -152,19 +158,24 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         }
     }
     p->step_off = p->step_off * 3 / 4;
+    if (p->step_off > -4 && p->step_off < 4) p->step_off = 0;
 
     /* facing: turn toward the direction of travel (Slayer: 9/s) */
     p->prev_speed16 = p->speed16;
     p->speed16 = (s32)isqrt((u32)(p->vx * p->vx + p->vz * p->vz));
     p->speed = p->speed16 >> 4;
     p->turn = 0;
-    if (p->bump_t < 0) {
-        int want = -1;
-        if (p->speed16 > 3 * SUB) want = iatan2(p->vx, p->vz);
-        else if (wish) want = input_yaw;                   /* nudging the stick turns on the spot */
-        if (want >= 0) {
-            int d = wrap(want - p->yaw);
-            p->turn = d * 3 / 20;
+    if (p->bump_t < 0 || p->bump_t > 20) {
+        /* turn toward where the stick points (MediEvil / Slayer: snappy, ~0.2 of the gap a frame);
+           with the stick released she keeps her facing instead of spinning toward a slide */
+        if (wish) {
+            /* face where she is actually going when that is roughly where you push (so she runs
+               along a wall she is sliding on); otherwise snap round toward the stick */
+            int want = input_yaw, d;
+            if (p->speed16 > 8 * SUB && ((p->vx * wx + p->vz * wz) >> 12) > p->speed16 / 4)
+                want = iatan2(p->vx, p->vz);
+            d = wrap(want - p->yaw);
+            p->turn = d / 5;
             if (p->turn == 0 && d) p->turn = d > 0 ? 1 : -1;
             p->yaw = (p->yaw + p->turn) & 4095;
         }
@@ -204,7 +215,6 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         if (p->land_t < 99) p->land_t++;
         if (p->bump_t >= 0 && ++p->bump_t > clip_bump.length) p->bump_t = -1;
     }
-    (void)i;
 }
 
 /* ---------------------------------------------------------------- pose */

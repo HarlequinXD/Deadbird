@@ -1,0 +1,84 @@
+/* Movement stress test: drives the player with pseudo-random stick input around the test level
+   for a long time and fails on glitches: teleports, falling through the floor, getting stuck
+   inside walls, air/ground flicker, bump loops while walking, wild pose values. */
+#include <stdio.h>
+#include "gte.h"
+#include "model.h"
+#include "player.h"
+#include "level.h"
+#undef DEMON_MESH_NO_DATA
+#include "demon_mesh.h"
+
+static Player pl;
+static u32 rnd = 12345;
+static u32 rn(void) { rnd = rnd * 1103515245u + 12345u; return rnd >> 16; }
+
+int main(void)
+{
+    Model m;
+    int f, yaw = 0, mag = 0, hold = 0, fails = 0, flick = 0, air_starts = 0, bumps = 0, walk_bumps = 0;
+    int since = 0, prev_g = 1, prev_bump = -1, max_jump = 0, max_drop = 0, max_turn = 0;
+    s32 px, py, pz;
+    u32 pad = 0;
+    level_init();
+    m.verts = (const DVERT *)demon_verts; m.nverts = DEMON_NVERTS;
+    m.prims = (const DPRIM *)demon_prims; m.nprims = DEMON_NPRIMS;
+    m.bones = (const DBONE *)demon_bones; m.nbones = DEMON_NBONES;
+    player_init(&m);
+    player_reset(&pl, 0, -400, 0);
+    px = pl.x; py = pl.y; pz = pl.z;
+    for (f = 0; f < 60 * 60 * 5; f++) {
+        if (--hold <= 0) {
+            hold = 10 + (int)(rn() % 90); since = 0;
+            yaw = (int)(rn() % 4096);
+            switch (rn() % 5) { case 0: mag = 0; break; case 1: case 2: mag = 2400; break; default: mag = 4096; }
+            pad = (rn() % 9 == 0) ? BTN_JUMP : 0;
+        } else pad &= ~BTN_JUMP;
+        since++;
+        player_update(&pl, pad, yaw, mag);
+        player_pose(&pl, &m);
+        {
+            s32 dx = pl.x - px, dz = pl.z - pz, d2 = dx * dx + dz * dz;
+            int d = (int)isqrt((u32)d2);
+            if (d > max_jump) max_jump = d;
+            if (d > 130) { if (fails++ < 10) printf("frame %d: teleported %d units\n", f, d); }
+            if (pl.y > 1) { if (fails++ < 10) printf("frame %d: below the floor (y %d)\n", f, (int)pl.y); }
+            if (pl.y < -3000) { if (fails++ < 10) printf("frame %d: flew away (y %d)\n", f, (int)pl.y); }
+        }
+        {   /* stuck inside geometry? */
+            s32 cx = pl.x, cz = pl.z, nx, nz;
+            if (level_collide(&cx, &cz, pl.y, 150, &nx, &nz)) { if (fails++ < 10) printf("frame %d: inside a wall\n", f); }
+        }
+        if (pl.grounded != prev_g) { flick++; if (!pl.grounded) air_starts++; }
+        if (pl.bump_t == 1 && prev_bump != 1) { bumps++; if (mag && mag < 2870 && since > 40) walk_bumps++;   /* settled at walking pace */ }
+        if (pl.drop > max_drop) max_drop = (int)pl.drop;
+        if (pl.turn > max_turn) max_turn = pl.turn;
+        if (-pl.turn > max_turn) max_turn = -pl.turn;
+        if (pl.drop < -40 || pl.drop > 500) { if (fails++ < 10) printf("frame %d: grounding drop %d\n", f, (int)pl.drop); }
+        prev_g = pl.grounded; prev_bump = pl.bump_t;
+        px = pl.x; py = pl.y; pz = pl.z;
+    }
+    /* scenario 1: running, then the stick goes 90 degrees right: she must turn and go that way */
+    player_reset(&pl, -3000, -3000, 0);
+    for (f = 0; f < 60; f++) { player_update(&pl, 0, 0, 4096); player_pose(&pl, &m); }
+    for (f = 0; f < 25; f++) { player_update(&pl, 0, 1024, 4096); player_pose(&pl, &m); }
+    {
+        int dv = player_input_angle(pl.vx, pl.vz);
+        printf("turn test: facing %d, moving %d (want ~1024), speed %d\n", pl.yaw, dv, (int)pl.speed);
+        if (pl.yaw < 900 || pl.yaw > 1150 || dv < 900 || dv > 1150 || pl.speed < 50) { printf("FAIL: can't turn while running\n"); fails++; }
+    }
+    /* scenario 2: walk into a wall at 45 degrees: she must slide along it, facing along it, walking */
+    player_reset(&pl, -800, 2100, 0);
+    for (f = 0; f < 90; f++) { player_update(&pl, 0, 512, 2400); player_pose(&pl, &m); }
+    {
+        int dv = player_input_angle(pl.vx, pl.vz);
+        printf("wall slide test: x %d z %d, facing %d, moving %d (want ~1024), speed %d, push %d, phase %d\n",
+               (int)pl.x, (int)pl.z, pl.yaw, dv, (int)pl.speed, pl.pushw, pl.phase);
+        if (pl.x < -100 || pl.yaw < 850 || pl.yaw > 1200 || pl.speed < 12 || pl.pushw > 1000) { printf("FAIL: doesn't walk along the wall\n"); fails++; }
+    }
+    if (walk_bumps) { printf("FAIL: %d bumps while walking\n", walk_bumps); fails++; }
+    printf("%d random frames: max move %d u/f, max turn %d, max drop %d, %d jumps/falls, %d bumps, %d failures\n",
+           60 * 60 * 5, max_jump, max_turn, max_drop, air_starts, bumps, fails);
+    (void)py; (void)flick;
+    return fails ? 1 : 0;
+}

@@ -11,8 +11,10 @@ level. The engine is written so it can run on a real PlayStation later. For now 
 - **Movement ported from Slayer from Hell** (`game/player.c`): Quake-style ground physics with
   friction, acceleration toward the stick direction, a stop speed, limited air control, gravity
   and jump. Floating analog stick on the left of the touch screen: half push walks, push past 70%
-  (or hold R) runs. Walls slide you along them; hit one fast and you **bounce off it** (bump
-  reaction + camera shake), walk into one and she leans in and pushes. Ledges you step up are
+  (or hold R) runs. Directions are relative to where the camera looks now, so holding the stick
+  to one side keeps her curving round as the camera follows. Walls slide you along them (she
+  turns and walks along the wall); run straight into one and you **bounce off it** (bump
+  reaction + camera shake); push straight into one and she leans in and pushes. Ledges you step up are
   smoothed, and landings dip by how hard you hit.
 - **Facing, lean and bank** (from Slayer's `Hero.java`): the body turns toward where she is
   actually moving, leans into acceleration (back when braking) and banks into turns.

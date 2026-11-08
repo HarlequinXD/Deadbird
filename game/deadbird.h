@@ -21,6 +21,8 @@ void game_touch_tap(int x, int y);
 int  game_phase(void);
 /* test hook: side-on camera */
 void game_debug_side_cam(int on);
+/* test hook: player facing (4096 = 360) */
+int  game_debug_player_yaw(void);
 
 /* touch layout in 320x240 screen space, shared with the platform's hit testing */
 typedef struct { s16 x, y, r; u32 button; } TouchButton;

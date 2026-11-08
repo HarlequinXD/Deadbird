@@ -105,6 +105,18 @@ int main(int argc, char **argv)
     for (i = 0; i < 8; i++) { run(0, 2); sprintf(name, "13_side_run_%d", i); write_bmp(out, name); }
     game_set_stick(0, 0, 0, 0, 0);
     game_debug_side_cam(0);
+    {   /* hold the stick fully right: the camera follows, so she should keep curving round */
+        int total = 0, last = game_debug_player_yaw(), y;
+        game_set_stick(1, 60, 180, 94, 180);
+        for (i = 0; i < 150; i++) {
+            run(0, 1);
+            y = game_debug_player_yaw();
+            total += ((y - last + 2048) & 4095) - 2048; last = y;
+        }
+        game_set_stick(0, 0, 0, 0, 0);
+        printf("stick held right for 150 frames: turned %d degrees\n", total * 360 / 4096);
+        if (total < 1024) { printf("FAIL: holding the stick sideways doesn't keep turning\n"); return 1; }
+    }
     printf("ran %d frames, %.3f ms/frame avg\n", frames_run,
            (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC / frames_run);
     return 0;
