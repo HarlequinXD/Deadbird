@@ -13,8 +13,7 @@ level. The engine is written so it can run on a real PlayStation later. For now 
   and jump. Floating analog stick on the left of the touch screen: half push walks, push past 70%
   (or hold R) runs. Directions are relative to where the camera looks now, so holding the stick
   to one side keeps her curving round as the camera follows. Walls slide you along them (she
-  turns and walks along the wall); run straight into one and you **bounce off it** (bump
-  reaction + camera shake); push straight into one and she leans in and pushes. Ledges you step up are
+  turns and walks along the wall); push straight into one and she stops and leans on it. Ledges you step up are
   smoothed, and landings dip by how hard you hit.
 - **Facing, lean and bank** (from Slayer's `Hero.java`): the body turns toward where she is
   actually moving, leans into acceleration (back when braking) and banks into turns.
@@ -22,7 +21,7 @@ level. The engine is written so it can run on a real PlayStation later. For now 
   `tools/make_fkclips.py`): every clip is joint angles. Idle, walk and run cycles share one clock
   that **advances with distance travelled** (cycle distance is measured from the clip's own foot
   travel), so stride keeps up with ground speed; walk and run blend by speed. Air (tuck on the
-  way up, reach on the way down), landing crouch, wall push and bump recoil are blended on top.
+  way up, reach on the way down), landing crouch and wall push are blended on top.
   The only runtime adjustment is lowering the whole body so the lowest foot touches the floor.
 - **Test level**: floor with lava seams, boundary walls, a low platform, stairs to a high
   platform, a ramp, pillars and a wall to run into, and skull totems.

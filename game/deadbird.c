@@ -154,11 +154,10 @@ static void read_move(u32 pad, int *yaw, int *mag)
 
 static void simulate(u32 pad)
 {
-    int bumped = pl.bump_t, myaw, mmag;
+    int myaw, mmag;
     camera_update(pad);
     read_move(pad, &myaw, &mmag);
     player_update(&pl, pad, myaw, mmag);
-    if (!bumped && pl.bump_t) shake = 5;
     player_pose(&pl, &demon);
     level_update();
     fx_update();

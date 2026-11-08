@@ -86,10 +86,10 @@ int main(int argc, char **argv)
     write_bmp(out, "10_camera_swing");
     for (i = 0; i < 400; i++) { game_frame(PAD_LEFT); frames_run++; }
     write_bmp(out, "11_after_walk");
-    /* back off, then run into the wall again: bump reaction strip */
+    /* back off, then run into the wall again: she should just stop and lean on it */
     run(0, 20); run(PAD_RIGHT, 40); run(0, 10);
     run(PAD_LEFT | PAD_CIRCLE, 26);
-    for (i = 0; i < 8; i++) { run(PAD_LEFT | PAD_CIRCLE, 3); sprintf(name, "14_bump_%d", i); write_bmp(out, name); }
+    for (i = 0; i < 8; i++) { run(PAD_LEFT | PAD_CIRCLE, 3); sprintf(name, "14_wall_%d", i); write_bmp(out, name); }
     /* hard turn while running: banking strip */
     run(PAD_UP | PAD_CIRCLE, 40);
     for (i = 0; i < 4; i++) { run(PAD_UP | PAD_RIGHT | PAD_CIRCLE, 3); sprintf(name, "15_bank_%d", i); write_bmp(out, name); }

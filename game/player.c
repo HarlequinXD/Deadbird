@@ -17,7 +17,6 @@
 #define AIR_CAP    (17 * SUB)     /* air control can only add this much (0.9 m/s) */
 #define GRAVITY    90             /* 18 m/s^2 */
 #define JUMP_V     (-1626)        /* 5.4 m/s */
-#define BUMP_SPEED (48 * SUB)     /* only a running, head-on hit bounces you off a wall */
 #define RADIUS     200
 #define RUN_PUSH   2870           /* stick past 70% runs */
 
@@ -58,7 +57,6 @@ void player_reset(Player *p, s32 x, s32 z, int yaw)
     p->x16 = x * SUB; p->y16 = y * SUB; p->z16 = z * SUB;
     p->yaw = yaw & 4095;
     p->grounded = 1;
-    p->bump_t = -1;
     p->land_t = 99;
 }
 
@@ -92,8 +90,6 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
     p->prev = pad; p->pad = pad;
     ox = oz = 0;
 
-    /* a bump knocks the wind out of you: no control for a moment */
-    if (p->bump_t >= 0 && p->bump_t < 14) input_mag = 0;
 
     if (input_mag > 300) {
         wx = isin(input_yaw); wz = icos(input_yaw);
@@ -104,14 +100,14 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
     if (p->grounded) {
         friction(p);
         if (wish) accelerate(p, wx, wz, wish, wish, ACCEL);
-        if ((press & BTN_JUMP) && p->bump_t < 0) {
+        if (press & BTN_JUMP) {
             p->vy = JUMP_V; p->grounded = 0; p->air_t = 0;
         }
     } else if (wish) {
         accelerate(p, wx, wz, wish, AIR_CAP, AIR_ACCEL);
     }
 
-    /* move, then slide along / bounce off walls (a few passes so corners don't jitter) */
+    /* move, then slide along walls (a few passes so corners don't jitter) */
     nx = p->x16 + p->vx; nz = p->z16 + p->vz;
     p->pushing = 0;
     for (i = 0; i < 3; i++) {
@@ -121,22 +117,12 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         nx += (cx - ox) * SUB; nz += (cz - oz) * SUB;
         {
             s32 into = -((p->vx * cnx + p->vz * cnz) >> 12);
-            if (into > 0) {
-                if (i == 0 && into > BUMP_SPEED && into * 4 > p->speed16 * 3 && p->bump_cd == 0 && p->grounded) {
-                    /* running straight into it: bounce back (hit reaction) */
-                    s32 k = into + into / 3;
-                    p->vx += cnx * k >> 12; p->vz += cnz * k >> 12;
-                    p->bump_t = 0; p->bump_cd = 45;
-                } else {
-                    p->vx += cnx * into >> 12; p->vz += cnz * into >> 12;     /* slide along it */
-                }
-            }
+            if (into > 0) { p->vx += cnx * into >> 12; p->vz += cnz * into >> 12; }   /* slide along it */
         }
         if (wish && ((wx * cnx + wz * cnz) >> 12) < -2900 && p->grounded && p->speed16 < 20 * SUB) p->pushing = 1;
     }
     p->x16 = nx; p->z16 = nz;
     p->x = nx >> 4; p->z = nz >> 4;
-    if (p->bump_cd) p->bump_cd--;
 
     /* vertical */
     if (p->grounded) {
@@ -165,7 +151,7 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
     p->speed16 = (s32)isqrt((u32)(p->vx * p->vx + p->vz * p->vz));
     p->speed = p->speed16 >> 4;
     p->turn = 0;
-    if (p->bump_t < 0 || p->bump_t > 20) {
+    {
         /* turn toward where the stick points (MediEvil / Slayer: snappy, ~0.2 of the gap a frame);
            with the stick released she keeps her facing instead of spinning toward a slide */
         if (wish) {
@@ -213,7 +199,6 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
             p->bank += (bank_t - p->bank) / 5;
         }
         if (p->land_t < 99) p->land_t++;
-        if (p->bump_t >= 0 && ++p->bump_t > clip_bump.length) p->bump_t = -1;
     }
 }
 
@@ -246,12 +231,6 @@ static void build_pose(Player *p)
         w = smooth(w) * p->land_amp >> 12;
         fk_sample(&clip_land, 0, &a);
         fk_blend(o, &a, w, o);
-    }
-    /* bump: knocked off the wall */
-    if (p->bump_t >= 0) {
-        fk_sample(&clip_bump, (s32)p->bump_t << 8, &a);
-        w = p->bump_t < 3 ? p->bump_t * 4096 / 3 : (p->bump_t > 24 ? (32 - p->bump_t) * 512 : 4096);
-        fk_blend(o, &a, (int)clamp(w, 0, 4096), o);
     }
 
     /* procedural layers on top of the clips */
