@@ -15,6 +15,9 @@ void game_set_touch_ui(int on);
 void game_touch_tap(int x, int y);
 /* current flow state (title, intro, fight, ko, ...) for tests */
 int  game_phase(void);
+/* test hooks: side-on camera, and the largest squared distance a planted foot slid in one frame */
+void game_debug_side_cam(int on);
+int  game_debug_foot_drift(void);
 
 /* touch layout in 320x240 screen space, shared with the platform's hit testing */
 typedef struct { s16 x, y, r; u32 button; } TouchButton;

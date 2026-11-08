@@ -1,6 +1,5 @@
 # build outputs
 platform/headless/deadbird_headless
-platform/headless/posetest
 *.bmp
 platform/android/.gradle/
 platform/android/build/

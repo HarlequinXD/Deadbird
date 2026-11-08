@@ -6,7 +6,7 @@
 #include "deadbird.h"
 #include "gpu.h"
 
-enum { GS_TITLE, GS_MOVES, GS_INTRO, GS_FIGHT, GS_KO, GS_MATCH_END, GS_PAUSE };
+enum { GS_TITLE, GS_CONTROLS, GS_PLAY, GS_PAUSE };
 
 static void write_bmp(const char *dir, const char *name)
 {
@@ -39,50 +39,65 @@ static void write_bmp(const char *dir, const char *name)
     fclose(f);
 }
 
-/* scripted player: walk in, then cycle through the combo strings */
-static u32 script(int t)
-{
-    static const u32 seq[] = { PAD_SQUARE, PAD_SQUARE, PAD_SQUARE, 0, 0, PAD_SQUARE, PAD_SQUARE, PAD_TRIANGLE, 0, 0,
-                               PAD_TRIANGLE, PAD_TRIANGLE, 0, 0, PAD_RIGHT | PAD_TRIANGLE, 0, 0, PAD_CIRCLE, PAD_CIRCLE, 0 };
-    int phase = t % 400;
-    if (phase < 40) return PAD_RIGHT;
-    if ((t & 7) < 2) return seq[(t / 8) % (sizeof(seq) / sizeof(seq[0]))] & ~(phase & 1 ? 0u : 0u);
-    return (seq[(t / 8) % (sizeof(seq) / sizeof(seq[0]))] & PAD_CIRCLE);
-}
+static int frames_run;
+static int isqrt_i(int v) { int r = 0; while ((r + 1) * (r + 1) <= v) r++; return r; }
+static void run(u32 pad, int n) { int i; for (i = 0; i < n; i++) { game_frame(pad); frames_run++; } }
 
 int main(int argc, char **argv)
 {
     const char *out = argc > 1 ? argv[1] : ".";
     clock_t t0;
-    int i, frames = 0, shot_fight = 0, shot_ko = 0, shot_end = 0;
+    char name[32];
+    int i;
 
     game_init();
     printf("static game RAM: %d bytes of %d (PS1 main RAM)\n", game_ram_used(), RAM_BUDGET);
     printf("VRAM: %d bytes\n", VRAM_W * VRAM_H * 2);
 
     t0 = clock();
-    for (i = 0; i < 90; i++) { game_frame(0); frames++; }
-    write_bmp(out, "1_title");
-    game_frame(PAD_DOWN); game_frame(0);
-    for (i = 0; i < 20; i++) game_frame(0);
-    write_bmp(out, "2_title_menu");
-    game_frame(PAD_UP); game_frame(0);
-    game_frame(PAD_CROSS);                       /* VERSUS CPU */
-    for (i = 0; i < 40; i++) game_frame(0);
+    run(0, 240);
+    write_bmp(out, "01_title");
+    run(PAD_DOWN, 1); run(0, 1); run(PAD_CROSS, 1); run(0, 40);
+    write_bmp(out, "02_controls");
+    run(PAD_CROSS, 1); run(0, 10);
+    run(PAD_CROSS, 1); run(0, 40);                                      /* PLAY (menu resets to the top) */
+    if (game_phase() != GS_PLAY) { printf("FAIL: not in play mode\n"); return 1; }
     game_set_touch_ui(1);
-    for (i = 0; i < 50; i++) game_frame(0);
-    write_bmp(out, "3_round_intro");
-    for (i = 0; i < 20000 && game_phase() != GS_TITLE; i++) {
-        game_frame(game_phase() == GS_FIGHT ? script(i) : 0);
-        frames++;
-        if (game_phase() == GS_FIGHT && i > 220 && !shot_fight) { write_bmp(out, "4_fight"); shot_fight = 1; }
-        if (game_phase() == GS_FIGHT && i > 520 && shot_fight == 1) { write_bmp(out, "5_fight"); shot_fight = 2; }
-        if (game_phase() == GS_KO && !shot_ko) { shot_ko = 1; }
-        else if (game_phase() == GS_KO && shot_ko && shot_ko++ == 6) write_bmp(out, "6_ko");
-        if (game_phase() == GS_MATCH_END && !shot_end++) { int k; for (k = 0; k < 40; k++) game_frame(0); write_bmp(out, "7_winner"); }
-    }
-    printf("match finished: %s after %d frames\n", game_phase() == GS_TITLE ? "back on title" : "still running", i);
-    printf("software render: %.3f ms/frame avg (%d frames)\n",
-           (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC / (frames + 200), frames + 200);
+    run(0, 20);
+    write_bmp(out, "03_idle");
+    /* walk cycle: one frame every 4 for a gait strip */
+    for (i = 0; i < 6; i++) { run(PAD_UP, 4); sprintf(name, "04_walk_%d", i); write_bmp(out, name); }
+    run(PAD_UP | PAD_CIRCLE, 40);
+    for (i = 0; i < 4; i++) { run(PAD_UP | PAD_CIRCLE, 3); sprintf(name, "05_run_%d", i); write_bmp(out, name); }
+    run(PAD_UP | PAD_CIRCLE | PAD_RIGHT, 30);
+    write_bmp(out, "06_run_turn_lean");
+    run(PAD_UP | PAD_CIRCLE, 1); run(PAD_UP | PAD_CIRCLE | PAD_CROSS, 1);
+    run(PAD_UP | PAD_CIRCLE, 12);
+    write_bmp(out, "07_jump");
+    run(PAD_UP, 40);
+    run(0, 30);
+    run(PAD_TRIANGLE, 20);
+    write_bmp(out, "08_aim");
+    run(PAD_TRIANGLE | PAD_SQUARE, 1); run(PAD_TRIANGLE, 6);
+    write_bmp(out, "09_fire");
+    /* turn toward a pillar and walk into it for the bump reaction */
+    run(PAD_LEFT, 44);
+    for (i = 0; i < 400; i++) { game_frame(PAD_UP); frames_run++; }
+    write_bmp(out, "10_after_walk");
+    /* turn on the spot: feet step around */
+    run(PAD_RIGHT, 10);
+    write_bmp(out, "11_turn_in_place");
+    /* side-on gait strips (walk, then run) for checking stride vs speed */
+    game_set_touch_ui(0);
+    game_debug_side_cam(1);
+    run(PAD_LEFT, 50); run(0, 40);
+    for (i = 0; i < 8; i++) { run(PAD_UP, 3); sprintf(name, "12_side_walk_%d", i); write_bmp(out, name); }
+    run(PAD_UP | PAD_CIRCLE, 30);
+    for (i = 0; i < 8; i++) { run(PAD_UP | PAD_CIRCLE, 2); sprintf(name, "13_side_run_%d", i); write_bmp(out, name); }
+    game_debug_side_cam(0);
+    printf("planted-foot slide: max %d units per frame (0 = feet never slide)\n", (int)isqrt_i(game_debug_foot_drift()));
+    if (game_debug_foot_drift() != 0) { printf("FAIL: a planted foot slid\n"); return 1; }
+    printf("ran %d frames, %.3f ms/frame avg\n", frames_run,
+           (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC / frames_run);
     return 0;
 }

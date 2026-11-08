@@ -7,17 +7,6 @@ static int ease(int t /* 0..4096 */)
     return (int)((3 * tt - (2 * (tt * t >> 12))));
 }
 
-void anim_init(void)
-{
-    /* replace K ("keep") with the stance values (key 0 of the idle clip is the stance) */
-    const AnimKey *stance = &clips[CLIP_IDLE].keys[0];
-    int c, k, i;
-    for (c = 0; c < CLIP_COUNT; c++)
-        for (k = 0; k < clips[c].nkeys; k++)
-            for (i = 0; i < AP_COUNT; i++)
-                if (clips[c].keys[k].v[i] == K) clips[c].keys[k].v[i] = stance->v[i];
-}
-
 void anim_sample(const Clip *c, s32 t, AnimPose *out)
 {
     s32 len = (s32)c->length << 8;

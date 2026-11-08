@@ -1,31 +1,32 @@
 # Deadbird
 
-A **3D demon brawler** (PS1-era 3D fighter style, no martial arts — claws, haymakers, hooves
-and horns) built on a **true PS1-style engine**. The engine is written so it can run on a
-real PlayStation later. For now it ships on **Android**, using a fast software model of the
-PS1's graphics chip.
+A **third-person shooter** built on a **true PS1-style engine**. You play Deadbird in a hellish test
+level. The engine is written so it can run on a real PlayStation later. For now it ships on
+**Android**, using a fast software model of the PS1's graphics chip.
 
 ## The game
 
-- **Title screen**: real-time PS1 fire simulation rising from the bottom (8-bit heat buffer
-  streamed into VRAM every frame, drawn through a fire CLUT with additive blending), hell sky,
-  fire-lettered DEADBIRD logo, menu, and a CPU-vs-CPU brawl running behind it.
-- **Modes**: Versus CPU (best of 3, 60 s rounds), Training (passive dummy, refilling health), Move List.
-- **Deadbird vs Shade**: the same model; Shade is a palette-swapped (CLUT) mirror twin.
-- **Moves**: `L L L` claw jab → hell hook → rake · `L L H` … skull hammer (knockdown) ·
-  `H H` haymaker → hoof stomp · `L H H` · `FWD+H` horn-gore lunge (knockdown) · hold `G` to guard.
-- **Fighting framework** (`game/fighter.*`): state machine, move table with combo chains and
-  input buffering, bone-attached hitboxes vs. pelvis/chest/head hurtboxes, hitstop, knockback,
-  hitstun/blockstun, knockdown → lie → get-up, KO, round/match flow, combo counter.
-- **CPU** (`game/ai.*`): plays through the same pad bits as a human (approach, guard reactions, combo strings).
-- **Full-body IK** (`engine/ik.*`, `game/rig.*`): fixed-point two-bone IK for both arms and
-  legs; animations (`game/clips.c`) are just pelvis/spine/head angles plus wrist and ankle
-  targets, so feet stay planted and fists land where they are aimed.
-- **Hell UI** (`game/hud.*`, `tools/make_font.py`): original fire-gradient pixel font as a
-  4bpp TIM, molten health bars with bone frames, spikes and damage trail, obsidian timer,
-  round-win flames, ROUND / FIGHT! / K.O. / WINS banners, embers, hit sparks and blood.
-
-![headless test frames](docs/headless_frames.png)
+- **Title**: hell sky, embers, DEADBIRD logo and menu (PLAY / CONTROLS) over the live level,
+  with Deadbird roaming on autopilot.
+- **Tank controls**: up/down walk forward/back, left/right turn, hold R to run, J to jump,
+  hold A to aim the hand cannon, F to fire (hip-fire also works).
+- **Test level**: floor with lava seams, boundary walls, a low platform, stairs to a high
+  platform, a ramp, pillars and a wall to run into, and 5 skull totems to shoot (3 hits each, they respawn).
+- **Procedural full-body IK locomotion** (`game/player.c`, rig in `game/rig.c`, solver in `engine/ik.c`):
+  - each foot is **locked to the ground in world space** while planted; a foot only steps when
+    the body has moved or turned away from it, so **feet never slide** (the headless test measures
+    planted-foot drift every frame and fails CI if it is not 0)
+  - step length, timing and lift come from the **actual velocity**, so the gait keeps up with
+    walking, running, backing up, turning on the spot and speed changes
+  - **foot IK** onto stairs, platforms and the ramp: each foot samples the ground; the pelvis drops so both feet reach
+  - **lean** into speed and acceleration (back when braking), **bank** into turns, hip/chest
+    counter-twist with the stride, arms counter-swing (pump when running), gait bob
+  - **jump** with tucked legs and a landing dip; **bump reaction** (head snaps back, arms brace,
+    recoil off the wall, camera shake) when you walk into something
+  - **aiming** drives the cannon arm with IK, the other hand steadies it, recoil kicks back
+- **Hand cannon**: box-modelled hellforged cannon attached to the right fist bone, projectiles
+  with trails, sparks on impact.
+- **Camera**: chase camera behind the heading; over-the-shoulder with a crosshair when aiming.
 
 ## What "true PS1" means here
 
@@ -40,7 +41,7 @@ PS1's graphics chip.
 | TIM textures | `engine/tim.*` loads `.tim` files straight into VRAM |
 | 320×240 display | double-buffered at VRAM (0,0)/(0,240); Android scales it up with nearest filtering, 4:3 letterbox |
 
-A full game frame (two fighters, arena, fire, HUD) takes **~1 ms** on a PC, so phones have lots of headroom.
+A full game frame (level, player, projectiles, HUD) takes **~1.3 ms** on a PC, so phones have lots of headroom.
 
 ## Layout
 
@@ -53,7 +54,7 @@ engine/            portable PS1 engine (C99, fixed point, no malloc)
   tim.[ch]         TIM loader -> VRAM
   model.[ch]       rigid hierarchical models (one GTE matrix per body part)
   ik.[ch]          fixed-point two-bone IK
-game/              Deadbird itself (platform independent): flow, fighters, AI, rig, clips, HUD, fx, title
+game/              Deadbird itself (platform independent): flow, player + IK locomotion, rig, level, HUD, fx, title
 assets/            demon.tim (256x256 8bpp CLUT), demon_mesh.h (488 tris, 16 parts)
 platform/android/  NativeActivity + GLES2 present + touch pad (Gradle project)
 platform/headless/ PC test build that renders frames to BMP (used by CI)
@@ -65,8 +66,8 @@ docs/PS1_PORT.md   plan for the real PS1 build (PSn00bSDK)
 
 On-screen PS1 pad (Android) or a PS1 pad:
 
-- **D-pad**: walk toward / back away (menus: up/down; tap a menu row to pick it)
-- **L** (□) light · **H** (△) heavy · **G** (○ / R1) guard · **II** (START) pause
+- **D-pad**: tank controls (menus: up/down; tap a menu row to pick it)
+- **R** (○) run · **J** (✕) jump · **A** (△ / R1) aim · **F** (□) fire · **II** (START) pause
 
 ## Building
 
@@ -76,8 +77,7 @@ To build locally: `gradle -p platform/android assembleDebug` with the Android SD
 **PC headless test**:
 ```
 make -C platform/headless
-./platform/headless/deadbird_headless out_dir   # plays a scripted match, writes frames, timing + RAM use
-./platform/headless/posetest anims.bmp          # contact sheet of every animation through the IK rig
+./platform/headless/deadbird_headless out_dir   # scripted play-through: frames, timing, RAM use, foot-slide check
 ```
 
 ## Assets

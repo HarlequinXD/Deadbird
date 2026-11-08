@@ -1,6 +1,6 @@
 /*
- * Keyframed full-body IK animation.
- * A pose is a handful of targets in fighter root space (Y down, facing +Z, +X = her left):
+ * Full-body IK pose description.
+ * A pose is a handful of targets in character root space (Y down, facing +Z, +X = her left):
  *   pelvis offset + rotation, torso rotation, head rotation,
  *   wrist targets for both hands, ankle targets for both feet.
  * The rig (rig.c) solves arms and legs with two-bone IK, so feet stay planted and fists
@@ -25,31 +25,19 @@ enum {
 
 typedef struct { s16 v[AP_COUNT]; } AnimPose;
 
-#define K (-32768)                /* "keep": take the value from the stance pose */
-
 typedef struct { u8 frame; s16 v[AP_COUNT]; } AnimKey;
 
 typedef struct {
     const char *name;
-    AnimKey    *keys;             /* resolved in place by anim_init() */
-    u8          nkeys;
-    u8          length;           /* frames */
-    u8          loop;
+    const AnimKey *keys;
+    u8 nkeys;
+    u8 length;                    /* frames */
+    u8 loop;
 } Clip;
 
-void anim_init(void);
-/* t is in 1/256 frames */
+/* optional keyframed overlays (t in 1/256 frames); locomotion itself is procedural (player.c) */
 void anim_sample(const Clip *c, s32 t, AnimPose *out);
 /* out = a + (b - a) * w / 4096 */
 void anim_blend(const AnimPose *a, const AnimPose *b, int w, AnimPose *out);
-
-/* clip ids */
-enum {
-    CLIP_IDLE, CLIP_WALK, CLIP_GUARD, CLIP_BLOCKSTUN,
-    CLIP_JAB, CLIP_HOOK, CLIP_RAKE, CLIP_HAMMER, CLIP_HAYMAKER, CLIP_STOMP, CLIP_GORE,
-    CLIP_HIT_HIGH, CLIP_HIT_BODY, CLIP_FALL, CLIP_LIE, CLIP_GETUP, CLIP_WIN, CLIP_TAUNT,
-    CLIP_COUNT
-};
-extern Clip clips[CLIP_COUNT];
 
 #endif
