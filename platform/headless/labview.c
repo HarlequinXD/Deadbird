@@ -61,7 +61,7 @@ int main(int argc, char **argv)
             nm[n] = 0;
         }
         save(out, nm);
-        printf("%-24s %4d polygons\n", sp->name, level_polys_drawn());
+        { extern int lvl_st_verts, lvl_st_faces, lvl_st_clip, lvl_st_chunks; printf("%-24s %4d polygons  chunks %3d verts %4d faces %4d clipped %3d\n", sp->name, level_polys_drawn(), lvl_st_chunks, lvl_st_verts, lvl_st_faces, lvl_st_clip); }
     }
     printf("level data: %d bytes (+ 2 texture pages)\n", level_data_bytes());
     return 0;

@@ -2,6 +2,7 @@
 #include "tim.h"
 #include "ik.h"
 #include "lab_data.h"
+#include "gte_hw.h"
 
 /* face flags (tools/build_lab.py) */
 #define F_QUAD   1
@@ -14,8 +15,10 @@
 #define F_ANIMUV 128          /* animated screen: U steps along a 4-frame strip */
 #define SCREEN_FRAME_TICKS 8
 
+#ifndef FOG_FAR
 #define FOG_NEAR 8000
 #define FOG_FAR  18000
+#endif
 #define NEAR_Z   140
 #define GUARD    3                 /* guard band: x,y within +-3z keeps screen coords inside 11 bits */
 #define MAXCV    1400
@@ -24,6 +27,7 @@ static TimInfo page_tim[LAB_NPAGES];
 static const unsigned char *const page_data[LAB_NPAGES] = { lab_tim0, lab_tim1, lab_tim2, lab_tim3, lab_tim4, lab_tim5 };
 static const int page_size[LAB_NPAGES] = { LAB_TIM0_SIZE, LAB_TIM1_SIZE, LAB_TIM2_SIZE, LAB_TIM3_SIZE, LAB_TIM4_SIZE, LAB_TIM5_SIZE };
 static int uploaded, polys_drawn, frame_t, flat;
+int lvl_st_verts, lvl_st_faces, lvl_st_clip, lvl_st_chunks;
 
 void level_debug_flat(int on) { flat = on; }
 
@@ -201,12 +205,16 @@ static int pulse(int anim, int t)
     }
 }
 
+#define FOG_K (4096 * 65536 / (FOG_FAR - FOG_NEAR))
 static int fog(s32 z)
 {
     if (z <= FOG_NEAR) return 4096;
     if (z >= FOG_FAR) return 0;
-    return (int)((FOG_FAR - z) * 4096 / (FOG_FAR - FOG_NEAR));
+    return (int)(((FOG_FAR - z) * FOG_K) >> 16);         /* multiply, no divide (slow on the R3000) */
 }
+
+static int pulse_now[8];     /* pulse() for each animation, worked out once per frame */
+static int screen_du;        /* animated screens: U offset of the current frame */
 
 static u8 outcode(const VECTOR *c)
 {
@@ -244,11 +252,14 @@ static int clip_poly(CV *in, int n, CV *out, u8 planes)
                 s32 da = plane_d(a, p), db = plane_d(b, p);
                 if (da >= 0) dst[k++] = *a;
                 if ((da >= 0) != (db >= 0)) {
-                    s32 t = (s32)(((long long)da << 12) / (da - db));
+                    s32 t, ea = da, eb = db;
                     CV *c = &dst[k++];
-                    c->x = a->x + (((b->x - a->x) * (long long)t) >> 12);
-                    c->y = a->y + (((b->y - a->y) * (long long)t) >> 12);
-                    c->z = a->z + (((b->z - a->z) * (long long)t) >> 12);
+                    /* 32-bit only: 64-bit divides are library calls costing ~1000 cycles on PS1 */
+                    while (ea > 0x7ffff || ea < -0x7ffff || eb > 0x7ffff || eb < -0x7ffff) { ea >>= 1; eb >>= 1; }
+                    t = ea == eb ? 0 : (ea << 12) / (ea - eb);
+                    c->x = a->x + (((b->x - a->x) * t) >> 12);
+                    c->y = a->y + (((b->y - a->y) * t) >> 12);
+                    c->z = a->z + (((b->z - a->z) * t) >> 12);
                     c->u = a->u + (((b->u - a->u) * t) >> 12);
                     c->v = a->v + (((b->v - a->v) * t) >> 12);
                     c->r = a->r + (((b->r - a->r) * t) >> 12);
@@ -290,22 +301,38 @@ static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const L
 {
     int i, k;
     if (ch->nv > MAXCV) return;
+    lvl_st_chunks++; lvl_st_verts += ch->nv; lvl_st_faces += ch->nf;
     for (i = 0; i < ch->nv; i++) {
         const LabVert *lv = &lab_verts[ch->v0 + i];
+#ifdef PSX_GTE
+        u32 sxy;
+        gte_xform(lv->x, lv->y, lv->z, &cvv[i], &sxy);     /* matrix + projection set in level_draw */
+        cout_[i] = outcode(&cvv[i]);
+        if (!cout_[i]) {
+            if (cvv[i].vx > 32767 || cvv[i].vx < -32767 || cvv[i].vy > 32767 || cvv[i].vy < -32767) {
+                csx[i] = (s16)(pr->ofx + cvv[i].vx * pr->h / cvv[i].vz);    /* past the GTE's 16-bit IR */
+                csy[i] = (s16)(pr->ofy + cvv[i].vy * pr->h / cvv[i].vz);
+            } else {
+                csx[i] = (s16)(sxy & 0xffff);
+                csy[i] = (s16)(sxy >> 16);
+            }
+        }
+#else
         SVECTOR s; s.vx = lv->x; s.vy = lv->y; s.vz = lv->z;
         mat_apply(view, &s, &cvv[i]);
         cout_[i] = outcode(&cvv[i]);
-        if (!(cout_[i] & 1)) {
+        if (!cout_[i]) {
             csx[i] = (s16)(pr->ofx + cvv[i].vx * pr->h / cvv[i].vz);
             csy[i] = (s16)(pr->ofy + cvv[i].vy * pr->h / cvv[i].vz);
         }
+#endif
     }
     for (i = 0; i < ch->nf; i++) {
         const LabFace *f = &lab_faces[ch->f0 + i];
         int n = (f->flags & F_QUAD) ? 4 : 3;
         u8 oa = 0xff, oo = 0;
         s32 zs = 0, zmax = 0;
-        int pm = pulse(f->anim, t);
+        int pm;
         for (k = 0; k < n; k++) {
             int vi = f->v[k];
             oa &= cout_[vi]; oo |= cout_[vi];
@@ -314,10 +341,11 @@ static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const L
         }
         if (oa) continue;                              /* all corners outside one plane */
         if (zmax < NEAR_Z) continue;
+        pm = pulse_now[f->anim > 7 ? 7 : f->anim];
         if (!oo) {
             s16 x[4], y[4];
             int r[4], g[4], b[4];
-            s32 za = zs / n;
+            s32 za = n == 4 ? zs >> 2 : zs / 3;
             int fg;
             if (za > FOG_FAR) continue;
             for (k = 0; k < n; k++) { x[k] = csx[f->v[k]]; y[k] = csy[f->v[k]]; }
@@ -328,7 +356,7 @@ static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const L
             }
             {
                 u8 u[4], v[4];
-                int du = (f->flags & F_ANIMUV) ? ((t / SCREEN_FRAME_TICKS) & 3) * 64 : 0;
+                int du = (f->flags & F_ANIMUV) ? screen_du : 0;
                 for (k = 0; k < n; k++) { u[k] = (u8)(f->uv[k * 2] + du); v[k] = f->uv[k * 2 + 1]; }
                 emit(fb, f, x, y, u, v, r, g, b, n, za);
             }
@@ -344,9 +372,10 @@ static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const L
                 in[k].u = f->uv[c * 2] << 8; in[k].v = f->uv[c * 2 + 1] << 8;
                 in[k].r = f->rgb[c * 3] << 4; in[k].g = f->rgb[c * 3 + 1] << 4; in[k].b = f->rgb[c * 3 + 2] << 4;
             }
+            lvl_st_clip++;
             m = clip_poly(in, n, out, oo);
             if (f->flags & F_ANIMUV) {
-                int du = ((t / SCREEN_FRAME_TICKS) & 3) * 64 * 256;
+                int du = screen_du * 256;
                 for (j = 0; j < m; j++) out[j].u += du;
             }
             for (j = 1; j + 1 < m; j++) {
@@ -443,7 +472,14 @@ void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
 {
     int i, k;
     u32 vis = visible_mask(view);
+    for (i = 0; i < 8; i++) pulse_now[i] = pulse(i, t);
+    screen_du = ((t / SCREEN_FRAME_TICKS) & 3) * 64;
+#ifdef PSX_GTE
+    gte_load_matrix(view);
+    gte_load_proj(pr);
+#endif
     polys_drawn = 0;
+    lvl_st_verts = lvl_st_faces = lvl_st_clip = lvl_st_chunks = 0;
     for (i = 0; i < LAB_NCHUNKS; i++) {
         const LabChunk *ch = &lab_chunks[i];
         SVECTOR s; VECTOR c;
@@ -471,6 +507,12 @@ void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
         const LabRing *rg = &lab_rings[i];
         s32 span = rg->yb - rg->yt;                 /* positive: bottom is below top */
         int ring;
+        {   /* skip the whole tank when it's behind the camera or in the fog */
+            SVECTOR s; VECTOR c;
+            s.vx = rg->x; s.vy = (s16)((rg->yt + rg->yb) / 2); s.vz = rg->z;
+            mat_apply(view, &s, &c);
+            if (c.vz < -(rg->r + span) || c.vz > FOG_FAR + rg->r) continue;
+        }
         for (ring = 0; ring < 3; ring++) {
             s32 y = rg->yb - ((t * 14 + ring * span / 3) % span);
             int glow = 46 + (isin(t * 40 + ring * 1365) * 20 >> 12);

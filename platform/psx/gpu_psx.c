@@ -21,6 +21,7 @@ static uint32_t packets[2][PACKET_WORDS];
 static int pk_buf;
 static DRAWENV draw;
 static int draw_dither = 1;
+static uint32_t *pending;
 
 void gpu_init(void)
 {
@@ -61,8 +62,7 @@ void gpu_set_draw_env(int x, int y, int w, int h, int ofx, int ofy, int dither)
     draw.dtd = (uint8_t)(dither ? 1 : 0);
     draw.isbg = 0;
     draw_dither = dither;
-    DrawSync(0);
-    PutDrawEnv(&draw);
+    /* applied by gpu_psx_submit() together with this frame's list, so the CPU never waits here */
 }
 
 void ot_clear(FrameBuf *fb)
@@ -196,6 +196,14 @@ void gpu_draw_ot(const FrameBuf *fb)
         for (p = fb->ot[z]; p; p = p->next) convert(p);
     }
     termPrim(pk_prev);
-    DrawSync(0);                                 /* previous frame's list must be finished */
-    DrawOTag(head);
+    pending = head;          /* main.c submits it after the previous frame is finished and shown */
+}
+
+/* start the GPU on the list built by gpu_draw_ot(): the GPU draws it while the CPU builds the next
+   frame (the packet buffers are double buffered, so the CPU never writes the list being drawn) */
+void gpu_psx_submit(void)
+{
+    if (!pending) return;
+    DrawOTagEnv(pending, &draw);
+    pending = 0;
 }

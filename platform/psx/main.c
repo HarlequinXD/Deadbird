@@ -9,7 +9,10 @@
 #include <stdint.h>
 #include <psxapi.h>
 #include <psxgpu.h>
+#include <psxgte.h>
 #include "deadbird.h"
+
+void gpu_psx_submit(void);
 
 static DISPENV disp;
 static uint8_t pad_buf[2][34];
@@ -48,7 +51,8 @@ static u32 read_pad(void)
 
 int main(int argc, const char **argv)
 {
-    int dx, dy, last;
+    int dx, dy, last, show_fps = 0, fps_acc = 0, fps_frames = 0;
+    u32 prev = 0;
     (void)argc; (void)argv;
     ResetGraph(0);
     SetVideoMode(MODE_NTSC);
@@ -58,6 +62,7 @@ int main(int argc, const char **argv)
     StartPAD();
     ChangeClearPAD(0);
 
+    InitGeom();                                       /* turn on the GTE (vertex transforms) */
     game_init();
     game_set_touch_ui(0);
     SetDispMask(1);
@@ -66,20 +71,28 @@ int main(int argc, const char **argv)
     for (;;) {
         u32 pad = read_pad();
         int now, ticks;
-        game_frame(pad);                                /* simulate + build + submit this frame */
-        DrawSync(0);                                    /* the GPU must finish before we show it */
+        /* CPU: simulate and build this frame's display list (the GPU is still drawing the last one) */
+        game_frame(pad);
+        DrawSync(0);                                    /* last frame finished drawing ... */
         VSync(0);
-        /* the game is written for 60 Hz ticks: if this frame took longer (heavy rooms on a real
-           33 MHz PS1), run the missed ticks without drawing so the game keeps real-time speed */
+        game_display_area(&dx, &dy);                    /* ... so show it: it's the other buffer */
+        disp.disp.x = (int16_t)dx;
+        disp.disp.y = (int16_t)(dy ^ SCREEN_H);
+        PutDispEnv(&disp);
+        gpu_psx_submit();                               /* GPU draws this frame while the loop goes on */
+        /* game logic runs at a fixed 60 ticks per second: when a frame took several vblanks,
+           run the missed ticks (logic only, no drawing) so the game keeps real-time speed */
         now = VSync(-1);
         ticks = now - last - 1;
-        if (ticks > 3) ticks = 3;
+        last = now;
+        /* SELECT toggles a frame-rate readout (averaged over about a second) */
+        if ((pad & PAD_SELECT) && !(prev & PAD_SELECT)) show_fps ^= 1;
+        prev = pad;
+        fps_acc += ticks + 1; fps_frames++;
+        if (fps_acc >= 60) { game_show_fps(show_fps ? (fps_frames * 60 + fps_acc / 2) / fps_acc : 0); fps_acc = fps_frames = 0; }
+        if (!show_fps) game_show_fps(0);
+        if (ticks > 5) ticks = 5;
         while (ticks-- > 0) game_step(pad);
-        last = VSync(-1);
-        game_display_area(&dx, &dy);                    /* show the buffer that was just drawn */
-        disp.disp.x = (int16_t)dx;
-        disp.disp.y = (int16_t)dy;
-        PutDispEnv(&disp);
     }
     return 0;
 }

@@ -1,4 +1,5 @@
 #include "model.h"
+#include "gte_hw.h"
 
 /* PS1 "scratchpad" style working set: projected vertices for the current model */
 static s16 sx[MODEL_MAX_VERTS], sy[MODEL_MAX_VERTS];
@@ -19,9 +20,23 @@ void model_skeleton(const Model *m, const MATRIX *root, const MATRIX *pose, MATR
 void model_draw_mats(const Model *m, const MATRIX *cam, const DrawCtx *c, FrameBuf *fb)
 {
     int b, i, k;
+#ifdef PSX_GTE
+    gte_load_proj(&c->proj);
+#endif
     for (b = 0; b < m->nbones && b < MODEL_MAX_BONES; b++) {
         const DBONE *bn = &m->bones[b];
         /* transform + project this bone's vertices (RotTransPers) */
+#ifdef PSX_GTE
+        gte_load_matrix(&cam[b]);
+        for (i = bn->v0; i < bn->v0 + bn->vn && i < MODEL_MAX_VERTS; i++) {
+            VECTOR cv; u32 sxy;
+            gte_xform(m->verts[i].x, m->verts[i].y, m->verts[i].z, &cv, &sxy);
+            ok[i] = (u8)(cv.vz >= c->proj.near_z && cv.vz > (c->proj.h >> 1));
+            sx[i] = (s16)(sxy & 0xffff); sy[i] = (s16)(sxy >> 16);
+            sz[i] = cv.vz;
+        }
+        if (0)
+#endif
         for (i = bn->v0; i < bn->v0 + bn->vn && i < MODEL_MAX_VERTS; i++) {
             SVECTOR sv; VECTOR cv;
             sv.vx = m->verts[i].x; sv.vy = m->verts[i].y; sv.vz = m->verts[i].z;

@@ -68,6 +68,8 @@ void game_touch_tap(int x, int y) { if (gs == GS_TITLE) title_tap(x, y); }
 void game_set_touch_ui(int on) { touch_ui = on; }
 int  game_rumble(void) { return rumble; }
 void game_set_analog(int lx, int ly, int rx, int ry) { an_lx = lx; an_ly = ly; an_rx = rx; (void)ry; }
+static int fps_shown;
+void game_show_fps(int fps) { fps_shown = fps; }
 void game_display_area(int *x, int *y) { *x = disp_x; *y = disp_y; }
 int  game_phase(void) { return gs; }
 void game_debug_side_cam(int on) { debug_side_cam = on; }
@@ -325,6 +327,12 @@ static void draw_hud(FrameBuf *fb)
     tri_f(fb, 126, 6, 114, 6, 126, -2, RGB(140, 110, 86), NO_SEMI, 6);
     text(fb, "DEADBIRD", 14, 12, 1, 200, 4);
     if (pl.speed > 40) text(fb, "RUN", 96, 12, 1, 120, 4);
+    if (fps_shown > 0) {
+        char b[12];
+        b[0] = 'F'; b[1] = 'P'; b[2] = 'S'; b[3] = ' ';
+        b[4] = (char)('0' + fps_shown / 10 % 10); b[5] = (char)('0' + fps_shown % 10); b[6] = 0;
+        text(fb, b, 262, 12, 1, 200, 4);
+    }
 }
 
 static void draw_controls(FrameBuf *fb)

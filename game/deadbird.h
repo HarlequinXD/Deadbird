@@ -9,6 +9,7 @@ void game_init(void);
 void game_frame(u32 pad);
 /* advance one 60 Hz tick without drawing (catch-up when a frame took longer than 1/60 s) */
 void game_step(u32 pad);
+void game_show_fps(int fps);          /* >0: show this frame rate in the HUD (0 hides it) */
 /* VRAM rectangle (320x240) that should be shown this frame */
 void game_display_area(int *x, int *y);
 /* draw the on-screen touch pad (Android) into the frame */

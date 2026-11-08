@@ -21,7 +21,9 @@ typedef uint16_t u16;
 typedef int32_t  s32;
 typedef uint32_t u32;
 
+#ifndef ONE
 #define ONE         4096            /* fixed point 1.0 (4.12) */
+#endif
 
 /* PS1 memory model */
 #define VRAM_W      1024            /* 16-bit pixels */
