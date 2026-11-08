@@ -6,6 +6,7 @@
 #include "player.h"
 #include "fkclips.h"
 #include "level.h"
+#include "ik.h"
 
 #define SUB        16
 #define MAX_SPEED  (70 * SUB)     /* full run (Slayer 4.3 m/s) */
@@ -20,7 +21,6 @@
 #define RADIUS     200
 #define RUN_PUSH   2870           /* stick past 70% runs */
 
-static s32 d_walk, d_run;         /* ground covered per cycle by the walk / run clips */
 
 static s32 iabs(s32 v) { return v < 0 ? -v : v; }
 static s32 clamp(s32 v, s32 lo, s32 hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -43,8 +43,6 @@ int player_input_angle(s32 dx, s32 dz) { return iatan2(dx, dz); }
 void player_init(const Model *m)
 {
     fk_init(m);
-    d_walk = fk_cycle_distance(&clip_walk);
-    d_run = fk_cycle_distance(&clip_run);
 }
 
 void player_reset(Player *p, s32 x, s32 z, int yaw)
@@ -167,25 +165,33 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         }
     }
 
-    /* animation clocks and weights (Slayer Hero.java) */
+    /* animation clocks and weights (Slayer Hero.java): run / gaitAmp from speed, a stride that
+       scales with speed below 1.2 m/s (so cadence stays natural when creeping), and a phase that
+       advances by distance / stride so a planted foot stays put on the ground */
     {
-        s32 sp = p->speed16, d, deff;
-        int run_t = smooth((sp - 36 * SUB) * 4096 / (32 * SUB));
-        int amp_t = sp < 2 * SUB ? 0 : (int)clamp(sp * 4096 / (22 * SUB), 0, 4096);
+        s32 sp = p->speed16, exc, stride;
+        int run_t = smooth((sp - 30 * SUB) * 4096 / (26 * SUB));          /* 1.9 .. 3.6 m/s */
+        int amp_t = smooth((sp - 20) * 4096 / (174 - 20));                /* 0.08 .. 0.7 m/s */
+        if (!p->grounded) amp_t = p->amp;
         p->runw += (run_t - p->runw) / 6;
-        p->amp += (amp_t - p->amp) / 4;
-        if (!p->grounded) {
-            /* keep the legs going in the air but stop the clock */
-        } else if (sp >= 2 * SUB) {
-            d = d_walk + ((d_run - d_walk) * p->runw >> 12);
-            deff = d * (p->amp < 700 ? 700 : p->amp) >> 12;
-            p->phase += (int)(sp * 1024 / deff);
-        } else {
-            /* settle to the nearest double-support moment so the next start is clean */
-            int m = p->phase & 8191;
-            if (m) p->phase += m < 4096 ? -((m + 7) / 8) : (8192 - m + 7) / 8;
+        p->amp += (amp_t - p->amp) / 3;
+        p->stance = 2540 + ((1434 - 2540) * p->runw >> 12);                /* 0.62 .. 0.35 of a cycle */
+        exc = 300 + (60 * p->runw >> 12);
+        exc = exc * clamp(sp * 4096 / 300, 0, 4096) >> 12;                  /* full stride from 1.2 m/s */
+        p->exc = exc;
+        if (exc < 24) exc = 24;
+        stride = 2 * exc * 4096 / p->stance;                                 /* ground covered per cycle */
+        if (p->grounded) p->phase += (int)(sp * 4096 / stride);              /* 65536 per cycle, sp in 1/16 */
+        if (sp < 2 * SUB && p->grounded) {
+            /* standing: settle to a double-support moment so the next start is clean */
+            int m = p->phase & 32767;
+            if (m) p->phase += m < 16384 ? -((m + 7) / 8) : (32768 - m + 7) / 8;
         }
-        p->phase &= 16383;
+        p->phase &= 65535;
+        /* turning on the spot: little shuffle steps */
+        if (p->amp < 2048 && p->grounded && (p->turn > 6 || p->turn < -6)) p->shuffle_amp += (4096 - p->shuffle_amp) / 4;
+        else p->shuffle_amp -= p->shuffle_amp / 6;
+        if (p->shuffle_amp > 200) p->shuffle_t = (p->shuffle_t + 260) & 8191;
         p->idle_t++;
         p->airw += ((p->grounded ? 0 : 4096) - p->airw) / (p->grounded ? 2 : 4);
         /* lean into acceleration, bank into turns */
@@ -203,47 +209,207 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
 }
 
 /* ---------------------------------------------------------------- pose */
+static s32 mixi(s32 a, s32 b, int w) { return a + ((b - a) * w >> 12); }
+static s32 sinpi(int q) { return isin(q >> 1); }   /* sin(pi * q), q 0..4096 */
+
+/* upper body + pelvis tilt from the keyframed clips (legs are placed by foot IK below) */
 static void build_pose(Player *p)
 {
     FKPose a, b, tmp;
     FKPose *o = &p->pose;
-    s32 reach, r2;
-    int t, w;
+    s32 t = ((p->phase + 32768) & 65535) >> 2;   /* clips: left foot lands at frame 0 */
+    int w;
 
-    /* idle -> walk -> run, all on the same clock */
     fk_sample(&clip_idle, (s32)p->idle_t << 8, o);
-    fk_sample(&clip_walk, p->phase, &a);
-    fk_sample(&clip_run, p->phase, &b);
+    fk_sample(&clip_walk, t, &a);
+    fk_sample(&clip_run, t, &b);
     fk_blend(&a, &b, p->runw, &tmp);
     fk_blend(o, &tmp, p->amp, o);
-
-    /* airborne: tuck on the way up, reach for the ground on the way down */
     if (p->airw > 0) {
-        t = (int)clamp((p->vy + 1400) * 32 / 2400, 0, 32);
-        fk_sample(&clip_air, (s32)t << 8, &a);
+        int at = (int)clamp((p->vy + 1400) * 32 / 2400, 0, 32);
+        fk_sample(&clip_air, (s32)at << 8, &a);
         fk_blend(o, &a, p->airw, o);
     }
-    /* landing dip: quick crouch, slow recovery, scaled by impact */
+    p->landw = 0;
     if (p->land_t < 20) {
         w = p->land_t < 3 ? p->land_t * 4096 / 3 : (20 - p->land_t) * 4096 / 17;
-        w = smooth(w) * p->land_amp >> 12;
+        p->landw = smooth(w) * p->land_amp >> 12;
         fk_sample(&clip_land, 0, &a);
-        fk_blend(o, &a, w, o);
+        fk_blend(o, &a, p->landw, o);
     }
-
-    /* procedural layers on top of the clips */
     o->v[FK_PRX] += (s16)(p->lean / 16);
     o->v[FK_TRX] += (s16)(p->lean / 32);
     o->v[FK_PRZ] += (s16)(p->bank / 16);
-    o->v[FK_HRY] -= (s16)(p->turn / 12);         /* look into the turn */
+    o->v[FK_HRY] -= (s16)(p->turn / 12);
+    o->v[FK_PY] = 0;
+}
 
-    /* grounding: drop the body until the lowest foot reaches the floor (no joint is changed) */
-    reach = fk_leg_reach(o->v[FK_LHP] + o->v[FK_PRX], o->v[FK_LKN]);
-    r2 = fk_leg_reach(o->v[FK_RHP] + o->v[FK_PRX], o->v[FK_RKN]);
-    if (r2 > reach) reach = r2;
-    reach = fk_rest_reach() - reach;
-    p->drop += (reach - p->drop) / 2;
-    o->v[FK_PY] += (s16)((p->drop * (4096 - p->airw) >> 12) + p->step_off);
+static void bone_vec(const Model *m, int b, VECTOR *v) { v->vx = m->bones[b].ox; v->vy = m->bones[b].oy; v->vz = m->bones[b].oz; }
+
+/* pelvis matrix in ground space (ground under her, facing +Z) */
+static void pelvis_mat(const Model *m, const MATRIX *R, s32 px, s32 py, MATRIX *out)
+{
+    MATRIX l = *R;
+    mat_translate(&l, px + m->bones[DEMON_BONE_PELVIS].ox, py + m->bones[DEMON_BONE_PELVIS].oy, m->bones[DEMON_BONE_PELVIS].oz);
+    *out = l;
+}
+
+static void point(const MATRIX *M, const VECTOR *v, VECTOR *o)
+{
+    mat_rot_apply(M, v, o);
+    o->vx += M->t[0]; o->vy += M->t[1]; o->vz += M->t[2];
+}
+
+/*
+ * Foot IK, after Slayer from Hell's Hero.java: each foot is planted while in stance (moving back
+ * under her exactly as fast as she moves forward, so it stays put on the ground) and swung through
+ * on an arc with toe-off and heel-strike pitch. Every foot finds the floor under itself, so on
+ * stairs each foot lands on its own step; the pelvis drops just enough for both legs to reach,
+ * then a two-bone IK bends the knees (forward) to put the hooves on their targets.
+ */
+static void place_feet(Player *p, const Model *m)
+{
+    static const int legs[2][3] = {
+        { DEMON_BONE_THIGH_L, DEMON_BONE_CALF_L, DEMON_BONE_HOOF_L },
+        { DEMON_BONE_THIGH_R, DEMON_BONE_CALF_R, DEMON_BONE_HOOF_R } };
+    MATRIX P, Rch, Rt, tmp;
+    VECTOR an[2], tgt[2], pole, hip, v1, v2;
+    s32 cy = icos(p->yaw), sy = isin(p->yaw);
+    s32 root_y = p->y + p->step_off, need = 0, L;
+    s32 mvx = 0, mvz = ONE, run = p->runw, amp = p->amp, air = p->airw;
+    int si, pitch[2], mid, ph12;
+    s32 bob, dz, lat;
+
+    /* the way she's moving, in her own frame (lets her side-step / back-pedal with planted feet) */
+    if (p->speed16 > 16) {
+        s32 lx = (p->vx * cy - p->vz * sy) >> 12, lz = (p->vx * sy + p->vz * cy) >> 12;
+        mvx = lx * ONE / p->speed16; mvz = lz * ONE / p->speed16;
+    }
+
+    for (si = 0; si < 2; si++) {
+        int sg = si == 0 ? 1 : -1;                   /* +1 = her left (+X) */
+        int ph = ((p->phase + (si == 0 ? 32768 : 0)) & 65535) >> 4;   /* 0..4095 */
+        s32 off, lift = 0, fl, wx, wz, fwd = 0, floor_rel;
+        int pt, swing, q;
+        VECTOR r;
+        /* rest ankle position */
+        bone_vec(m, DEMON_BONE_PELVIS, &an[si]);
+        bone_vec(m, legs[si][0], &r); an[si].vx += r.vx; an[si].vy += r.vy; an[si].vz += r.vz;
+        bone_vec(m, legs[si][1], &r); an[si].vx += r.vx; an[si].vy += r.vy; an[si].vz += r.vz;
+        bone_vec(m, legs[si][2], &r); an[si].vx += r.vx; an[si].vy += r.vy; an[si].vz += r.vz;
+
+        if (ph < p->stance) {                        /* planted: slides back under her */
+            q = ph * 4096 / p->stance;
+            off = p->exc * (4096 - 2 * q) >> 12;
+            swing = 0;
+            pt = q < 614 ? -163 * (4096 - q * 4096 / 614) >> 12
+                         : (q > 2785 ? (int)(358 * (((s32)(q - 2785) * 4096 / 1311) * ((s32)(q - 2785) * 4096 / 1311) >> 12) >> 12) : 0);
+            lift = pt > 0 ? 170 * isin(pt) >> 12 : 0;  /* heel peels up before toe-off */
+        } else {                                     /* swinging through on an arc */
+            s32 h;
+            q = (ph - p->stance) * 4096 / (4096 - p->stance);
+            off = -p->exc + (2 * p->exc * smooth(q) >> 12);
+            swing = 1;
+            h = mixi(80, 150, run) * clamp(p->speed16 * 4096 / (22 * SUB) + 1229, 0, 4096) >> 12;
+            lift = (h * sinpi(q) >> 12) + (run * 80 >> 12) * sinpi(q * 3 / 2 > 4096 ? 4096 : q * 3 / 2) / 4096;
+            off -= (run * 120 >> 12) * sinpi(q * 7 / 5 > 4096 ? 4096 : q * 7 / 5) / 4096;   /* heel kicks up behind */
+            pt = mixi(358, -117, smooth(q * 4096 / 3482));
+        }
+        off = off * amp >> 12; lift = lift * amp >> 12; pt = pt * amp >> 12;
+        /* turning on the spot: alternate little steps */
+        if (p->shuffle_amp > 0) {
+            int sp = ((p->shuffle_t + (si ? 4096 : 0)) & 8191);
+            if (sp < 4096) lift += (70 * sinpi(sp) >> 12) * p->shuffle_amp >> 12;
+        }
+        /* idle stance: left foot a touch forward */
+        fwd = (sg > 0 ? 60 : -50) * (4096 - amp) >> 12;
+        fwd = fwd * (4096 - air) >> 12;
+        /* airborne: tuck on the way up, reach down on the way down */
+        off = mixi(off, sg > 0 ? 130 : -100, air);
+        lift = mixi(lift, p->vy < 0 ? 300 : 100, air);
+        pt = mixi(pt, p->vy < 0 ? 228 : 98, air);
+
+        tgt[si].vx = an[si].vx + (mvx * off * 4 / 5 >> 12);
+        if (sg > 0 && tgt[si].vx < 47) tgt[si].vx = 47;          /* side-steps never cross the feet */
+        if (sg < 0 && tgt[si].vx > -47) tgt[si].vx = -47;
+        tgt[si].vz = an[si].vz + (mvz * off >> 12) + fwd;
+
+        /* the floor under this foot (and a little ahead of it, where the hoof reaches) */
+        wx = p->x + ((tgt[si].vx * cy + tgt[si].vz * sy) >> 12);
+        wz = p->z + ((tgt[si].vz * cy - tgt[si].vx * sy) >> 12);
+        fl = level_ground(wx, wz, p->y);
+        { s32 f2 = level_ground(wx + (sy * 85 >> 12), wz + (cy * 85 >> 12), p->y); if (f2 < fl) fl = f2; }
+        if (!p->floor_ok) { p->foot_floor[0] = p->foot_floor[1] = fl; p->floor_ok = 1; }
+        if (fl < p->foot_floor[si]) {                /* higher: planted feet take it at once */
+            if (swing || air > 2048) p->foot_floor[si] += (fl - p->foot_floor[si]) / 2 - 1;
+            else p->foot_floor[si] = fl;
+            if (p->foot_floor[si] < fl) p->foot_floor[si] = fl;
+        }
+        if (swing && fl < p->foot_floor[si] - 30) p->foot_floor[si] = fl + 30;
+        else if (fl > p->foot_floor[si]) p->foot_floor[si] += (fl - p->foot_floor[si]) / (air > 2048 ? 15 : 4) + 1;
+        if (p->foot_floor[si] > fl && fl >= p->foot_floor[si] - 1) p->foot_floor[si] = fl;
+        floor_rel = p->foot_floor[si] - root_y;
+        if (swing && fl < p->foot_floor[si] - 20) lift += clamp(p->foot_floor[si] - fl, 0, 300) * 11 / 10;   /* clear the step */
+        tgt[si].vy = an[si].vy - lift + (air > 2048 ? 0 : floor_rel * (4096 - air) >> 12);
+        pitch[si] = pt;
+        p->foot_swing[si] = swing;
+    }
+
+    /* pelvis: Slayer's bob / sway / run crouch / landing dip, then drop so both legs reach */
+    ph12 = p->phase >> 4;
+    mid = p->stance / 2;
+    bob = mixi(20 * icos((ph12 - mid) * 2 & 4095) >> 12, 40 * icos((ph12 - mid - 1024) * 2 & 4095) >> 12, run) * amp >> 12;
+    dz = 12 + (50 * run >> 12) * amp / 4096 - bob + (170 * p->landw >> 12) - (20 * air >> 12);
+    lat = (-22 * icos((ph12 - mid) & 4095) >> 12) * amp / 4096 * (4096 - run) / 4096;
+    {
+        MATRIX R;
+        VECTOR th;
+        fk_pelvis_rot(&p->pose, &R);
+        pelvis_mat(m, &R, lat, dz, &P);
+        L = (fk_thigh_len() + fk_calf_len()) * 985 / 1000;
+        for (si = 0; si < 2; si++) {
+            s32 ddx, ddy, ddz, h2;
+            bone_vec(m, legs[si][0], &th);
+            point(&P, &th, &hip);
+            ddx = tgt[si].vx - hip.vx; ddy = tgt[si].vy - hip.vy; ddz = tgt[si].vz - hip.vz;
+            h2 = ddx * ddx + ddz * ddz;
+            if (ddy > 0 && h2 + ddy * ddy > L * L) {
+                s32 z = h2 < L * L ? (s32)isqrt((u32)(L * L - h2)) : 0;
+                if (ddy - z > need) need = ddy - z;
+            }
+        }
+        if (need > 330) need = 330;
+        p->drop += need > p->drop ? (need - p->drop) / 2 : (need - p->drop) / 8;
+        P.t[1] += p->drop;
+        p->pelvis_y = dz + p->drop;
+        p->pelvis_x = lat;
+    }
+
+    /* legs: two-bone IK, knees forward and a touch out; hooves pitched, toes splayed */
+    for (si = 0; si < 2; si++) {
+        int sg = si == 0 ? 1 : -1;
+        MATRIX rx, ry;
+        pole.vx = sg * 330; pole.vy = 0; pole.vz = ONE;
+        bone_vec(m, legs[si][0], &hip);
+        bone_vec(m, legs[si][1], &v1);
+        bone_vec(m, legs[si][2], &v2);
+        {
+            VECTOR tl, d, pl;
+            d.vx = tgt[si].vx - P.t[0]; d.vy = tgt[si].vy - P.t[1]; d.vz = tgt[si].vz - P.t[2];
+            mat_rot_tapply(&P, &d, &tl);
+            mat_rot_tapply(&P, &pole, &pl);
+            ik_two_bone(&hip, &v1, &v2, &tl, &pl, &p->bone_pose[legs[si][0]], &p->bone_pose[legs[si][1]]);
+        }
+        /* hoof: undo the chain's rotation, then splay and pitch it in ground space */
+        mat_mul(&P, &p->bone_pose[legs[si][0]], &tmp);
+        mat_mul(&tmp, &p->bone_pose[legs[si][1]], &Rch);
+        Rch.t[0] = Rch.t[1] = Rch.t[2] = 0;
+        mat_transpose(&Rch, &Rt);
+        mat_rot_y(&ry, sg * 46);
+        mat_rot_x(&rx, -pitch[si]);
+        mat_mul(&ry, &rx, &tmp);
+        mat_mul(&Rt, &tmp, &p->bone_pose[legs[si][2]]);
+    }
 }
 
 void player_pose(Player *p, const Model *m)
@@ -252,10 +418,11 @@ void player_pose(Player *p, const Model *m)
     MATRIX root, ry;
     build_pose(p);
     fk_bones(m, &p->pose, p->bone_pose, &off);
+    place_feet(p, m);
     mat_rot_y(&ry, p->yaw);
-    mat_translate(&ry, p->x, p->y, p->z);
+    mat_translate(&ry, p->x, p->y + p->step_off, p->z);
     mat_identity(&root);
-    mat_translate(&root, off.vx, off.vy, off.vz);
+    mat_translate(&root, p->pelvis_x, p->pelvis_y, 0);
     mat_mul(&ry, &root, &root);
     model_skeleton(m, &root, p->bone_pose, p->world);
 }

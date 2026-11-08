@@ -1,8 +1,7 @@
 /*
- * Keyframed joint-angle (forward kinematics) animation - no IK.
- * A pose is a set of joint angles in DEGREES (converted when the bones are built) plus a
- * pelvis height offset. The only adjustment made at runtime is "grounding": the whole body
- * is lowered until the planted foot (as the clip says) touches the floor - no joint is solved.
+ * Keyframed joint-angle (forward kinematics) animation for the upper body and pelvis tilt.
+ * A pose is a set of joint angles in DEGREES (converted when the bones are built). The legs
+ * are placed by foot IK in player.c (the clips' leg channels are only used as a fallback).
  */
 #ifndef FK_H
 #define FK_H
@@ -36,11 +35,11 @@ void fk_blend(const FKPose *a, const FKPose *b, int w, FKPose *out); /* w 0..409
 
 /* leg measurements taken from the model */
 void fk_init(const Model *m);
-/* foot travel (model units) of the left foot while planted in a cycle clip -> distance per cycle */
-s32  fk_cycle_distance(const FKClip *c);
-/* how far below the hip the ankle hangs for a leg pose (sagittal FK) */
-s32  fk_leg_reach(int hip_deg, int knee_deg);
-s32  fk_rest_reach(void);
+/* thigh (hip->knee) and calf (knee->ankle) lengths, model units */
+s32  fk_thigh_len(void);
+s32  fk_calf_len(void);
+/* pelvis rotation of a pose */
+void fk_pelvis_rot(const FKPose *p, MATRIX *R);
 
 /* build bone rotations; root_off receives the pelvis offset (grounding already applied by caller via FK_PY) */
 void fk_bones(const Model *m, const FKPose *p, MATRIX *pose, VECTOR *root_off);

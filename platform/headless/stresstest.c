@@ -57,6 +57,31 @@ int main(void)
         prev_g = pl.grounded;
         px = pl.x; py = pl.y; pz = pl.z;
     }
+    /* scenario 0: walking / running straight on flat ground: a planted hoof must stay put */
+    {
+        int pass, worst = 0;
+        for (pass = 0; pass < 2; pass++) {
+            s32 prev[2][2] = { { 0, 0 }, { 0, 0 } };
+            int was[2] = { 0, 0 }, si;
+            player_reset(&pl, -3000, -3400, 0);
+            for (f = 0; f < 150; f++) {
+                player_update(&pl, 0, 0, pass ? 4096 : 2400);
+                player_pose(&pl, &m);
+                for (si = 0; si < 2; si++) {
+                    const MATRIX *h = &pl.world[si ? DEMON_BONE_HOOF_R : DEMON_BONE_HOOF_L];
+                    int planted = !pl.foot_swing[si] && f > 60;
+                    if (planted && was[si]) {
+                        s32 dx = h->t[0] - prev[si][0], dz = h->t[2] - prev[si][1];
+                        int d = (int)isqrt((u32)(dx * dx + dz * dz));
+                        if (d > worst) worst = d;
+                    }
+                    was[si] = planted; prev[si][0] = h->t[0]; prev[si][1] = h->t[2];
+                }
+            }
+        }
+        printf("foot slide test: planted hooves move at most %d units a frame (run speed is 70)\n", worst);
+        if (worst > 12) { printf("FAIL: planted feet slide\n"); fails++; }
+    }
     /* scenario 1: running, then the stick goes 90 degrees right: she must turn and go that way */
     player_reset(&pl, -3000, -3000, 0);
     for (f = 0; f < 60; f++) { player_update(&pl, 0, 0, 4096); player_pose(&pl, &m); }

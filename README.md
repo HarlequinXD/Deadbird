@@ -17,12 +17,15 @@ level. The engine is written so it can run on a real PlayStation later. For now 
   smoothed, and landings dip by how hard you hit.
 - **Facing, lean and bank** (from Slayer's `Hero.java`): the body turns toward where she is
   actually moving, leans into acceleration (back when braking) and banks into turns.
-- **Keyframed animation only - no IK** (`game/fk.c`, clips in `game/fkclips.c`, authored by
-  `tools/make_fkclips.py`): every clip is joint angles. Idle, walk and run cycles share one clock
-  that **advances with distance travelled** (cycle distance is measured from the clip's own foot
-  travel), so stride keeps up with ground speed; walk and run blend by speed. Air (tuck on the
-  way up, reach on the way down), and the landing crouch are blended on top.
-  The only runtime adjustment is lowering the whole body so the lowest foot touches the floor.
+- **Foot IK, as in Slayer from Hell** (`game/player.c`, two-bone solver in `engine/ik.c`): each
+  foot stays planted on the ground while it is in stance and swings through on an arc (toe-off,
+  heel strike, heel kick when running) on a gait clock driven by distance, so feet don't slide.
+  Every foot finds the floor under itself, so on stairs each foot lands on its own step; the
+  pelvis drops just enough for both legs to reach, and the knees bend forward to put the hooves
+  on their targets. Turning on the spot makes little shuffle steps; jumping tucks the feet.
+- **Keyframed upper body** (`game/fk.c`, clips in `game/fkclips.c`, authored by
+  `tools/make_fkclips.py`): torso, head and arms play idle / walk / run clips in step with the
+  legs, blended by speed, with air and landing poses on top.
 - **Test level**: floor with lava seams, boundary walls, a low platform, stairs to a high
   platform, a ramp, pillars and a wall to run into, and skull totems.
 - **Camera**: third-person follow camera that drifts back behind you as you move; swing it with

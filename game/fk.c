@@ -1,4 +1,5 @@
 #include "fk.h"
+#include "ik.h"
 #define DEMON_MESH_NO_DATA
 #include "demon_mesh.h"
 
@@ -14,31 +15,8 @@ void fk_init(const Model *m)
     L2 = (s32)isqrt((u32)(h->ox * h->ox + h->oy * h->oy + h->oz * h->oz));
 }
 
-s32 fk_leg_reach(int hip, int knee)
-{
-    /* thigh swings by hip, calf by (hip - knee): vertical drop from hip to ankle */
-    return (L1 * icos(DEG(hip)) >> 12) + (L2 * icos(DEG(hip - knee)) >> 12);
-}
-
-s32 fk_rest_reach(void) { return L1 + L2; }
-
-static s32 leg_forward(int hip, int knee)
-{
-    return (L1 * isin(DEG(hip)) >> 12) + (L2 * isin(DEG(hip - knee)) >> 12);
-}
-
-s32 fk_cycle_distance(const FKClip *c)
-{
-    FKPose a, b;
-    s32 travel, stance = c->liftoff[0] - c->contact[0];
-    if (stance <= 0) stance += c->length;
-    fk_sample(c, (s32)c->contact[0] << 8, &a);
-    fk_sample(c, (s32)c->liftoff[0] << 8, &b);
-    travel = leg_forward(a.v[FK_LHP] + a.v[FK_PRX], a.v[FK_LKN]) - leg_forward(b.v[FK_LHP] + b.v[FK_PRX], b.v[FK_LKN]);
-    if (travel < 50) travel = 50;
-    /* the body covers `travel` while the foot is planted, i.e. during stance/length of the cycle */
-    return travel * c->length / stance;
-}
+s32 fk_thigh_len(void) { return L1; }
+s32 fk_calf_len(void) { return L2; }
 
 static int ease(int t) { s32 tt = (s32)t * t >> 12; return (int)(3 * tt - (2 * (tt * t >> 12))); }
 
@@ -63,6 +41,13 @@ void fk_blend(const FKPose *a, const FKPose *b, int w, FKPose *out)
 {
     int i;
     for (i = 0; i < FK_COUNT; i++) out->v[i] = (s16)(a->v[i] + (((s32)(b->v[i] - a->v[i]) * w) >> 12));
+}
+
+static void rot_yxz(MATRIX *out, int ry, int rx, int rz);
+
+void fk_pelvis_rot(const FKPose *p, MATRIX *R)
+{
+    rot_yxz(R, DEG(p->v[FK_PRY]), DEG(p->v[FK_PRX]), DEG(p->v[FK_PRZ]));
 }
 
 static void rot_yxz(MATRIX *out, int ry, int rx, int rz)    /* out = Ry * Rx * Rz (angles 4096 = 360) */

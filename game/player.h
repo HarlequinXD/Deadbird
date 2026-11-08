@@ -7,8 +7,9 @@
  *   - step-up smoothing and a landing dip
  *   - the body turns toward where she is actually moving, leans into acceleration and
  *     banks into turns
- * Animation is keyframed joint angles only (fk.h): idle / walk / run cycles blended by speed,
- * with the cycle clock driven by distance so stride matches ground speed. No IK.
+ * Animation: the upper body plays keyframed joint-angle clips (fk.h) blended by speed; the legs
+ * are placed by Slayer-style foot IK (planted feet, swing arcs, a floor per foot, pelvis drop,
+ * two-bone knees), on a gait clock driven by distance so planted feet don't slide.
  */
 #ifndef PLAYER_H
 #define PLAYER_H
@@ -34,7 +35,14 @@ typedef struct {
     int grounded, air_t, pushing;  /* pushing = touching a wall this frame */
     int land_t, land_amp;      /* landing dip */
     s32 step_off;              /* visual offset after stepping up/down a ledge */
-    int phase;                 /* gait clock, 1/256 frames of the 64-frame cycles */
+    int phase;                 /* gait clock, 65536 per cycle (right foot lands at 0, left at 32768) */
+    int stance;                /* share of the cycle a foot is planted, 4096 = all */
+    s32 exc;                   /* how far a foot travels ahead / behind the hip */
+    int shuffle_t, shuffle_amp;/* little steps when turning on the spot */
+    int landw;
+    s32 foot_floor[2];         /* floor height each foot is standing on / heading for */
+    int floor_ok, foot_swing[2];
+    s32 pelvis_x, pelvis_y;
     int idle_t;
     int runw, amp, airw;       /* blend weights 0..4096 */
     int lean, bank;            /* degrees * 16 */
