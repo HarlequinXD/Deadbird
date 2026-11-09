@@ -18,7 +18,8 @@ void game_set_touch_ui(int on);
 void game_set_pad_style(int style);
 /* tests */
 void game_debug_near_enemy(int i, s32 dist);
-int  game_debug_enemy_state(int i);       /* state * 1000 + hp */
+int  game_debug_enemy_state(int i);
+void game_debug_setup_duel(int i, s32 x, s32 z, s32 dist, int ang);       /* state * 1000 + hp */
 int  game_debug_fatality(void);           /* cutscene frame, -2 prompt showing, -1 none */
 int  game_debug_player_hp(void);
 int  game_debug_goto_exit(void);           /* puts her by the level's exit (0 = it has none) */

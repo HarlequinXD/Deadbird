@@ -210,6 +210,19 @@ int main(int argc, char **argv)
         if (st / 1000 != E_CUT) { printf("FAIL: the fatality didn't cut him in half\n"); return 1; }
         run(0, 60);
         write_bmp(out, "24_after_fatality");
+        {   /* one 3-hit combo from a distance and from odd angles must land all three swings:
+               she slides in to him and the lock holds through the combo */
+            static const int dist[4] = { 3500, 2600, 1300, 4600 }, ang[4] = { 0, 1024, 1700, -500 };
+            int t, hp0;
+            for (t = 0; t < 4; t++) {
+                hp0 = 120;
+                run(0, 90); game_debug_setup_duel(1 + t, -5 * 1024, -7 * 1024, dist[t], ang[t]); { int q; for (q = 0; q < 110; q++) run((q == 0 || q == 14 || q == 28) ? BTN_ATTACK : 0, 1); }
+                st = game_debug_enemy_state(1 + t);
+                printf("combo from %d units, %d degrees off: trooper hp %d -> %d, state %d\n", dist[t], ang[t] * 360 / 4096, hp0, st % 1000, st / 1000);
+                if (t == 0) write_bmp(out, "24_combo_from_range");
+                if (st / 1000 != E_DAZED && st / 1000 != E_DEAD) { printf("FAIL: a full combo didn't put him down\n"); return 1; }
+            }
+        }
         if (game_debug_goto_exit()) {                     /* the ending: the reactor, then the score */
             static const int at[] = { 10, 40, 70, 86, 96, 110, 130, 180 };
             int j = 0, f;

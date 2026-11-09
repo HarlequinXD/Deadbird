@@ -94,6 +94,32 @@ static void lerpv(const VECTOR *a, const VECTOR *b, int i, VECTOR *o)
     o->pad = 0;
 }
 
+static void apply_hit(Attack *at, int i, CombatTarget *t, const VECTOR *where)
+{
+    Hit h;
+    s32 dx = t->x - at->ox, dz = t->z - at->oz, l = (s32)isqrt((u32)((dx >> 4) * (dx >> 4) + (dz >> 4) * (dz >> 4))) << 4;
+    at->hit_mask |= 1u << i;
+    memset(&h, 0, sizeof(h));
+    h.damage = at->damage; h.knockback = at->knockback; h.stagger = at->stagger; h.move = at->move; h.team = at->team;
+    h.at = *where;
+    h.dir_x = l ? dx * 4096 / l : 0; h.dir_z = l ? dz * 4096 / l : 4096;
+    t->flash = 8;
+    if (t->on_hit) t->on_hit(t, &h);
+    else { t->hp -= h.damage; if (t->hp <= 0) { t->hp = 0; t->alive = 0; } }
+}
+
+int attack_force(Attack *at, CombatTarget *t, const VECTOR *where, CombatEvent *ev)
+{
+    int i;
+    if (!at->live || !t || !t->alive) return 0;
+    for (i = 0; i < COMBAT_MAX_TARGETS; i++) if (targets[i] == t) break;
+    if (i == COMBAT_MAX_TARGETS || (at->hit_mask & (1u << i))) return 0;
+    apply_hit(at, i, t, where);
+    ev->kind = COMBAT_HIT_TARGET; ev->at = *where; ev->target = t;
+    ev->nrm.vx = ev->nrm.vy = ev->nrm.vz = 0;
+    return 1;
+}
+
 int attack_update(Attack *at, const VECTOR *a, const VECTOR *b, CombatEvent *ev, int max)
 {
     VECTOR ray[RAYS + 1][2];
@@ -117,20 +143,9 @@ int attack_update(Attack *at, const VECTOR *a, const VECTOR *b, CombatEvent *ev,
             if (tt >= 0 && tt < best) { best = tt; best_at = hit; best_n = nrm; }
         }
         if (best == 0x7fffffff) continue;
-        {
-            Hit h;
-            s32 dx = t->x - at->ox, dz = t->z - at->oz, l = (s32)isqrt((u32)((dx >> 4) * (dx >> 4) + (dz >> 4) * (dz >> 4))) << 4;
-            at->hit_mask |= 1u << i;
-            memset(&h, 0, sizeof(h));
-            h.damage = at->damage; h.knockback = at->knockback; h.stagger = at->stagger; h.move = at->move; h.team = at->team;
-            h.at = best_at;
-            h.dir_x = l ? dx * 4096 / l : 0; h.dir_z = l ? dz * 4096 / l : 4096;
-            t->flash = 8;
-            if (t->on_hit) t->on_hit(t, &h);
-            else { t->hp -= h.damage; if (t->hp <= 0) { t->hp = 0; t->alive = 0; } }
-            ev[n].kind = COMBAT_HIT_TARGET; ev[n].at = best_at; ev[n].target = t; ev[n].nrm = best_n;
-            n++;
-        }
+        apply_hit(at, i, t, &best_at);
+        ev[n].kind = COMBAT_HIT_TARGET; ev[n].at = best_at; ev[n].target = t; ev[n].nrm = best_n;
+        n++;
     }
     /* level: the first wall, prop or floor any ray reaches (once per swing); the rays run along
        the chain's lower edge for this, so a slam meets the floor with the teeth, not the bar's middle */

@@ -73,6 +73,9 @@ CombatTarget *combat_target(int i);
 void attack_begin(Attack *at, int team, int move, int damage, int knockback, int stagger, s32 radius);
 /* move the live capsule to a->b this frame (set at->ox/oz to the attacker's position first);
    returns the number of events written (<= max) */
+/* the swing reached target t without a ray finding it (she was lined up on him): hit him now, once
+   per swing like any other; returns 1 if it landed (fills ev) */
+int  attack_force(Attack *at, CombatTarget *t, const VECTOR *where, CombatEvent *ev);
 int  attack_update(Attack *at, const VECTOR *a, const VECTOR *b, CombatEvent *ev, int max);
 void attack_end(Attack *at);
 

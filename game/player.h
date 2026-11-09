@@ -62,6 +62,7 @@ typedef struct {
     int roll_t, roll_yaw, rollw;   /* dodge roll: frames in (0 = none), its heading, pose weight */
     s32 roll_py;               /* the roll's crouch depth this frame */
     int lock_yaw; s32 lock_dist;   /* attack target (set by the game each frame; lock_dist 0 = none) */
+    s32 lock_x, lock_z;        /* ... where he stands: each swing slides her in to striking distance */
     int shake;                 /* 0..4096: whole-body strain tremor (cutscenes: the saw grinding) */
     s32 drop_extra;            /* extra crouch (others' knees buckling) */
     /* secondary motion: the upper body follows the keyframes through springs (mass, lag, overshoot) */
@@ -89,6 +90,7 @@ void player_pose_end(Player *p, const Model *m);
 int  player_invulnerable(const Player *p);   /* mid-roll */
 /* the blade struck something: freeze for a few frames (hit-stop); push back off a surface
    (normal nx, nz, 4096 = 1) by push (1/16 units per frame, 0 = no recoil) */
+int  pl_swing_strike(int stage);  /* the frame swing stage's blade lands */
 void player_hit_react(Player *p, s32 nx, s32 nz, int push, int stop);
 /* cutscenes: hold her in combo swing `stage` at frame t with blend w (stage 0 = let go) */
 void player_script(Player *p, int stage, int t, int w);

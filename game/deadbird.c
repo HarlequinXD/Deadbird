@@ -36,6 +36,10 @@ static int php = 100, hurt_flash, dead_t;  /* her health, red flash when hit, de
 static int pad_style;                     /* button names in prompts: 0 PlayStation, 1 Xbox / keyboard */
 static int fatal_ready = -1;              /* a reeling trooper close enough to finish */
 static u32 keys;                          /* keycards she carries: bit 1 cyan, 2 amber, 3 crimson */
+static int lock_ei = -1;                  /* the trooper her combo is committed to */
+static s32 iabs(s32 v) { return v < 0 ? -v : v; }
+#define LOCK_RANGE 5200                   /* how far a chainsaw press reaches for a trooper */
+#define LOCK_KEEP  7000                   /* a committed lock breaks past this */
 static const char *msg; static int msg_t, msg_col;   /* a line of text on the HUD (pickups, locked doors) */
 static int key_flash_t, key_flash_col;    /* the HUD's key slot flashes when a door wants a key she lacks */
 /* FATALITY cutscene (vt = cutscene frames in 1/16, slowed in the grind) */
@@ -103,6 +107,24 @@ void game_debug_near_enemy(int i, s32 dist)
     pl.x16 = pl.x * 16; pl.z16 = pl.z * 16; pl.y = e->y; pl.y16 = pl.y * 16;
     pl.yaw = (e->yaw + 2048) & 4095; cam_yaw = pl.yaw;
 }
+/* test: her at (x, z) facing north, trooper i at dist from her, `ang` (4096 = 360) off her facing, fresh */
+void game_debug_setup_duel(int i, s32 x, s32 z, s32 dist, int ang)
+{
+    Enemy *e = enemy_get(i);
+    if (!e) return;
+    pl.x = x; pl.z = z; pl.x16 = x * 16; pl.z16 = z * 16; pl.y = level_ground(x, z, -20000); pl.y16 = pl.y * 16;
+    pl.yaw = 0; pl.vx = pl.vz = 0; cam_yaw = 0;
+    e->x = x + (isin(ang) * dist >> 12); e->z = z + (icos(ang) * dist >> 12); e->y = pl.y;
+    e->body.x = e->x; e->body.z = e->z; e->body.x16 = e->x * 16; e->body.z16 = e->z * 16; e->body.y = e->y; e->body.y16 = e->y * 16;
+    e->body.vx = e->body.vz = 0;
+    e->tgt.hp = e->tgt.max_hp; e->tgt.alive = 1; e->state = E_FIGHT; e->t = 0; e->los = 1;
+    e->tgt.x = e->x; e->tgt.y = e->y; e->tgt.z = e->z;
+    php = 100; lock_ei = -1;
+    {   /* the other troopers out of the way */
+        int k;
+        for (k = 0; k < enemy_count(); k++) if (k != i) { Enemy *o = enemy_get(k); o->state = E_DEAD; o->tgt.alive = 0; }
+    }
+}
 int game_debug_enemy_state(int i) { Enemy *e = enemy_get(i); return e ? e->state * 1000 + e->tgt.hp : -1; }
 int game_debug_fatality(void) { return cine.active ? (cine.vt16 >> 4) : (fatal_ready >= 0 ? -2 : -1); }
 int game_debug_player_hp(void) { return php; }
@@ -137,7 +159,7 @@ static void start_play(void)
     combat_add(&player_tgt);
     enemy_reset();
     php = 100; hurt_flash = 0; dead_t = 0; fatal_ready = -1;
-    keys = 0; msg = 0; msg_t = 0; key_flash_t = 0; play_frames = 0;
+    keys = 0; msg = 0; msg_t = 0; key_flash_t = 0; play_frames = 0; lock_ei = -1;
     {
         int i;
         has_exit = 0;
@@ -264,7 +286,7 @@ static void read_move(u32 pad, int *yaw, int *mag)
 /* ------------------------------------------------------------------ sound */
 static int amb_timer = 120, was_grounded = 1;
 /* per combo swing: damage, knockback (1/16 u/frame), stagger frames */
-static const int SAW_DMG[3] = { 22, 26, 50 }, SAW_KNOCK[3] = { 28 * 16, 30 * 16, 70 * 16 }, SAW_STAGGER[3] = { 14, 16, 34 };
+static const int SAW_DMG[3] = { 26, 30, 52 }, SAW_KNOCK[3] = { 0, 0, 60 * 16 }, SAW_STAGGER[3] = { 28, 30, 40 };   /* 1-2 hold him in place for the next */
 static s32 clamp(s32 v, s32 lo, s32 hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 static int rnd(int n) { return (int)(fx_rand() % (u32)n); }
@@ -338,6 +360,15 @@ static void saw_combat(void)
     saw_blade(&base, &tip);
     saw_attack.ox = pl.x; saw_attack.oz = pl.z;
     n = attack_update(&saw_attack, &base, &tip, ev, 4);
+    if (lock_ei >= 0 && n < 4 && pl.atk_t >= pl_swing_strike(pl.atk) + 1) {   /* locked on and the blade is down: it lands */
+        Enemy *le = enemy_get(lock_ei);
+        s32 dx = le->x - pl.x, dz = le->z - pl.z;
+        if (iabs(dx) < 1900 && iabs(dz) < 1900 && dx * dx / 16 + dz * dz / 16 < 1900 * 1900 / 16) {
+            VECTOR w;
+            enemy_waist(le, &w);
+            n += attack_force(&saw_attack, &le->tgt, &w, &ev[n]);
+        }
+    }
     for (i = 0; i < n; i++) {
         const CombatEvent *e = &ev[i];
         int pan = pan_of(e->at.vx, e->at.vz);
@@ -357,6 +388,7 @@ static void saw_combat(void)
         } else {                                                  /* steel: sparks, screech, the blade kicks back */
             fx_hit(&e->at, 50, 1);
             snd_play(SFX_GRIND, 3800, pan, 3800 + rnd(600));
+            if (lock_ei >= 0) continue;                           /* mid-combo on a trooper: just sparks */
             player_hit_react(&pl, e->nrm.vx, e->nrm.vz, e->nrm.vy ? 0 : 18 * 16, 4);
             land_shake_t = 0; land_shake_amp = 75;                          /* jolt, like a landing */
             rumble = 150;
@@ -534,7 +566,6 @@ static void cine_step(void)
     }
 }
 
-static s32 iabs(s32 v) { return v < 0 ? -v : v; }
 
 static void simulate(u32 pad)
 {
@@ -543,27 +574,38 @@ static void simulate(u32 pad)
     camera_update(pad);
     read_move(pad, &myaw, &mmag);
     {   /* auto-targeting: the nearest trooper within reach, roughly where she's facing or the stick
-           points, is locked; a chainsaw press turns her onto him and each swing's lunge is sized to
-           land the chain on him */
-        int i, ref = mmag > 300 ? myaw : pl.yaw, best_a = 0;
-        s32 best = 0x7fffffff, best_d = 0;
-        for (i = 0; i < enemy_count(); i++) {
-            const Enemy *e = enemy_get(i);
-            s32 dx = e->x - pl.x, dz = e->z - pl.z, d;
-            int a, diff;
-            if (e->state == E_DEAD || e->state == E_CUT || e->state == E_FATAL) continue;
-            if (iabs(e->y - pl.y) > 900 || iabs(dx) > 4200 || iabs(dz) > 4200) continue;
-            d = (s32)isqrt((u32)((dx >> 2) * (dx >> 2) + (dz >> 2) * (dz >> 2))) << 2;
-            if (d > 4200) continue;
-            a = player_input_angle(dx, dz) & 4095;
-            diff = ((a - ref + 2048) & 4095) - 2048;
-            if (diff < 0) diff = -diff;
-            if (diff > 1400) continue;
-            if (d + diff * 2 < best) { best = d + diff * 2; best_a = a; best_d = d; }
+           points, is locked. A chainsaw press turns her onto him, and the lock holds for the whole
+           combo: every swing slides her in to striking distance of him (player.c), so 3-hit
+           combos land without lining anything up */
+        int i, ref = mmag > 300 ? myaw : pl.yaw, best_i = -1;
+        s32 best = 0x7fffffff;
+        const Enemy *le = lock_ei >= 0 ? enemy_get(lock_ei) : 0;
+        if (le && (!pl.atk || le->state == E_DEAD || le->state == E_CUT || le->state == E_FATAL ||
+                   iabs(le->x - pl.x) > LOCK_KEEP || iabs(le->z - pl.z) > LOCK_KEEP)) le = 0, lock_ei = -1;
+        if (!le) {
+            for (i = 0; i < enemy_count(); i++) {
+                const Enemy *e = enemy_get(i);
+                s32 dx = e->x - pl.x, dz = e->z - pl.z, d;
+                int a, diff;
+                if (e->state == E_DEAD || e->state == E_CUT || e->state == E_FATAL) continue;
+                if (iabs(e->y - pl.y) > 900 || iabs(dx) > LOCK_RANGE || iabs(dz) > LOCK_RANGE) continue;
+                d = (s32)isqrt((u32)((dx >> 2) * (dx >> 2) + (dz >> 2) * (dz >> 2))) << 2;
+                if (d > LOCK_RANGE) continue;
+                a = player_input_angle(dx, dz) & 4095;
+                diff = ((a - ref + 2048) & 4095) - 2048;
+                if (diff < 0) diff = -diff;
+                if (diff > 1600 && d > 1800) continue;          /* close by, any direction will do */
+                if (d + diff * 2 < best) { best = d + diff * 2; best_i = i; }
+            }
+            if (best_i >= 0 && (pad & ~pl.prev & BTN_ATTACK)) lock_ei = best_i;    /* the swing commits to him */
+            le = best_i >= 0 ? enemy_get(best_i) : 0;
         }
-        if (best_d) {
-            pl.lock_yaw = best_a; pl.lock_dist = best_d;
-            if (pad & ~pl.prev & BTN_ATTACK) { myaw = best_a; mmag = 4096; }
+        if (le) {
+            s32 dx = le->x - pl.x, dz = le->z - pl.z;
+            pl.lock_yaw = player_input_angle(dx, dz) & 4095;
+            pl.lock_dist = ((s32)isqrt((u32)((dx >> 2) * (dx >> 2) + (dz >> 2) * (dz >> 2))) << 2) | 1;
+            pl.lock_x = le->x; pl.lock_z = le->z;
+            if (pad & ~pl.prev & BTN_ATTACK) { myaw = pl.lock_yaw; mmag = 4096; }
         } else pl.lock_dist = 0;
     }
     level_think(pl.x, pl.y, pl.z, keys);               /* doors and lifts move first: she rides them */

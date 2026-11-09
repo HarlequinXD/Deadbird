@@ -28,6 +28,7 @@
 #define PIVOT_LEN  PIVOT_FRAMES
 
 /* chainsaw combo: each swing lunges her forward (she slides on planted hooves) */
+#define STRIKE_DIST 880            /* locked on, each swing slides her to this far from him */
 typedef struct { int len, lunge_at, lunge, strike, chain, live0, live1; } Swing;
 static const Swing SWINGS[3] = {
     { 26, 5, 50 * SUB, 9, 13, 6, 13 },    /* 1: horizontal slash, right to left */
@@ -146,6 +147,8 @@ void player_script(Player *p, int stage, int t, int w)
     for (k = 0; k < 7; k++) p->atk_leg[k] += (want[k] - p->atk_leg[k]) / 2;
 }
 
+int pl_swing_strike(int stage) { return stage >= 1 && stage <= 3 ? SWINGS[stage - 1].strike : 0; }
+
 void player_hit_react(Player *p, s32 nx, s32 nz, int push, int stop)
 {
     if (stop > p->hitstop) p->hitstop = stop;
@@ -175,15 +178,22 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         const Swing *sw = &SWINGS[p->atk - 1];
         p->atk_t++;
         if ((press & BTN_ATTACK) && p->atk_t >= 3) p->atk_next = 1;
-        if (p->lock_dist && p->atk_t < sw->strike) {   /* locked on: keep squaring up to him until the blade lands */
+        if (p->lock_dist && p->atk_t <= sw->strike) {
+            /* locked on: she squares up to him and slides in on planted hooves to striking distance,
+               arriving as the blade lands, so every swing of the combo connects */
             int d = wrap(p->lock_yaw - p->yaw);
-            p->yaw = (p->yaw + d / 3) & 4095;
-        }
-        if (p->atk_t == sw->lunge_at) {                 /* lunge: she skids forward on the swing */
-            s32 lunge = sw->lunge;
-            if (p->lock_dist)                           /* ... just far enough to put the chain into him */
-                lunge = clamp((p->lock_dist - 820) * 16 / 14, 4 * SUB, sw->lunge * 2);
-            p->vx = lunge * isin(p->yaw) >> 12; p->vz = lunge * icos(p->yaw) >> 12;
+            s32 dx = p->lock_x - p->x, dz = p->lock_z - p->z, dist, gap, step;
+            p->yaw = (p->yaw + d / 2) & 4095;
+            dist = (s32)isqrt((u32)((dx >> 2) * (dx >> 2) + (dz >> 2) * (dz >> 2))) << 2;
+            gap = dist - STRIKE_DIST;
+            if (p->atk_t == sw->strike) { p->vx = p->vz = 0; }                  /* planted for the hit */
+            else if (dist > 0 && p->atk_t >= 1) {
+                step = gap / (sw->strike - p->atk_t);                            /* this frame's share: there on the strike */
+                step = clamp(step, -24, 440);                                    /* a fast slide; backs off a little if too close */
+                p->vx = (dx * step / dist) * 16; p->vz = (dz * step / dist) * 16;
+            }
+        } else if (p->atk_t == sw->lunge_at) {           /* no target: she skids forward on the swing */
+            p->vx = sw->lunge * isin(p->yaw) >> 12; p->vz = sw->lunge * icos(p->yaw) >> 12;
         }
         if (p->atk_t == sw->strike) p->atk_event = 10 + p->atk;
         if (p->atk_next && p->atk < 3 && p->atk_t >= sw->chain) {

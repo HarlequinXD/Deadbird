@@ -13,8 +13,8 @@
 #define E_HP       120
 #define E_DAZE_HP  36            /* at or below this the trooper reels, open to a fatality */
 #define SEE_DIST   9500
-#define LASER_SPEED 210          /* units per frame (~12 m/s) */
-#define LASER_DMG  7
+#define LASER_SPEED 150          /* units per frame (~9 m/s): a roll or a sidestep beats it */
+#define LASER_DMG  4
 #define MAX_LASERS 16
 
 PSX_STATIC_ASSERT(same_skeleton, SOLDIER_NBONES == DEMON_NBONES);
@@ -225,7 +225,7 @@ static void fire(Enemy *e, const Player *pl)
     if (!L) return;
     m.vx = (s16)(SOLDIER_MOUNT_X + PISTOL_MUZZLE_X); m.vy = (s16)(SOLDIER_MOUNT_Y + PISTOL_MUZZLE_Y); m.vz = (s16)(SOLDIER_MOUNT_Z + PISTOL_MUZZLE_Z);
     mat_apply(&e->world[DEMON_BONE_FIST_R], &m, &mz);
-    dx = pl->x + rnd(301) - 150 - mz.vx; dz = pl->z + rnd(301) - 150 - mz.vz;
+    dx = pl->x + rnd(601) - 300 - mz.vx; dz = pl->z + rnd(601) - 300 - mz.vz;   /* not every bolt is on her */
     dy = pl->y - 1150 + rnd(301) - 150 - mz.vy;
     d = (s32)isqrt((u32)((dx >> 4) * (dx >> 4) + (dy >> 4) * (dy >> 4) + (dz >> 4) * (dz >> 4))) << 4;
     if (d < 64) return;
@@ -297,7 +297,7 @@ void enemy_update(Player *pl, int frozen)
                     e->patrol_leg ^= 1; e->patrol_wait = 90 + rnd(120);
                 } else { walk_yaw = player_input_angle(ex, ez); walk_mag = 1700; }
             }
-            if (e->los || e->hurt_t < 60) { e->state = E_FIGHT; e->t = 0; e->shoot_cd = 30 + rnd(30); sound(SFX_UI_MOVE, 2000, e->x, e->z, 2600); }
+            if (e->los || e->hurt_t < 60) { e->state = E_FIGHT; e->t = 0; e->shoot_cd = 70 + rnd(60); sound(SFX_UI_MOVE, 2000, e->x, e->z, 2600); }
             break;
         case E_FIGHT: {
             e->body.aim = 1; e->body.aim_yaw = face;                            /* gun on her, legs free */
@@ -309,14 +309,14 @@ void enemy_update(Player *pl, int frozen)
             if (e->los && iabs_(wrapa(face - e->yaw)) < 160) {
                 if (--e->shoot_cd <= 0) {
                     fire(e, pl);
-                    if (++e->burst >= 3) { e->burst = 0; e->shoot_cd = 70 + rnd(50); } else e->shoot_cd = 9;
+                    if (++e->burst >= 2) { e->burst = 0; e->shoot_cd = 120 + rnd(90); } else e->shoot_cd = 12;
                 }
             }
             if (!e->los && d > SEE_DIST + 3000) e->state = E_IDLE;
             break;
         }
         case E_STAGGER:
-            if (--e->stagger_t <= 0) { e->state = E_FIGHT; e->shoot_cd = 40 + rnd(40); }
+            if (--e->stagger_t <= 0) { e->state = E_FIGHT; e->shoot_cd = 60 + rnd(40); }
             break;
         case E_DAZED:                                                          /* stumbling about */
             if (e->stagger_t > 0) e->stagger_t--;
