@@ -14,7 +14,7 @@ void ui_sprite_rot(FrameBuf *fb, int cx, int cy, int size, int u, int v, int uw,
 /* a menu plate centred on cx (width w), lit = selected; t = time for flicker */
 void ui_plate(FrameBuf *fb, int cx, int y, int w, int lit, int t, int ot);
 
-enum { UI_ICON_JUMP, UI_ICON_SPRINT, UI_ICON_CAM_L, UI_ICON_CAM_R, UI_ICON_PAUSE };
+enum { UI_ICON_JUMP, UI_ICON_SPRINT, UI_ICON_CAM_L, UI_ICON_CAM_R, UI_ICON_PAUSE, UI_ICON_SAW };
 void ui_button(FrameBuf *fb, int cx, int cy, int r, int icon, int lit, int t);
 void ui_stick(FrameBuf *fb, int ox, int oy, int kx, int ky, int radius, int active, int t);
 

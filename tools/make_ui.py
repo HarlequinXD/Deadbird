@@ -7,6 +7,7 @@
   (48,64)  48x48  button, pressed: rim and face burning
   (96,64)  32x32  stick knob: a demon eye
   (0,112)  32x32  icons: jump, sprint, camera left, camera right
+  (0,176)  32x32  icon: chainsaw attack
   (0,144)  32x32  icon: pause;  (32,144) 32x32 glow (additive);  (64,144) 64x64 sigil (additive)
   (0,208)  24x32  menu plate cap (idle);   (24,208) 16x32 plate middle (idle)
   (40,208) 24x32  menu plate cap (lit);    (64,208) 16x32 plate middle (lit)
@@ -278,6 +279,22 @@ def pause_icon(x, y):
     return m
 
 
+def saw_icon(x, y):
+    """a chainsaw bar slashing diagonally, teeth along both edges, with a motion arc"""
+    ax, ay, bx, by = -11.0, 10.0, 9.0, -10.0
+    vx, vy = bx - ax, by - ay; L = math.hypot(vx, vy); ux, uy = vx / L, vy / L
+    t = ((x - ax) * ux + (y - ay) * uy)                   # along the bar
+    d = (x - ax) * -uy + (y - ay) * ux                    # across
+    bar = (t > 0) & (t < L) & (np.abs(d) < 3.6)
+    nose = np.hypot(x - bx, y - by) < 3.6
+    teeth = (t > 2) & (t < L + 2) & (np.abs(d) < 5.4) & (((t * 0.55) % 1) < 0.45) & (np.abs(d) > 3.0)
+    housing = (t > -6) & (t < 1) & (np.abs(d) < 6)
+    arc_r = np.hypot(x + 2, y - 2)
+    arc = (np.abs(arc_r - 13.5) < 1.1) & (np.arctan2(y - 2, x + 2) > -0.2) & (np.arctan2(y - 2, x + 2) < 1.6)
+    return bar | nose | teeth | housing | arc
+
+
+icon(0, 176, saw_icon)
 icon(0, 112, jump_icon)
 icon(32, 112, flame_icon)
 icon(64, 112, arrow_icon(-1))

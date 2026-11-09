@@ -42,12 +42,12 @@ static int debug_side_cam;
 static int touch_ui;
 
 /* ------------------------------------------------------------------ touch layout */
+/* the stick runs / walks by how far it's pushed and swiping the right half turns the camera,
+   so the pad only needs: chainsaw attack (big, under the thumb), jump, pause */
 const TouchButton touch_buttons[] = {
-    { 296, 200, 17, BTN_JUMP },
-    { 258, 210, 15, PAD_CIRCLE },
-    { 240, 160, 12, BTN_CAM_L },
-    { 300, 160, 12, BTN_CAM_R },
-    { 300, 122, 11, PAD_START },
+    { 286, 196, 21, BTN_ATTACK },
+    { 238, 214, 15, BTN_JUMP },
+    { 300, 22, 11, PAD_START },
 };
 const int touch_button_count = (int)(sizeof(touch_buttons) / sizeof(touch_buttons[0]));
 
@@ -206,7 +206,8 @@ static void audio_update(void)
     snd_loop(1, SFX_AMB_REACTOR, play ? rv : menu ? 1700 : 600, play ? pan_of(tank.vx, tank.vz) : 0, menu ? 3500 : 4096);
     /* her chainsaw: idles, revs and climbs in pitch as she runs */
     snd_loop(2, SFX_SAW_IDLE, play ? 1250 : 0, 400, 4096 + pl.speed * 9);
-    snd_loop(3, SFX_SAW_REV, play ? (pl.runw * 2400 >> 12) + (pl.grounded ? 0 : 500) : 0, 400, 3500 + pl.runw / 5 + pl.speed * 4);
+    snd_loop(3, SFX_SAW_REV, play ? (pl.atk_w ? 3400 * pl.atk_w >> 12 : (pl.runw * 2400 >> 12) + (pl.grounded ? 0 : 500)) : 0, 400,
+             pl.atk_w ? 4700 : 3500 + pl.runw / 5 + pl.speed * 4);
     /* distant plant noises and the moans of captive shinigami */
     if (gs != GS_PAUSE && --amb_timer <= 0) {
         int r = rnd(100), id = r < 36 ? SFX_AMB_STEAM : r < 68 ? SFX_AMB_CLANK : r < 90 ? SFX_AMB_WAIL : SFX_AMB_ALARM;
@@ -224,6 +225,19 @@ static void simulate(u32 pad)
     player_update(&pl, pad, myaw, mmag);
     if (was_grounded && !pl.grounded && pl.vy < -600) snd_play(SFX_JUMP, 3000, 0, 3800 + rnd(600));
     was_grounded = pl.grounded;
+    if (pl.atk_event >= 1 && pl.atk_event <= 3)                               /* swing: whoosh + the saw screams */
+        snd_play(SFX_SWING, 3800, 300, pl.atk_event == 3 ? 3400 : 3900 + rnd(500));
+    if (pl.atk_event == 13) {                                                 /* overhead slam hits the floor */
+        MATRIX w = pl.world[DEMON_MOUNT_BONE];
+        SVECTOR tip; VECTOR at;
+        tip.vx = DEMON_MOUNT_X - 470; tip.vy = DEMON_MOUNT_Y; tip.vz = DEMON_MOUNT_Z + 16;
+        mat_apply(&w, &tip, &at);
+        at.vy = level_ground(at.vx, at.vz, pl.y) - 20;
+        fx_hit(&at, 60, 1);
+        snd_play(SFX_SLAM, 4096, pan_of(at.vx, at.vz), 4096);
+        land_shake_t = 0; land_shake_amp = 120;
+        rumble = 240;
+    }
     if (pl.land_t == 1)                                                       /* boom, scaled by the fall */
         snd_play(SFX_LAND, (int)clamp(pl.land_amp, 1300, 4096), 0, 4500 - pl.land_amp / 6);
     if (pl.land_t == 1 && pl.land_amp > 1500) rumble = pl.land_amp >> 4;      /* thump on a hard landing */
@@ -231,7 +245,7 @@ static void simulate(u32 pad)
         land_shake_t = 0;
         land_shake_amp = pl.land_amp * 110 >> 12;                             /* up to ~11 cm of camera jolt */
     } else if (land_shake_t < 99) land_shake_t++;
-    chain_ph += 5 + pl.speed / 6;
+    chain_ph += pl.atk ? 22 : 5 + pl.speed / 6;
     {   /* heavy footfalls when she runs: a small camera thud each time a foot hits the floor */
         static int prev_half;
         int half = (pl.phase >> 15) & 1;
@@ -278,7 +292,7 @@ static void flow(u32 pad, u32 press)
 /* ------------------------------------------------------------------ rendering */
 static void draw_touch(FrameBuf *fb)
 {
-    static const int icon_of[] = { UI_ICON_JUMP, UI_ICON_SPRINT, UI_ICON_CAM_L, UI_ICON_CAM_R, UI_ICON_PAUSE };
+    static const int icon_of[] = { UI_ICON_SAW, UI_ICON_JUMP, UI_ICON_PAUSE };
     int i;
     /* floating stick: a runic iron ring where the thumb landed, the demon eye follows the thumb */
     if (stick_on) {
@@ -406,20 +420,20 @@ static void draw_controls(FrameBuf *fb)
 {
     static const char *lines[][2] = {
         { "LEFT THUMB",   "STICK - PUSH FAR TO RUN" },
-        { "HOLD FLAME",   "SPRINT" },
+        { "CHAINSAW",     "ATTACK, TAP AGAIN: COMBO" },
         { "WINGS",        "JUMP" },
-        { "CLAW ARROWS",  "SWING THE CAMERA" },
+        { "",             "SLASH, BACKHAND, SLAM" },
         { "RIGHT THUMB",  "DRAG TO TURN THE CAMERA" },
         { "",             "CAMERA FOLLOWS YOU" },
         { "BONES",        "PAUSE" },
     };
     static const char *pad_lines[][2] = {               /* Xbox controller / keyboard (PC) */
         { "LEFT STICK",   "MOVE - PUSH FAR TO RUN" },
-        { "B  X  RT",     "HOLD TO SPRINT" },
+        { "X",            "CHAINSAW, AGAIN: COMBO" },
         { "A",            "JUMP" },
         { "RIGHT STICK",  "TURN THE CAMERA" },
         { "LB  RB",       "SWING THE CAMERA" },
-        { "KEYS",         "WASD SPACE SHIFT Q E" },
+        { "KEYS",         "WASD SPACE F SHIFT Q E" },
         { "START",        "PAUSE" },
     };
     const char *(*L)[2] = touch_ui ? lines : pad_lines;

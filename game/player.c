@@ -21,6 +21,14 @@
 #define RADIUS     200
 #define RUN_PUSH   2870           /* stick past 70% runs */
 
+/* chainsaw combo: each swing lunges her forward (she slides on planted hooves) */
+typedef struct { int len, lunge_at, lunge, strike, chain; } Swing;
+static const Swing SWINGS[3] = {
+    { 26, 5, 50 * SUB, 9, 13 },           /* 1: horizontal slash, right to left */
+    { 26, 5, 50 * SUB, 9, 13 },           /* 2: backhand, left to right */
+    { 40, 9, 80 * SUB, 15, 99 },          /* 3: overhead slam (ends the combo) */
+};
+
 
 static s32 iabs(s32 v) { return v < 0 ? -v : v; }
 static s32 clamp(s32 v, s32 lo, s32 hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -89,13 +97,37 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
     ox = oz = 0;
 
 
-    if (input_mag > 300) {
+    /* chainsaw combo */
+    p->atk_event = 0;
+    if (p->atk) {
+        const Swing *sw = &SWINGS[p->atk - 1];
+        p->atk_t++;
+        if ((press & BTN_ATTACK) && p->atk_t >= 3) p->atk_next = 1;
+        if (p->atk_t == sw->lunge_at) {                 /* lunge: she skids forward on the swing */
+            p->vx = sw->lunge * isin(p->yaw) >> 12; p->vz = sw->lunge * icos(p->yaw) >> 12;
+        }
+        if (p->atk_t == sw->strike) p->atk_event = 10 + p->atk;
+        if (p->atk_next && p->atk < 3 && p->atk_t >= sw->chain) {
+            p->atk_last = p->atk; p->atk_last_t = p->atk_t;
+            p->atk++; p->atk_t = 0; p->atk_next = 0; p->atk_event = p->atk;
+            if (input_mag > 300) p->yaw = input_yaw & 4095;       /* aim each swing with the stick */
+        } else if (p->atk_t >= sw->len) {
+            p->atk_last = p->atk; p->atk_last_t = p->atk_t; p->atk = 0;
+        }
+    } else if ((press & BTN_ATTACK) && p->grounded) {
+        p->atk = 1; p->atk_t = 0; p->atk_next = 0; p->atk_event = 1;
+        if (input_mag > 300) p->yaw = input_yaw & 4095;
+    }
+
+    if (input_mag > 300 && !p->atk) {
         wx = isin(input_yaw); wz = icos(input_yaw);
         if ((pad & BTN_RUN) || input_mag >= RUN_PUSH) wish = MAX_SPEED;
         else wish = WALK_SPEED * clamp(input_mag * 4096 / 2000, 1200, 4096) >> 12;
     }
 
-    if (p->grounded) {
+    if (p->grounded && p->atk) {
+        p->vx -= p->vx / 14; p->vz -= p->vz / 14;          /* long skid on the lunge */
+    } else if (p->grounded) {
         friction(p);
         if (wish) accelerate(p, wx, wz, wish, wish, ACCEL);
         if (press & BTN_JUMP) {
@@ -180,6 +212,7 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         int run_t = smooth((sp - 30 * SUB) * 4096 / (26 * SUB));          /* 1.9 .. 3.6 m/s */
         int amp_t = smooth((sp - 20) * 4096 / (174 - 20));                /* 0.08 .. 0.7 m/s */
         if (!p->grounded) amp_t = p->amp;
+        if (p->atk) { run_t = 0; amp_t = 0; }                              /* braced: hooves slide, no steps */
         p->runw += (run_t - p->runw) / 6;
         p->amp += (amp_t - p->amp) / 3;
         p->stance = 2580 + ((1680 - 2580) * p->runw >> 12);                /* 0.63 .. 0.41: heavy, long ground contact */
@@ -188,7 +221,7 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         p->exc = exc;
         if (exc < 24) exc = 24;
         stride = 2 * exc * 4096 / p->stance;                                 /* ground covered per cycle */
-        if (p->grounded) p->phase += (int)(sp * 4096 / stride);              /* 65536 per cycle, sp in 1/16 */
+        if (p->grounded && !p->atk) p->phase += (int)(sp * 4096 / stride);  /* 65536 per cycle, sp in 1/16 */
         if (sp < 2 * SUB && p->grounded) {
             /* standing: settle to a double-support moment so the next start is clean */
             int m = p->phase & 32767;
@@ -212,6 +245,14 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
             p->bank += (bank_t - p->bank) / 5;
         }
         if (p->land_t < 99) p->land_t++;
+        /* combo blend + how deep the lunge stance sinks (the slam drops lowest) */
+        p->atk_w += ((p->atk ? 4096 : 0) - p->atk_w) / (p->atk ? 2 : 5);
+        {
+            s32 want = 0;
+            if (p->atk == 3) want = p->atk_t >= SWINGS[2].strike - 1 && p->atk_t < 32 ? 190 : 60;
+            else if (p->atk) want = 80;
+            p->atk_crouch += (want - p->atk_crouch) / 3;
+        }
     }
 }
 
@@ -243,6 +284,14 @@ static void build_pose(Player *p)
         p->landw = smooth(w) * p->land_amp >> 12;
         fk_sample(&clip_land, 0, &a);
         fk_blend(o, &a, p->landw, o);
+    }
+    if (p->atk_w > 0) {
+        static const FKClip *const ATK[3] = { &clip_atk1, &clip_atk2, &clip_atk3 };
+        int st = p->atk ? p->atk : p->atk_last, at = p->atk ? p->atk_t : p->atk_last_t;
+        if (st >= 1 && st <= 3) {
+            fk_sample(ATK[st - 1], (s32)at << 8, &a);
+            fk_blend(o, &a, p->atk_w, o);
+        }
     }
     o->v[FK_PRX] += (s16)(p->lean / 16);
     o->v[FK_TRX] += (s16)(p->lean / 32);
@@ -328,8 +377,9 @@ static void place_feet(Player *p, const Model *m)
             int sp = ((p->shuffle_t + (si ? 4096 : 0)) & 8191);
             if (sp < 4096) lift += (70 * sinpi(sp) >> 12) * p->shuffle_amp >> 12;
         }
-        /* idle stance: left foot a touch forward */
+        /* idle stance: left foot a touch forward; the chainsaw lunge splits the hooves wide */
         fwd = (sg > 0 ? 60 : -50) * (4096 - amp) >> 12;
+        fwd += (sg > 0 ? 230 : -190) * p->atk_w >> 12;
         fwd = fwd * (4096 - air) >> 12;
         /* airborne: tuck on the way up, reach down on the way down */
         off = mixi(off, sg > 0 ? 130 : -100, air);
@@ -370,7 +420,7 @@ static void place_feet(Player *p, const Model *m)
         int h = ph12 & 2047;
         if (h < 760) bob -= (s32)(mixi(26, 44, run) * isin(h * 2048 / 760) >> 12) * amp >> 12;
     }
-    dz = 12 + (60 * run >> 12) * amp / 4096 - bob + (170 * p->landw >> 12) - (20 * air >> 12);
+    dz = 12 + (60 * run >> 12) * amp / 4096 - bob + (170 * p->landw >> 12) - (20 * air >> 12) + p->atk_crouch;
     lat = (-34 * icos((ph12 - mid) & 4095) >> 12) * amp / 4096 * (4096 - run * 6 / 10) / 4096;   /* weight rolls side to side */
     {
         MATRIX R;

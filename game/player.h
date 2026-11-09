@@ -20,7 +20,8 @@
 #include "demon_mesh.h"
 
 #define BTN_JUMP  PAD_CROSS
-#define BTN_RUN   (PAD_CIRCLE | PAD_SQUARE)   /* hold to sprint even with a half-pushed stick */
+#define BTN_RUN   PAD_CIRCLE                  /* hold to sprint even with a half-pushed stick */
+#define BTN_ATTACK PAD_SQUARE                 /* chainsaw: press again during a swing to chain the combo */
 #define BTN_CAM_L PAD_L1
 #define BTN_CAM_R PAD_R1
 
@@ -47,6 +48,11 @@ typedef struct {
     int runw, amp, airw;       /* blend weights 0..4096 */
     int lean, bank;            /* degrees * 16 */
     s32 drop;                  /* smoothed grounding drop */
+    int atk;                   /* chainsaw combo swing 1..3, 0 = not attacking */
+    int atk_t, atk_next;       /* frames into the swing; another press is buffered */
+    int atk_w, atk_last, atk_last_t;   /* blend weight 0..4096, the clip to blend out of */
+    int atk_event;             /* this frame: 1..3 = swing started, 11..13 = swing struck */
+    s32 atk_crouch;            /* lunge stance depth (model units) */
     u32 pad, prev;
     FKPose pose;
     MATRIX bone_pose[DEMON_NBONES];

@@ -5,6 +5,7 @@
 #include <time.h>
 #include "deadbird.h"
 #include "snd.h"
+#include "player.h"
 #include "gpu.h"
 
 
@@ -125,6 +126,21 @@ int main(int argc, char **argv)
     /* hard turn while running: banking strip */
     run(PAD_UP | PAD_CIRCLE, 40);
     for (i = 0; i < 4; i++) { run(PAD_UP | PAD_RIGHT | PAD_CIRCLE, 3); sprintf(name, "15_bank_%d", i); write_bmp(out, name); }
+    /* chainsaw combo: slash, backhand, overhead slam (one press during each swing chains the next) */
+    run(0, 40);
+    {
+        int x0 = 0;
+        static const int at[] = { 2, 5, 9, 14, 3, 6, 9, 14, 5, 10, 15, 22 };
+        game_debug_side_cam(1);
+        for (i = 0; i < 12; i++) {
+            if (i % 4 == 0 && i < 8) { run(BTN_ATTACK, 1); run(0, 1); x0 = 2; }
+            if (i == 8) { run(BTN_ATTACK, 1); run(0, 1); x0 = 2; }
+            run(i == 2 || i == 6 ? BTN_ATTACK : 0, at[i] - x0); x0 = at[i];
+            sprintf(name, "16_combo_%02d", i); write_bmp(out, name);
+        }
+        run(0, 40);
+        game_debug_side_cam(0);
+    }
     /* side-on gait strips (walk, then run) for checking stride vs speed */
     game_set_touch_ui(0);
     game_debug_side_cam(1);

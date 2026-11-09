@@ -89,7 +89,7 @@ void ui_plate(FrameBuf *fb, int cx, int y, int w, int lit, int t, int ot)
 
 void ui_button(FrameBuf *fb, int cx, int cy, int r, int icon, int lit, int t)
 {
-    static const u8 iu[5] = { 0, 32, 64, 96, 0 }, iv[5] = { 112, 112, 112, 112, 144 };
+    static const u8 iu[6] = { 0, 32, 64, 96, 0, 0 }, iv[6] = { 112, 112, 112, 112, 144, 176 };
     int s = (r + 7) * 2 + (lit ? 4 : 0), is = s * 3 / 4;
     int b = lit ? 128 : 112;
     if (lit) {

@@ -195,6 +195,26 @@ def engine(nn, sr, fire, harsh, whine):
 add('saw_idle', make_loop(lambda m: engine(m, SR_HI, 31, 0.5, 0.35), n28(0.581, SR_HI), SR_HI), SR_HI, loop=True, peak=0.8)
 add('saw_rev', make_loop(lambda m: engine(m, SR_HI, 96, 1.0, 1.0), n28(0.5, SR_HI), SR_HI), SR_HI, loop=True, peak=0.85)
 
+# ---------------------------------------------------------------- chainsaw combo: swing + slam
+n = int(0.5 * SR_HI)
+t = t_(n, SR_HI)
+fire = 70 + 110 * np.clip(t / 0.18, 0, 1)                    # throttle snaps open
+ph = np.cumsum(fire) / SR_HI
+pulse = np.exp(-(ph % 1.0) * 7)
+rev = bandpass(pulse - pulse.mean(), SR_HI, 400, 1.0) * 3 + onepole_hp(noise(n), SR_HI, 1500) * pulse * 1.2
+scream = np.sin(2 * np.pi * np.cumsum(900 + 700 * np.clip(t / 0.2, 0, 1)) / SR_HI) * 0.35
+air = bandpass(noise(n), SR_HI, 1100, 1.0) * np.sin(np.pi * np.clip(t / 0.32, 0, 1)) ** 2 * 1.6
+sw_env = np.clip(t / 0.02, 0, 1) * np.exp(-np.maximum(t - 0.22, 0) / 0.09)
+add('swing', np.tanh(1.6 * (rev + scream) * sw_env / 3) + air * 0.6, SR_HI)
+
+n = int(1.0 * SR_HI)
+t = t_(n, SR_HI)
+boom = sweep_sine(n, SR_HI, 140, 32, 6) * env_exp(n, SR_HI, 0.22)
+crash = metal(n, SR_HI, 260, 0.45, parts=(1, 2.2, 3.7, 5.3, 7.9), amps=(.8, .7, .6, .4, .3))
+grind = bandpass(noise(n), SR_HI, 2600, 2) * (0.6 + 0.4 * np.sign(np.sin(2 * np.pi * 38 * t))) * env_exp(n, SR_HI, 0.25, 0.01)
+slam = np.tanh(2.2 * boom + 0.6 * crash + 0.7 * grind + 0.6 * onepole_lp(noise(n), SR_HI, 2500) * env_exp(n, SR_HI, 0.04))
+add('slam', reverb(slam, SR_HI, 1.0, 0.3)[:int(1.4 * SR_HI)], SR_HI)
+
 # ---------------------------------------------------------------- UI
 n = int(0.12 * SR_HI)
 tick = metal(n, SR_HI, 1650, 0.03, parts=(1, 1.52, 2.8), amps=(1, .4, .2)) + 0.4 * sweep_sine(n, SR_HI, 400, 120, 6) * env_exp(n, SR_HI, 0.02)

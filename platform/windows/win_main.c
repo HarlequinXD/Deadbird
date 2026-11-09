@@ -7,12 +7,14 @@
  *
  *   Xbox controller (XInput, any of the 4 slots, hot-plug):
  *     left stick  move (push far to run)      right stick  turn the camera
- *     A           jump / confirm              B, X, RT     sprint
+ *     A           jump / confirm              X            chainsaw (again: combo)
+ *     B, RT       sprint
  *     LB / RB     swing the camera            D-pad        move / menus
  *     START       pause                       BACK         quit to title (from pause)
  *     Y           confirm (menus)             rumble on hard landings
  *   Keyboard:
- *     WASD / arrows move, SHIFT sprint, SPACE jump, Q / E camera, ENTER / ESC pause,
+ *     WASD / arrows move, SHIFT sprint, SPACE jump, F / J / CTRL / left click chainsaw,
+ *     Q / E camera, ENTER / ESC pause,
  *     F11 or ALT+ENTER fullscreen
  */
 #define WIN32_LEAN_AND_MEAN
@@ -173,6 +175,8 @@ static u32 read_input(void)
     if (keys['D'] || keys[VK_RIGHT]) pad |= PAD_RIGHT;
     if (keys[VK_SPACE]) pad |= PAD_CROSS;
     if (keys[VK_SHIFT] || keys[VK_LSHIFT] || keys[VK_RSHIFT]) pad |= PAD_CIRCLE;
+    if (keys['F'] || keys['J'] || keys[VK_CONTROL] || (GetForegroundWindow() == wnd && (GetAsyncKeyState(VK_LBUTTON) & 0x8000)))
+        pad |= PAD_SQUARE;                                     /* chainsaw: F, J, CTRL or left click */
     if (keys['Q']) pad |= PAD_L1;
     if (keys['E']) pad |= PAD_R1;
     if (keys[VK_RETURN] || keys[VK_ESCAPE]) pad |= PAD_START;
@@ -196,7 +200,7 @@ static u32 read_input(void)
                 if (b & XB_DRIGHT) pad |= PAD_RIGHT;
                 if (b & XB_A) pad |= PAD_CROSS;
                 if (b & XB_B) pad |= PAD_CIRCLE;
-                if (b & XB_X) pad |= PAD_SQUARE;
+                if (b & XB_X) pad |= PAD_SQUARE;                 /* chainsaw */
                 if (b & XB_Y) pad |= PAD_TRIANGLE;
                 if (b & XB_LB) pad |= PAD_L1;
                 if (b & XB_RB) pad |= PAD_R1;

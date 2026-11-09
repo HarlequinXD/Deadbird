@@ -8,6 +8,8 @@ enum {
     SFX_JUMP,
     SFX_SAW_IDLE,
     SFX_SAW_REV,
+    SFX_SWING,
+    SFX_SLAM,
     SFX_UI_MOVE,
     SFX_UI_OK,
     SFX_PAUSE,
