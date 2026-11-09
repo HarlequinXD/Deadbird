@@ -13,6 +13,7 @@
 #include "ui.h"
 #include "snd.h"
 #include "combat.h"
+#include "enemy.h"
 #include "ik.h"
 #include "fk.h"
 #include "hud.h"
@@ -33,6 +34,12 @@ static TimInfo tim, saw_tim;
 static int chain_ph;                   /* chainsaw chain: strip frame = chain_ph >> 4 */
 static int land_shake_t = 99, land_shake_amp;   /* camera jolt: landings and blade hits */
 static Attack saw_attack;                 /* the chainsaw's live hitbox (combat.h) */
+static CombatTarget player_tgt;           /* Deadbird as a target for the troopers' lasers */
+static int php = 100, hurt_flash, dead_t;  /* her health, red flash when hit, death timer */
+static int pad_style;                     /* button names in prompts: 0 PlayStation, 1 Xbox / keyboard */
+static int fatal_ready = -1;              /* a reeling trooper close enough to finish */
+/* FATALITY cutscene (vt = cutscene frames in 1/16, slowed in the grind) */
+static struct { int active, vt16, ei, base_yaw, title_t, side; s32 cx, cz, dir_x, dir_z, ex, ey, ez; } cine;
 static Player pl;
 static int gs, gs_t, frame_count, shake, rumble;
 static s32 cam_yaw, cam_dist, cam_h, cam_side, cam_clip = 2900;
@@ -50,6 +57,7 @@ const TouchButton touch_buttons[] = {
     { 286, 196, 21, BTN_ATTACK },
     { 238, 214, 15, BTN_JUMP },
     { 300, 22, 11, PAD_START },
+    { 252, 140, 24, PAD_TRIANGLE | PAD_SQUARE },          /* FATALITY: only while one is possible */
 };
 const int touch_button_count = (int)(sizeof(touch_buttons) / sizeof(touch_buttons[0]));
 
@@ -60,6 +68,7 @@ u32 touch_hit(int x, int y)
     for (i = 0; i < touch_button_count; i++) {
         const TouchButton *b = &touch_buttons[i];
         int dx = x - b->x, dy = y - b->y;
+        if (b->button == (PAD_TRIANGLE | PAD_SQUARE) && fatal_ready < 0) continue;
         if (dx * dx + dy * dy <= (b->r + 7) * (b->r + 7)) bits |= b->button;
     }
     return bits;
@@ -73,6 +82,7 @@ void game_set_stick(int active, int ox, int oy, int x, int y)
 void game_cam_drag(int dx) { if (gs == GS_PLAY) { cam_yaw = (cam_yaw + dx * 12) & 4095; } }
 void game_touch_tap(int x, int y) { if (gs == GS_TITLE) title_tap(x, y); }
 void game_set_touch_ui(int on) { touch_ui = on; }
+void game_set_pad_style(int style) { pad_style = style; }
 int  game_rumble(void) { return rumble; }
 void game_set_analog(int lx, int ly, int rx, int ry) { an_lx = lx; an_ly = ly; an_rx = rx; (void)ry; }
 static int fps_shown;
@@ -81,6 +91,20 @@ void game_display_area(int *x, int *y) { *x = disp_x; *y = disp_y; }
 int  game_phase(void) { return gs; }
 void game_debug_side_cam(int on) { debug_side_cam = on; }
 int  game_debug_player_yaw(void) { return pl.yaw; }
+/* tests: put Deadbird next to trooper i (facing him), report state */
+void game_debug_near_enemy(int i, s32 dist)
+{
+    Enemy *e = enemy_get(i);
+    if (!e) return;
+    pl.x = e->x + (isin(e->yaw) * dist >> 12); pl.z = e->z + (icos(e->yaw) * dist >> 12);
+    pl.x16 = pl.x * 16; pl.z16 = pl.z * 16; pl.y = e->y; pl.y16 = pl.y * 16;
+    pl.yaw = (e->yaw + 2048) & 4095; cam_yaw = pl.yaw;
+}
+int game_debug_enemy_state(int i) { Enemy *e = enemy_get(i); return e ? e->state * 1000 + e->tgt.hp : -1; }
+int game_debug_fatality(void) { return cine.active ? (cine.vt16 >> 4) : (fatal_ready >= 0 ? -2 : -1); }
+int game_debug_player_hp(void) { return php; }
+
+static void player_hit(CombatTarget *t, const Hit *h);
 
 static void start_play(void)
 {
@@ -92,6 +116,14 @@ static void start_play(void)
     attack_end(&saw_attack);
     level_spawn(&sx, &sz, &syaw);
     player_reset(&pl, sx, sz, syaw);
+    memset(&player_tgt, 0, sizeof(player_tgt));
+    player_tgt.radius = 210; player_tgt.height = 1800; player_tgt.hp = player_tgt.max_hp = 100;
+    player_tgt.team = TEAM_PLAYER; player_tgt.on_hit = player_hit;
+    player_tgt.x = pl.x; player_tgt.y = pl.y; player_tgt.z = pl.z;
+    combat_add(&player_tgt);
+    enemy_reset();
+    php = 100; hurt_flash = 0; dead_t = 0; fatal_ready = -1;
+    memset(&cine, 0, sizeof(cine));
     cam_yaw = syaw;
     cam_clip = 2900;
     gs = GS_PLAY; gs_t = 0;
@@ -110,6 +142,14 @@ static void go_title(void)
     gs = GS_TITLE; gs_t = 0;
     title_reset();
     ui_title_bg_upload();
+}
+
+static int pan_of(s32 x, s32 z);
+static void enemy_sound(int id, int vol, s32 x, s32 z, int pitch)
+{
+    s32 dx = (x - pl.x) >> 4, dz = (z - pl.z) >> 4, d = (s32)isqrt((u32)(dx * dx + dz * dz)) << 4;
+    vol = vol * (d < 2000 ? 4096 : d > 16000 ? 300 : 4096 - (d - 2000) * 3796 / 14000) >> 12;    /* distance */
+    snd_play(id, vol, pan_of(x, z), pitch);
 }
 
 void game_init(void)
@@ -135,6 +175,12 @@ void game_init(void)
     hud_init();
     ui_init();
     snd_init();
+    {
+        EnemyHooks hk;
+        memset(&hk, 0, sizeof(hk));
+        hk.sound = enemy_sound;
+        enemy_init(&hk);
+    }
     title_init();
     cam_dist = 2700; cam_h = 1650;
     go_title();
@@ -275,9 +321,116 @@ static void saw_combat(void)
     }
 }
 
+/* a laser bolt reached her */
+static void player_hit(CombatTarget *t, const Hit *h)
+{
+    (void)t;
+    if (cine.active || php <= 0) return;
+    php -= h->damage;
+    hurt_flash = 12;
+    fx_spray(&h->at, 4, 6, h->dir_x * 10 >> 12, -10, h->dir_z * 10 >> 12, 16);
+    if (land_shake_t >= 12) { land_shake_t = 6; land_shake_amp = 45; }
+    rumble = 180;
+    if (php <= 0) { php = 0; dead_t = 1; snd_play(SFX_GORE, 4096, 0, 3000); }
+}
+
+/* ------------------------------------------------------------------ FATALITY */
+static void cine_start(int ei)
+{
+    Enemy *e = enemy_get(ei);
+    s32 dx = e->x - pl.x, dz = e->z - pl.z, d = (s32)isqrt((u32)((dx >> 4) * (dx >> 4) + (dz >> 4) * (dz >> 4))) << 4;
+    if (d < 64) { dx = isin(pl.yaw); dz = icos(pl.yaw); d = 4096; }
+    memset(&cine, 0, sizeof(cine));
+    cine.active = 1; cine.ei = ei;
+    cine.dir_x = dx * 4096 / d; cine.dir_z = dz * 4096 / d;
+    /* she squares up 0.95 m in front of him */
+    pl.x = e->x - (cine.dir_x * 950 >> 12); pl.z = e->z - (cine.dir_z * 950 >> 12);
+    pl.x16 = pl.x * 16; pl.z16 = pl.z * 16;
+    pl.yaw = player_input_angle(cine.dir_x, cine.dir_z) & 4095;
+    cine.base_yaw = pl.yaw;
+    cine.cx = (pl.x + e->x) / 2; cine.cz = (pl.z + e->z) / 2;
+    enemy_fatal_begin(e, pl.yaw + 2048);
+    {   /* film from whichever side of the pair has more room */
+        VECTOR c, a;
+        int sd, best = -1;
+        c.vx = cine.cx; c.vy = pl.y - 1100; c.vz = cine.cz;
+        cine.side = 1;
+        for (sd = -1; sd <= 1; sd += 2) {
+            int look = (cine.base_yaw + sd * 1024) & 4095, t;
+            a.vx = cine.cx - (isin(look) * 3000 >> 12); a.vy = c.vy - 900; a.vz = cine.cz - (icos(look) * 3000 >> 12);
+            t = level_clip_segment(&c, &a, 120);
+            if (t > best) { best = t; cine.side = sd; }
+        }
+    }
+    attack_end(&saw_attack);
+    fatal_ready = -1;
+    snd_play(SFX_SWING, 4096, 0, 3000);
+}
+
+/* her swing frame, his reaction and the effects for cutscene frame f (called once per frame) */
+static void cine_frame(int f)
+{
+    Enemy *e = enemy_get(cine.ei);
+    VECTOR w, at;
+    int t, wgt = 4096;
+    if (f < 24) t = f * 4 / 24;                       /* slow wind-up, the saw revs */
+    else if (f < 32) t = 4 + (f - 24) / 2;            /* swings in */
+    else if (f < 80) t = 8;                            /* grinding through him (slow motion) */
+    else if (f < 86) t = 8 + (f - 80);                /* rips out the other side */
+    else if (f < 146) t = 14 + (f - 86) / 5;          /* follow-through, recovers */
+    else { t = 26; wgt = 4096 - (f - 146) * 64; if (wgt < 0) wgt = 0; }
+    player_script(&pl, wgt ? 1 : 0, t, wgt);
+    player_pose(&pl, &demon);
+    if (f < 84) enemy_fatal_step(e, f >= 32 ? 4096 : 0);
+    else if (f == 84) {
+        enemy_cut(e, cine.dir_x, cine.dir_z);
+        snd_play(SFX_GORE, 4096, 0, 3600); snd_play(SFX_SLAM, 3400, 0, 4600);
+        land_shake_t = 0; land_shake_amp = 150; rumble = 255;
+        enemy_waist(e, &w);
+        fx_spray(&w, 4, 40, cine.dir_x * 20 >> 12, -26, cine.dir_z * 20 >> 12, 34);
+        fx_spray(&w, 0, 20, 0, -12, 0, 30);
+    } else enemy_cut_step(e);
+    if (f >= 32 && f < 84) {                           /* blood and sparks off the chain */
+        enemy_waist(e, &w);
+        at.vx = w.vx - (cine.dir_x * 140 >> 12); at.vy = w.vy; at.vz = w.vz - (cine.dir_z * 140 >> 12);
+        fx_spray(&at, 4, 5, (-cine.dir_z * 18 >> 12) + (rnd(17) - 8), -14 - rnd(10), (cine.dir_x * 18 >> 12) + (rnd(17) - 8), 16);
+        fx_spray(&at, 4, 3, (cine.dir_z * 18 >> 12) + (rnd(17) - 8), -10 - rnd(10), (-cine.dir_x * 18 >> 12) + (rnd(17) - 8), 16);
+        fx_spray(&at, 1, 3, 0, -6, 0, 22);
+        if ((f & 7) == 0) fx_spray(&at, 2, 4, 0, -10, 0, 30);
+        if (f == 32) {
+            snd_play(SFX_GORE, 4096, 0, 4096); snd_play(SFX_RIP, 4096, 0, 3600);
+            land_shake_t = 0; land_shake_amp = 90; rumble = 220;
+            fx_spray(&at, 4, 24, -cine.dir_x * 16 >> 12, -20, -cine.dir_z * 16 >> 12, 30);
+            fx_blood_pool(e->x, e->y, e->z, 700);
+        } else if (f % 12 == 0) snd_play(SFX_RIP, 3400, 0, 3300 + rnd(500));
+        rumble = 120;
+    }
+    if (f == 120) { snd_play(SFX_STINGER, 4096, 0, 4096); cine.title_t = 1; }
+    fx_update();
+}
+
+static void cine_step(void)
+{
+    int f0 = cine.vt16 >> 4, f;
+    int slow = (f0 >= 32 && f0 < 80) ? 5 : 16;        /* slow motion while the saw grinds */
+    cine.vt16 += slow;
+    for (f = f0 + 1; f <= (cine.vt16 >> 4); f++) cine_frame(f);
+    if (cine.title_t) cine.title_t++;
+    chain_ph += 26;
+    if (land_shake_t < 99) land_shake_t++;
+    level_update();
+    if ((cine.vt16 >> 4) >= 236) {                     /* back to the game */
+        cine.active = 0;
+        player_script(&pl, 0, 0, 0);
+        pl.atk = 0; pl.atk_w = 0;
+        cam_yaw = pl.yaw;
+    }
+}
+
 static void simulate(u32 pad)
 {
     int myaw, mmag;
+    if (dead_t) { pad = 0; if (++dead_t > 150) { start_play(); return; } }
     camera_update(pad);
     read_move(pad, &myaw, &mmag);
     player_update(&pl, pad, myaw, mmag);
@@ -306,7 +459,12 @@ static void simulate(u32 pad)
         prev_half = half;
     }                                             /* chain idles, revs when she runs */
     player_pose(&pl, &demon);
+    player_tgt.x = pl.x; player_tgt.y = pl.y; player_tgt.z = pl.z;
+    enemy_update(&pl, 0);
     saw_combat();
+    fatal_ready = php > 0 ? enemy_fatality_target(&pl) : -1;
+    if (fatal_ready >= 0 && (pad & PAD_TRIANGLE) && (pad & PAD_SQUARE) && pl.grounded) cine_start(fatal_ready);
+    if (hurt_flash > 0) hurt_flash--;
     level_update();
     fx_update();
     combat_update();
@@ -328,8 +486,9 @@ static void flow(u32 pad, u32 press)
         }
         break;
     case GS_PLAY:
-        if (press & PAD_START) { gs = GS_PAUSE; gs_t = 0; snd_play(SFX_PAUSE, 3600, 0, 4096); break; }
-        simulate(pad);
+        if ((press & PAD_START) && !cine.active) { gs = GS_PAUSE; gs_t = 0; snd_play(SFX_PAUSE, 3600, 0, 4096); break; }
+        if (cine.active) cine_step();
+        else simulate(pad);
         break;
     case GS_PAUSE:
         if (press & PAD_START) { gs = GS_PLAY; gs_t = 0; snd_play(SFX_PAUSE, 2600, 0, 5200); }
@@ -341,7 +500,7 @@ static void flow(u32 pad, u32 press)
 /* ------------------------------------------------------------------ rendering */
 static void draw_touch(FrameBuf *fb)
 {
-    static const int icon_of[] = { UI_ICON_SAW, UI_ICON_JUMP, UI_ICON_PAUSE };
+    static const int icon_of[] = { UI_ICON_SAW, UI_ICON_JUMP, UI_ICON_PAUSE, 0 };
     int i;
     /* floating stick: a runic iron ring where the thumb landed, the demon eye follows the thumb */
     if (stick_on) {
@@ -353,6 +512,15 @@ static void draw_touch(FrameBuf *fb)
     }
     for (i = 0; i < touch_button_count; i++) {
         const TouchButton *b = &touch_buttons[i];
+        if (b->button == (PAD_TRIANGLE | PAD_SQUARE)) {              /* FATALITY sigil, pulsing */
+            int g;
+            if (fatal_ready < 0) continue;
+            g = 110 + (isin(frame_count * 140) * 70 >> 12);
+            ui_sprite_rot(fb, b->x, b->y, b->r * 3, 64, 144, 64, 64, frame_count * 20, g, g / 5, g / 8, 1, 1);
+            ui_sprite(fb, b->x - b->r * 2, b->y - b->r * 2, b->r * 4, b->r * 4, 32, 144, 32, 32, g, g / 3, g / 5, 1, 0, 2);
+            text_center(fb, "FATALITY", b->x + 1, b->y - 4, 1, 255, 0);
+            continue;
+        }
         ui_button(fb, b->x, b->y, b->r, icon_of[i], (cur_pad & b->button) != 0, frame_count);
     }
 }
@@ -383,6 +551,40 @@ static void draw_captive(FrameBuf *fb, const MATRIX *view, const DrawCtx *ctx0)
     model_draw_mats(&demon, cam, &ctx, fb);
 }
 
+/* cutscene camera: three shots with hard cuts (over her shoulder, low close-up of the grind,
+   wide as the halves fall) that drift slowly; returns the view matrix */
+static void cine_view(MATRIX *view, int sx, int sy)
+{
+    int f = cine.vt16 >> 4, look, k;
+    s32 R_, H, ty, ex, ey, ez;
+    MATRIX rx, ry;
+    SVECTOR e; VECTOR tv;
+    s32 cy = pl.y - 1050;
+    int sd = cine.side;
+    if (f < 32)      { look = cine.base_yaw + sd * (700 + f * 4); R_ = 2700 - f * 10; H = 1000; ty = cy; }
+    else if (f < 84) { look = cine.base_yaw + sd * (1024 + (f - 32) * 5); R_ = 1500 - (f - 32) * 4; H = 380; ty = cy - 80; }
+    else             { look = cine.base_yaw + sd * (1350 + (f - 84) * 3); R_ = 3300 + (f - 84) * 4; H = 1800; ty = cy + 450; }
+    look &= 4095;
+    {   /* never through a wall: pull in to whatever is in the way */
+        VECTOR c, a;
+        int t;
+        c.vx = cine.cx; c.vy = ty; c.vz = cine.cz;
+        a.vx = cine.cx - (isin(look) * R_ >> 12); a.vy = ty - H; a.vz = cine.cz - (icos(look) * R_ >> 12);
+        t = level_clip_segment(&c, &a, 140);
+        if (t < 4096) { R_ = R_ * t / 4096 - 120; H = H * t / 4096; if (R_ < 500) R_ = 500; }
+    }
+    ex = cine.cx - (isin(look) * R_ >> 12); ez = cine.cz - (icos(look) * R_ >> 12); ey = ty - H;
+    /* ease within a shot */
+    if (f == 0 || f == 32 || f == 84 || !cine.ex) { cine.ex = ex; cine.ey = ey; cine.ez = ez; }
+    else { cine.ex += (ex - cine.ex) / 5; cine.ey += (ey - cine.ey) / 5; cine.ez += (ez - cine.ez) / 5; }
+    k = player_input_angle(ty - cine.ey, R_);
+    mat_rot_x(&rx, k); mat_rot_y(&ry, -look); mat_mul(&rx, &ry, view);
+    view->t[0] = view->t[1] = view->t[2] = 0;
+    e.vx = (s16)-cine.ex; e.vy = (s16)-cine.ey; e.vz = (s16)-cine.ez;
+    mat_apply(view, &e, &tv);
+    view->t[0] = tv.vx + sx; view->t[1] = tv.vy + sy; view->t[2] = tv.vz;
+}
+
 static void draw_world(FrameBuf *fb, PROJ *pr)
 {
     MATRIX view, rx, ry, cam[DEMON_NBONES];
@@ -405,6 +607,7 @@ static void draw_world(FrameBuf *fb, PROJ *pr)
         sx += (int)((a / 3) * isin(land_shake_t * 1500) >> 12);
     }
 
+    if (cine.active) { cine_view(&view, sx, sy); goto have_view; }
     mat_rot_x(&rx, 150); mat_rot_y(&ry, -cam_yaw - (debug_side_cam ? 1024 : 0)); mat_mul(&rx, &ry, &view);
     /* look-at point: chest height */
     rxv = (icos(cam_yaw) * cam_side) >> 12; rzv = (-isin(cam_yaw) * cam_side) >> 12;
@@ -427,6 +630,7 @@ static void draw_world(FrameBuf *fb, PROJ *pr)
         else cam_clip += (d - cam_clip) / 10;
     }
     view.t[0] = tv.vx; view.t[1] = tv.vy + 300; view.t[2] = tv.vz + cam_clip;
+have_view:
 
     pr->h = 250; pr->ofx = SCREEN_W / 2; pr->ofy = SCREEN_H / 2; pr->near_z = 120;
     ctx.proj = *pr; ctx.ot_shift = 4; ctx.cull_sign = 1; ctx.r = ctx.g = ctx.b = 128;
@@ -445,6 +649,7 @@ static void draw_world(FrameBuf *fb, PROJ *pr)
         model_draw_mats(&saw_body, &sawm, &ctx, fb);
         model_draw_mats(&saw_chain[(chain_ph >> 4) & (SAW_CHAIN_FRAMES - 1)], &sawm, &ctx, fb);
     }
+    enemy_draw(fb, &view, &ctx);
     fx_draw(fb, &view, pr);
 }
 
@@ -456,6 +661,11 @@ static void draw_hud(FrameBuf *fb)
     tri_f(fb, 6, 6, 18, 6, 6, -2, RGB(140, 110, 86), NO_SEMI, 6);
     tri_f(fb, 126, 6, 114, 6, 126, -2, RGB(140, 110, 86), NO_SEMI, 6);
     text(fb, "DEADBIRD", 14, 12, 1, 200, 4);
+    {   /* health: a blood bar under the name plate */
+        int w = php * 112 / 100;
+        quad_g(fb, 8, 30, 124, 37, RGB(14, 4, 6), RGB(14, 4, 6), NO_SEMI, 6);
+        if (w > 0) quad_g(fb, 10, 31, 10 + w, 36, RGB(230, 40, 26), RGB(110, 8, 8), NO_SEMI, 5);
+    }
     if (pl.speed > 40) text(fb, "RUN", 96, 12, 1, 120, 4);
     if (fps_shown > 0) {
         char b[12];
@@ -527,8 +737,33 @@ void game_frame(u32 pad)
     } else {
         draw_world(fb, &pr);
     }
-    if (gs != GS_TITLE && gs != GS_CONTROLS) {
+    if (cine.active) {
+        /* letterbox, a red flash on the cut, then FATALITY */
+        int f = cine.vt16 >> 4;
+        quad_g(fb, 0, 0, 320, 26, RGB(0, 0, 0), RGB(0, 0, 0), NO_SEMI, 1);
+        quad_g(fb, 0, 214, 320, 240, RGB(0, 0, 0), RGB(0, 0, 0), NO_SEMI, 1);
+        if (f >= 84 && f < 92) { int a = (92 - f) * 9; quad_g(fb, 0, 26, 320, 214, RGB(a, a / 10, a / 12), RGB(a, a / 10, a / 12), SEMI_ADD, 3); }
+        if (f >= 32 && f < 34) quad_g(fb, 0, 26, 320, 214, RGB(70, 6, 4), RGB(70, 6, 4), SEMI_ADD, 3);
+        if (cine.title_t) {
+            /* FATALITY slams in large, settles, glows */
+            int sc = cine.title_t < 3 ? 6 : cine.title_t < 6 ? 5 : 4, y = 96 - sc * 5;
+            quad_g(fb, 0, y - 10, 320, y + sc * 10 + 10, RGB(0, 0, 0), RGB(40, 2, 2), SEMI_SUB, 3);
+            quad_g(fb, 0, y - 12, 320, y - 10, RGB(200, 30, 10), RGB(200, 30, 10), NO_SEMI, 1);
+            quad_g(fb, 0, y + sc * 10 + 10, 320, y + sc * 10 + 12, RGB(200, 30, 10), RGB(200, 30, 10), NO_SEMI, 1);
+            text_hell(fb, "FATALITY", 160, y, sc, frame_count, 1);
+        }
+    } else if (gs != GS_TITLE && gs != GS_CONTROLS) {
         draw_hud(fb);
+        if (hurt_flash > 0) quad_g(fb, 0, 0, 320, 240, RGB(hurt_flash * 9, 0, 0), RGB(hurt_flash * 5, 0, 0), SEMI_ADD, 3);
+        if (dead_t) {
+            quad_g(fb, 0, 0, 320, 240, RGB(dead_t, dead_t + 10, dead_t + 10), RGB(dead_t, dead_t + 10, dead_t + 10), SEMI_SUB, 3);
+            text_hell(fb, "YOU DIED", 160, 100, 3, frame_count, 1);
+        }
+        if (fatal_ready >= 0 && !dead_t && gs == GS_PLAY) {             /* the prompt */
+            static const char *how[3] = { "TRIANGLE + SQUARE", "Y + X    KEYS R + F", "TAP THE SIGIL" };
+            text_hell(fb, "FATALITY", 160, 44, 2, frame_count, 1);
+            text_center(fb, how[touch_ui ? 2 : pad_style], 160, 68, 1, 150 + (isin(frame_count * 160) * 100 >> 12), 1);
+        }
         if (gs == GS_PAUSE) {
             quad_g(fb, 0, 0, 320, 240, RGB(90, 100, 100), RGB(90, 100, 100), SEMI_SUB, 4);
             text_hell(fb, "PAUSED", 160, 80, 3, frame_count, 2);

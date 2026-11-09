@@ -5,23 +5,47 @@ static u32 seed = 0x1234567u;
 u32 fx_rand(void) { seed = seed * 1664525u + 1013904223u; return seed >> 8; }
 
 /* ------------------------------------------------------------------ hit particles */
-#define NPART 96
+#define NPART 192
 typedef struct { s32 x, y, z, vx, vy, vz; int life, max, kind; } Part;
 static Part parts[NPART];
 
-void fx_reset(void) { memset(parts, 0, sizeof(parts)); }
+#define NPOOL 8
+typedef struct { s32 x, y, z, r, grow; } Pool;
+static Pool pools[NPOOL];
 
-static void spawn(const VECTOR *at, int kind, int speed)
+void fx_reset(void) { memset(parts, 0, sizeof(parts)); memset(pools, 0, sizeof(pools)); }
+
+static int spawn(const VECTOR *at, int kind, int speed)
 {
     int i;
     for (i = 0; i < NPART; i++) if (parts[i].life <= 0) break;
-    if (i == NPART) return;
+    if (i == NPART) return -1;
     parts[i].x = at->vx; parts[i].y = at->vy; parts[i].z = at->vz;
     parts[i].vx = (s32)(fx_rand() % (u32)(speed * 2)) - speed;
     parts[i].vy = -(s32)(fx_rand() % (u32)speed) - speed / 3;
     parts[i].vz = (s32)(fx_rand() % (u32)(speed * 2)) - speed;
     parts[i].max = parts[i].life = 14 + (int)(fx_rand() % 14);
     parts[i].kind = kind;
+    return i;
+}
+
+/* directional burst: kind 0 hot blood mist, 1 dark blood, 2 sparks, 3 blue laser sparks, 4 heavy blood drops */
+void fx_spray(const VECTOR *at, int kind, int count, s32 dx, s32 dy, s32 dz, int spread)
+{
+    int i;
+    for (i = 0; i < count; i++) {
+        int k = spawn(at, kind, spread);
+        if (k < 0) return;
+        parts[k].vx += dx; parts[k].vy += dy; parts[k].vz += dz;
+        if (kind == 4) parts[k].max = parts[k].life = 26 + (int)(fx_rand() % 22);
+    }
+}
+
+void fx_blood_pool(s32 x, s32 y, s32 z, s32 radius)
+{
+    int i, k = 0;
+    for (i = 0; i < NPOOL; i++) if (pools[i].r == 0) { k = i; break; } else if (pools[i].grow < pools[k].grow) k = i;
+    pools[k].x = x; pools[k].y = y; pools[k].z = z; pools[k].r = 60; pools[k].grow = radius;
 }
 
 void fx_hit(const VECTOR *at, int power, int blocked)
@@ -39,9 +63,10 @@ void fx_update(void)
         if (p->life <= 0) continue;
         p->life--;
         p->x += p->vx; p->y += p->vy; p->z += p->vz;
-        p->vy += p->kind == 1 ? 5 : 3;                     /* gravity (Y down) */
-        if (p->y > -10) { p->y = -10; p->vy = -p->vy / 3; p->vx /= 2; p->vz /= 2; }
+        p->vy += p->kind == 1 || p->kind == 4 ? 6 : 3;     /* gravity (Y down) */
+        if (p->y > -10) { p->y = -10; p->vy = p->kind == 4 ? 0 : -p->vy / 3; p->vx /= p->kind == 4 ? 6 : 2; p->vz /= p->kind == 4 ? 6 : 2; }
     }
+    for (i = 0; i < NPOOL; i++) if (pools[i].r && pools[i].r < pools[i].grow) pools[i].r += 1 + (pools[i].grow - pools[i].r) / 40;
 }
 
 void fx_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr)
@@ -57,12 +82,13 @@ void fx_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr)
         mat_apply(view, &w, &c);
         if (!rot_trans_pers(pr, &c, &sx, &sy)) continue;
         s = 2 + 2400 / (c.vz > 400 ? c.vz : 400);
+        if (p->kind == 4) s += s / 2;
         a = p->life * 255 / p->max;
         q = prim_alloc(fb);
         if (!q) return;
         memset(q, 0, sizeof(*q));
         q->code = PF_QUAD | PF_SEMI;
-        q->tpage = get_tpage(0, p->kind == 1 ? SEMI_SUB : SEMI_ADD, 0, 0);
+        q->tpage = get_tpage(0, p->kind == 1 || p->kind == 4 ? SEMI_SUB : SEMI_ADD, 0, 0);
         q->v[0].x = (s16)(sx - s); q->v[0].y = (s16)(sy - s);
         q->v[1].x = (s16)(sx + s); q->v[1].y = (s16)(sy - s);
         q->v[2].x = (s16)(sx - s); q->v[2].y = (s16)(sy + s);
@@ -70,9 +96,40 @@ void fx_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr)
         for (k = 0; k < 1; k++) {
             if (p->kind == 0) { q->v[k].r = 255; q->v[k].g = (u8)(a * 3 / 4); q->v[k].b = (u8)(a / 5); }
             else if (p->kind == 1) { q->v[k].r = 30; q->v[k].g = (u8)(a / 3); q->v[k].b = (u8)(a / 3); }
+            else if (p->kind == 4) { q->v[k].r = 10; q->v[k].g = (u8)(110 + a / 3); q->v[k].b = (u8)(100 + a / 3); }   /* deep red */
+            else if (p->kind == 3) { q->v[k].r = (u8)(a / 5); q->v[k].g = (u8)(a / 2); q->v[k].b = (u8)a; }
             else { q->v[k].r = (u8)(a * 3 / 4); q->v[k].g = (u8)(a * 3 / 4); q->v[k].b = (u8)a; }
         }
         ot_add(fb, (c.vz >> 4) - 2, q);
+    }
+    for (i = 0; i < NPOOL; i++) {       /* blood pools: dark red octagons spreading over the floor */
+        static const s16 ox[8] = { 4096, 2896, 0, -2896, -4096, -2896, 0, 2896 }, oz[8] = { 0, 2896, 4096, 2896, 0, -2896, -4096, -2896 };
+        Pool *pp = &pools[i];
+        SVECTOR w; VECTOR c; s16 cx, cy, px[8], py[8];
+        int k, ok = 1;
+        if (!pp->r) continue;
+        w.vx = (s16)pp->x; w.vy = (s16)(pp->y - 3); w.vz = (s16)pp->z;
+        mat_apply(view, &w, &c);
+        if (!rot_trans_pers(pr, &c, &cx, &cy)) continue;
+        for (k = 0; k < 8 && ok; k++) {
+            s32 rr = pp->r * (k & 1 ? 9 : 11) / 10;
+            w.vx = (s16)(pp->x + (rr * ox[k] >> 12)); w.vz = (s16)(pp->z + (rr * oz[k] >> 12));
+            mat_apply(view, &w, &c);
+            ok = rot_trans_pers(pr, &c, &px[k], &py[k]);
+        }
+        if (!ok) continue;
+        for (k = 0; k < 8; k++) {
+            POLY *q = prim_alloc(fb);
+            int n = (k + 1) & 7;
+            if (!q) return;
+            memset(q, 0, sizeof(*q));
+            q->code = PF_SEMI | PF_GOURAUD;
+            q->tpage = get_tpage(0, SEMI_SUB, 0, 0);
+            q->v[0].x = cx; q->v[0].y = cy; q->v[0].r = 30; q->v[0].g = 150; q->v[0].b = 140;
+            q->v[1].x = px[k]; q->v[1].y = py[k]; q->v[1].r = 10; q->v[1].g = 90; q->v[1].b = 84;
+            q->v[2].x = px[n]; q->v[2].y = py[n]; q->v[2].r = 10; q->v[2].g = 90; q->v[2].b = 84;
+            ot_add(fb, OT_LEN - 10, q);
+        }
     }
 }
 

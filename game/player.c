@@ -119,6 +119,20 @@ static void accelerate(Player *p, s32 wx, s32 wz, s32 wish, s32 cap, int accel)
     p->vx += as * wx >> 12; p->vz += as * wz >> 12;
 }
 
+/* cutscenes drive her combo pose frame by frame (stage 0 = none); she stands, no physics */
+void player_script(Player *p, int stage, int t, int w)
+{
+    s32 want[7];
+    int k;
+    p->atk = stage; p->atk_t = t; p->atk_active = 0; p->atk_next = 0; p->atk_w = w; p->hitstop = 0;
+    if (stage) { p->atk_last = stage; p->atk_last_t = t; }
+    p->vx = p->vz = 0; p->speed = 0; p->speed16 = 0;
+    p->amp -= p->amp / 3; p->runw -= p->runw / 3; p->lean -= p->lean / 3; p->bank -= p->bank / 3; p->turn = 0;
+    if (stage) footwork(stage, t, want);
+    else for (k = 0; k < 7; k++) want[k] = 0;
+    for (k = 0; k < 7; k++) p->atk_leg[k] += (want[k] - p->atk_leg[k]) / 2;
+}
+
 void player_hit_react(Player *p, s32 nx, s32 nz, int push, int stop)
 {
     if (stop > p->hitstop) p->hitstop = stop;

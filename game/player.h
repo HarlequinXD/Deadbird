@@ -72,5 +72,7 @@ void player_pose(Player *p, const Model *m);
 /* the blade struck something: freeze for a few frames (hit-stop); push back off a surface
    (normal nx, nz, 4096 = 1) by push (1/16 units per frame, 0 = no recoil) */
 void player_hit_react(Player *p, s32 nx, s32 nz, int push, int stop);
+/* cutscenes: hold her in combo swing `stage` at frame t with blend w (stage 0 = let go) */
+void player_script(Player *p, int stage, int t, int w);
 
 #endif

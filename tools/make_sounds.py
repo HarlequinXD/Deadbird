@@ -235,6 +235,37 @@ thud = sweep_sine(n, SR_HI, 110, 45, 6) * env_exp(n, SR_HI, 0.08)
 rip = (bandpass(pul - pul.mean(), SR_HI, 300, 1) * 3 + wet * 1.4) * env_exp(n, SR_HI, 0.2, 0.004) + 1.4 * thud
 add('rip', np.tanh(1.5 * rip), SR_HI)
 
+# ---------------------------------------------------------------- trooper laser pistol + fatality
+n = int(0.32 * SR_HI)
+t = t_(n, SR_HI)
+f = 2400 * np.exp(-t / 0.05) + 380
+pew = np.sign(np.sin(2 * np.pi * np.cumsum(f) / SR_HI)) * 0.4 + np.sin(2 * np.pi * np.cumsum(f * 1.5) / SR_HI) * 0.5
+pew = onepole_lp(pew, SR_HI, 5000) * env_exp(n, SR_HI, 0.07, 0.002) + 0.4 * onepole_hp(noise(n), SR_HI, 3000) * env_exp(n, SR_HI, 0.015)
+add('laser', pew, SR_HI, peak=0.8)
+
+n = int(0.3 * SR_HI)
+t = t_(n, SR_HI)
+crackle = onepole_hp(noise(n), SR_HI, 2000) * (rng.uniform(0, 1, n) > 0.8) * 2
+zap = (np.sin(2 * np.pi * np.cumsum(900 - 600 * t / 0.3) / SR_HI) * 0.6 + crackle) * env_exp(n, SR_HI, 0.06)
+add('zap', zap, SR_HI, peak=0.7)
+
+n = int(0.8 * SR_HI)
+t = t_(n, SR_HI)
+splat = bandpass(noise(n), SR_HI, 420, 1.0) * env_exp(n, SR_HI, 0.09, 0.002) * 2.5
+squelch = bandpass(noise(n), SR_HI, 900, 3) * (0.5 + 0.5 * np.sin(2 * np.pi * 17 * t)) * env_exp(n, SR_HI, 0.3, 0.05)
+crunch = onepole_lp(noise(n), SR_HI, 1500) * (rng.uniform(0, 1, n) > 0.9) * env_exp(n, SR_HI, 0.12) * 2
+gore = np.tanh(1.4 * (splat + squelch + crunch) + 1.2 * sweep_sine(n, SR_HI, 90, 40, 5) * env_exp(n, SR_HI, 0.1))
+add('gore', gore, SR_HI)
+
+n = int(2.2 * SR_LO)
+t = t_(n, SR_LO)
+hit_ = np.tanh(3 * sweep_sine(n, SR_LO, 75, 30, 3) * env_exp(n, SR_LO, 0.6))
+vib = 1 + 0.008 * np.sin(2 * np.pi * 5 * t)
+choir = sum(np.sin(2 * np.pi * fq * vib * t + k) for k, fq in enumerate((110, 130.8, 164.8, 207.7, 220))) * 0.18
+choir = formant(choir + 0.2 * saw(110 * vib, n, SR_LO) * 0.3, SR_LO, ((500, 3), (900, 4), (2400, 6)), (1, .6, .3)) * 3
+sting = hit_ + choir * np.clip(t / 0.15, 0, 1) * np.exp(-np.maximum(t - 1.2, 0) / 0.4)
+add('stinger', reverb(sting, SR_LO, 2.0, 0.4, 2500)[:int(3.0 * SR_LO)], SR_LO, peak=0.85)
+
 # ---------------------------------------------------------------- UI
 n = int(0.12 * SR_HI)
 tick = metal(n, SR_HI, 1650, 0.03, parts=(1, 1.52, 2.8), amps=(1, .4, .2)) + 0.4 * sweep_sine(n, SR_HI, 400, 120, 6) * env_exp(n, SR_HI, 0.02)

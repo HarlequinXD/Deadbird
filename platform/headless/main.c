@@ -6,6 +6,7 @@
 #include "deadbird.h"
 #include "snd.h"
 #include "player.h"
+#include "enemy.h"
 #include "gpu.h"
 
 
@@ -42,7 +43,7 @@ static void write_bmp(const char *dir, const char *name)
 
 static int frames_run;
 /* the game's sound, mixed exactly as the Android/Windows builds do, saved as a WAV of the session */
-#define AUDIO_MAX (SND_RATE * 60)
+#define AUDIO_MAX (SND_RATE * 90)
 static s16 audio[AUDIO_MAX * 2];
 static int audio_n, audio_acc;
 static void frame(u32 pad)
@@ -164,6 +165,40 @@ int main(int argc, char **argv)
         game_set_stick(0, 0, 0, 0, 0);
         printf("stick held right for 150 frames: turned %d degrees\n", total * 360 / 4096);
         if (total < 1024) { printf("FAIL: holding the stick sideways doesn't keep turning\n"); return 1; }
+    }
+    {   /* enemy + FATALITY: walk up to the first trooper, chainsaw him until he reels, finish him */
+        int k, st = 0, shots = 0;
+        game_set_touch_ui(1);
+        game_debug_near_enemy(0, 3800);
+        run(0, 70);
+        write_bmp(out, "20_trooper_fight");
+        printf("trooper: state %d hp %d, Deadbird hp %d\n", game_debug_enemy_state(0) / 1000, game_debug_enemy_state(0) % 1000, game_debug_player_hp());
+        game_debug_near_enemy(0, 950);
+        for (k = 0; k < 12 && game_debug_enemy_state(0) / 1000 != E_DAZED; k++) {
+            run(BTN_ATTACK, 1); run(0, 5); run(BTN_ATTACK, 1); run(0, 8); run(BTN_ATTACK, 1); run(0, 8); run(BTN_ATTACK, 1); run(0, 30);
+            game_debug_near_enemy(0, 950);
+            if (k == 0) write_bmp(out, "21_trooper_hit");
+        }
+        st = game_debug_enemy_state(0);
+        printf("after %d combos: trooper state %d hp %d, fatality %d\n", k, st / 1000, st % 1000, game_debug_fatality());
+        run(0, 20);
+        write_bmp(out, "22_fatality_prompt");
+        if (game_debug_fatality() != -2) { printf("FAIL: no fatality prompt\n"); return 1; }
+        run(PAD_TRIANGLE | PAD_SQUARE, 1);
+        {
+            static const int at[] = { 10, 30, 36, 50, 70, 84, 90, 100, 120, 140, 170, 200 };
+            int j = 0, f;
+            for (k = 0; k < 2000 && game_debug_fatality() >= 0; k++) {
+                run(0, 1);
+                f = game_debug_fatality();
+                if (j < 12 && f >= at[j]) { char nm[32]; sprintf(nm, "23_fatality_%02d", j); write_bmp(out, nm); j++; shots++; }
+            }
+        }
+        st = game_debug_enemy_state(0);
+        printf("fatality: %d frames captured, trooper state %d (6 = cut in half)\n", shots, st / 1000);
+        if (st / 1000 != E_CUT) { printf("FAIL: the fatality didn't cut him in half\n"); return 1; }
+        run(0, 60);
+        write_bmp(out, "24_after_fatality");
     }
     write_wav(out);
     printf("audio: %.1f s mixed\n", audio_n / (double)SND_RATE);

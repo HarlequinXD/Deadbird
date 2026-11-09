@@ -14,6 +14,13 @@ void game_show_fps(int fps);          /* >0: show this frame rate in the HUD (0 
 void game_display_area(int *x, int *y);
 /* draw the on-screen touch pad (Android) into the frame */
 void game_set_touch_ui(int on);
+/* names of the buttons in prompts: 0 = PlayStation, 1 = Xbox controller / keyboard */
+void game_set_pad_style(int style);
+/* tests */
+void game_debug_near_enemy(int i, s32 dist);
+int  game_debug_enemy_state(int i);       /* state * 1000 + hp */
+int  game_debug_fatality(void);           /* cutscene frame, -2 prompt showing, -1 none */
+int  game_debug_player_hp(void);
 /* floating analog stick in screen pixels: origin where the thumb landed, current position */
 void game_set_stick(int active, int ox, int oy, int x, int y);
 /* gamepad analog sticks (Xbox controller etc.), each axis -4096..4096: left stick moves

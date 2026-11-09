@@ -177,6 +177,7 @@ static u32 read_input(void)
     if (keys[VK_SHIFT] || keys[VK_LSHIFT] || keys[VK_RSHIFT]) pad |= PAD_CIRCLE;
     if (keys['F'] || keys['J'] || keys[VK_CONTROL] || (GetForegroundWindow() == wnd && (GetAsyncKeyState(VK_LBUTTON) & 0x8000)))
         pad |= PAD_SQUARE;                                     /* chainsaw: F, J, CTRL or left click */
+    if (keys['R']) pad |= PAD_TRIANGLE;                        /* R + F = fatality */
     if (keys['Q']) pad |= PAD_L1;
     if (keys['E']) pad |= PAD_R1;
     if (keys[VK_RETURN] || keys[VK_ESCAPE]) pad |= PAD_START;
@@ -300,6 +301,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
     xinput_load();
     game_init();
     game_set_touch_ui(0);
+    game_set_pad_style(1);
     audio_open();
 
     QueryPerformanceFrequency(&freq);
