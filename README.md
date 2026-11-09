@@ -167,6 +167,15 @@ make -C platform/headless gaittest && ./platform/headless/gaittest gait.bmp   # 
 
 ## Assets
 
+**Sci-fi trooper** (`tools/build_soldier.py`, ![trooper](docs/soldier.png)): the first enemy model,
+box-modelled with the same pipeline as Deadbird and on her skeleton (same bone names, so her
+animations drive him). 636 triangles, 507 vertices; off-white armour plates with panel seams,
+bolts, chipped edges, grime and orange markings, a glowing wrap-around visor, rebreather, comms
+pod and antenna, a power pack with coolant canisters, ribbed undersuit and rubber joints; baked
+key/fill/rim light, ray-traced shadows and AO, PS1 dither into a 256-colour 8bpp TIM (VRAM
+(768,256), CLUT row 494). `assets/soldier_mesh.h` + `soldier_tim.h` are ready; he isn't placed in
+the level yet.
+
 **Sound** (`tools/make_sounds.py`, previews in `docs/sfx/`): every sound is synthesised, no
 recordings. Heavy hooves on steel grating, a booming landing, a jump whoosh, the chainsaw idling
 and revving (pitch follows her speed), hellish menu chimes and a pause gong; ambience is a mains
