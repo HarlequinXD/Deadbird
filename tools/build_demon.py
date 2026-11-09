@@ -423,11 +423,11 @@ def scales(a, b, sz):
 
 ln = sn.copy()   # lighting normals (bump-mapped muscles)
 m = M == MATS.index('skin')
-brown = np.array((132, 80, 46)) / 255
+brown = np.array((156, 36, 28)) / 255          # crimson scales (title art)
 cyb, edge = scales(la[m], lb[m], .042)
 shade = .93 - .28 * cyb
 col = brown[None] * shade[:, None]
-col[edge < .1] *= .72
+col[edge < .1] *= .55
 torso_m = part[m] == 'torso'
 col[torso_m] = col[torso_m] * .55 + brown * .45 * (1 + .1 * noise[m][torso_m])[:, None]
 col *= (1 + .14 * noise[m])[:, None]
@@ -571,10 +571,13 @@ for FIST in FISTS:
     c[nail] = np.array((40, 26, 22)) / 255
     alb[hm_] = c
 
-# ---- painted armour (overrides skin; uses un-bumped normals)
-IRON, IRON_D = np.array((84, 82, 92)) / 255, np.array((44, 42, 50)) / 255
-BRONZE = np.array((196, 140, 60)) / 255
-LEATHER = np.array((74, 40, 26)) / 255
+# ---- painted armour (overrides skin; uses un-bumped normals): dark steel corset with gold
+#      trim and filigree, a gold fleur-de-lis on the sternum, laced back, shoulder straps,
+#      steel bracers with gold rims (after the title art: bare scaled shoulders, no pauldrons)
+IRON, IRON_D = np.array((66, 62, 74)) / 255, np.array((30, 28, 36)) / 255
+BRONZE = np.array((214, 168, 70)) / 255          # gold
+GOLD_D = np.array((130, 88, 30)) / 255
+LEATHER = np.array((46, 26, 22)) / 255
 armour = np.zeros(N, bool)
 
 
@@ -589,33 +592,55 @@ X, Y, Z = pos[:, 0], pos[:, 1], pos[:, 2]
 AX = np.abs(X)
 tor = part == 'torso'
 brushed = (1 + .12 * noise)[:, None]
-# breastplate (front) with bronze trim, centre ridge, rivets, engraved chevrons
-bp = tor & (Y > 1.30) & (Y < 1.475 - .25 * np.clip(.06 - AX, 0, 1) * 1.2) & (Z > -.012)
-c = IRON[None] * brushed
-chev = np.abs(np.modf((Y - AX * .9) / .028)[0] - .5) < .07
-c[chev] = IRON_D
-trim = (Y < 1.318) | (Y > 1.452 - .3 * np.clip(.06 - AX, 0, 1))
-c[trim] = BRONZE
-c[(AX < .006) & (Y > 1.33)] = IRON_D * .8
-rv = trim & (np.abs(np.modf(X / .028)[0]) < .22) & (Y < 1.318) & (Y > 1.304)
-c[rv] = np.array((240, 220, 170)) / 255
-paint(bp, c * np.ones((N, 1)))
-# back: leather band + straps over the shoulders, bronze buckle
-bb = tor & (Z <= -.012) & (((Y > 1.33) & (Y < 1.37)) | ((np.abs(AX - .085) < .016) & (Y > 1.33)))
-cb = np.tile(LEATHER, (N, 1)) * brushed
-cb[(np.abs(Y - 1.35) < .016) & (AX < .02)] = BRONZE
-stitch = (np.abs(Y - 1.334) < .003) | (np.abs(Y - 1.366) < .003)
-cb[stitch] = LEATHER * 1.7
-paint(bb, cb, .35, 12)
-strap_top = tor & (Y >= 1.45) & (np.abs(AX - .085) < .016)
-paint(strap_top, cb, .35, 12)
-# belt with studs and buckle
-belt = tor & (Y > .975) & (Y < 1.025)
+front = Z > -.012
+# sweetheart neckline: the top edge dips between the cups
+top = 1.452 - .05 * np.exp(-(AX / .024) ** 2)
+cor = tor & (Y > 1.0) & (Y < top)
+c = IRON[None] * brushed * np.ones((N, 1))
+# vertical plate seams on the waist, cup outlines, V filigree, trims
+seam = (Y < 1.29) & (np.abs(np.modf((AX + .025) / .05)[0] - .5) > .46)
+c[seam] = IRON_D
+for cx in (.062, -.062):
+    dcup = np.hypot(X - cx, (Y - 1.362) * 1.15)
+    c[front & (np.abs(dcup - .072) < .0045)] = BRONZE
+    c[front & (dcup < .068)] *= 1.12                                   # cups catch more light
+for off in (0, .045):
+    v = front & (np.abs(Y - (1.29 - off - 1.5 * AX)) < .0042) & (Y > 1.04) & (AX < .14)
+    c[v] = BRONZE
+c[np.abs(Y - top) < .013] = BRONZE                                      # top edge
+c[(Y > 1.0) & (Y < 1.016)] = BRONZE                                     # bottom edge
+rv = (np.abs(Y - top + .006) < .004) & (np.abs(np.modf(X / .022)[0]) < .2)
+c[rv] = np.array((250, 232, 180)) / 255
+# fleur-de-lis on the sternum
+fx_, fy = X, Y - 1.20
+lis = (AX < .013 * np.clip(1 - np.abs(fy - .012) / .05, 0, 1)) & (fy > -.04) & (fy < .062)
+curl = (np.abs(np.hypot(AX - .024, fy - .016) - .014) < .0042) & (fy > .006)
+bar_ = (np.abs(fy + .006) < .0045) & (AX < .03)
+tail = (np.abs(np.hypot(AX - .02, fy + .03) - .012) < .004) & (fy < -.02)
+emb = front & (lis | curl | bar_ | tail)
+c[emb] = BRONZE * 1.1
+c[front & (lis | curl) & (X > 0)] = BRONZE * 1.25                       # lit side
+# back: laced panel with gold eyelets
+back = ~front
+c[back & (AX < .018)] = LEATHER
+lace = back & (AX < .018) & (np.abs(np.modf((Y + AX * 1.6) / .03)[0] - .5) < .1)
+lace |= back & (AX < .018) & (np.abs(np.modf((Y - AX * 1.6) / .03)[0] - .5) < .1)
+c[lace] = np.array((120, 30, 24)) / 255
+c[back & (np.abs(AX - .021) < .004) & (np.abs(np.modf(Y / .03)[0] - .5) < .2)] = BRONZE
+paint(cor, c)
+# shoulder straps from the corset over the shoulders, gold buckles
+st = tor & (Y >= top - .01) & (np.abs(AX - .088) < .015)
+cs = np.tile(LEATHER, (N, 1)) * brushed
+cs[np.abs(Y - 1.47) < .009] = BRONZE
+cs[(np.abs(AX - .088) > .011)] *= 1.6                                   # stitched edges
+paint(st, cs, .35, 12)
+# belt with gold studs and buckle
+belt = tor & (Y > .975) & (Y <= 1.0)
 cbelt = np.tile(LEATHER, (N, 1)) * brushed
-stud = (np.abs(np.modf((X + 2) / .03)[0] - .5) < .17) & (np.abs(Y - 1.0) < .006)
+stud = (np.abs(np.modf((X + 2) / .03)[0] - .5) < .17) & (np.abs(Y - .988) < .006)
 cbelt[stud] = BRONZE * 1.2
 cbelt[(AX < .028) & (Z > 0)] = BRONZE
-cbelt[(AX < .012) & (Z > 0) & (np.abs(Y - 1.0) < .01)] = np.array((110, 20, 14)) / 255
+cbelt[(AX < .012) & (Z > 0) & (np.abs(Y - .988) < .008)] = np.array((110, 20, 14)) / 255
 paint(belt, cbelt, .4, 14)
 # armoured hip plates / fauld below the belt
 fauld = tor & (Y <= .975)
@@ -623,7 +648,7 @@ cf = IRON[None] * brushed * np.ones((N, 1))
 cf[np.abs(np.modf((np.arctan2(X, Z) + 4) / .35)[0] - .5) > .44] = IRON_D
 cf[Y > .962] = BRONZE
 paint(fauld, cf)
-# tassets on upper thighs (front/outer), overlapping lames
+# tassets on upper thighs (front/outer), overlapping lames with gold edges
 leg = part == 'leg'
 tas = leg & (Y > .80) & ((Z > -.03) | (AX > .17))
 ct = IRON[None] * brushed * np.ones((N, 1))
@@ -631,28 +656,20 @@ lame = np.modf((Y - .80) / .045)[0]
 ct *= (.75 + .45 * lame)[:, None]
 ct[lame < .12] = BRONZE * .9
 paint(tas, ct)
-# pauldrons: layered lames around the shoulders
+# steel bracers on the forearms, gold rims and a raised centre band
 arm = part == 'arm'
 for A in (ARM_L, ARM_R):
-    sh = np.array(A[0]) + (np.sign(A[0][0]) * .015, -.01, 0)
-    dsh = np.linalg.norm(pos - sh, axis=1)
-    pm = arm & (np.sign(X) == np.sign(A[0][0])) & (dsh < .1)
-    lm = np.modf(dsh / .033)[0]
-    cp = IRON[None] * brushed * (1.15 - .4 * lm)[:, None] * np.ones((N, 1))
-    cp[lm > .86] = BRONZE
-    cp[(dsh < .028)] = np.array((150, 24, 18)) / 255           # red enamel boss
-    paint(pm, cp)
-    # bracer on the forearm
     tf = seg_param(pos, A[1], A[2])
     du = np.linalg.norm(pos - (np.asarray(A[1]) + np.outer(tf, np.subtract(A[2], A[1]))), axis=1)
-    br = arm & (np.sign(X) == np.sign(A[0][0])) & (tf > .3) & (tf < .9) & (du < .08)
+    br = arm & (np.sign(X) == np.sign(A[0][0])) & (tf > .18) & (tf < .98) & (du < .08)
     cbr = IRON[None] * brushed * np.ones((N, 1))
-    cbr[(tf < .37) | (tf > .83)] = BRONZE
-    cbr[(np.abs(tf - .6) < .025)] = IRON_D
+    cbr[(tf < .25) | (tf > .91)] = BRONZE
+    cbr[(np.abs(tf - .58) < .03)] = IRON * 1.35
+    cbr[(np.abs(tf - .58) < .008)] = GOLD_D
     paint(br, cbr)
 # breastplate cups (geometry)
 m = M == MATS.index('armour')
-cc = IRON[None] * brushed[m] * 1.1
+cc = IRON[None] * brushed[m] * 1.15
 cc[tp[m] < .3] = BRONZE
 alb[m] = cc; spec[m] = .95; gloss[m] = 40; armour[m] = True
 
@@ -673,20 +690,26 @@ hd = part == 'head'
 q = pos - HC
 qx, qy, qz = np.abs(q[:, 0]), q[:, 1], q[:, 2]
 frontf = hd & (qz > .03)
+bone = frontf & ((qx / .062) ** 2 + ((qy + .018) / .078) ** 2 < 1)      # the skull face on the scaled head
+bcol = np.array((178, 156, 132)) / 255 * (1 + .18 * noise[bone])[:, None]
+crack = hsh(np.floor(pos[bone, 0] * 260), np.floor(pos[bone, 1] * 90)) > .93
+bcol[crack] *= .55
+bshade = np.clip(1 - np.clip(qx[bone] - .03, 0, 1) * 9, .55, 1)               # cheekbones fall into shadow
+alb[bone] = bcol * bshade[:, None]; spec[bone] = .3; gloss[bone] = 18; ln[bone] = sn[bone]
 sock = ((qx - .042) / .031) ** 2 + ((qy - .024) / .025) ** 2
 eye = ((qx - .042) / .018) ** 2 + ((qy - .022) / .014) ** 2
 m = frontf & (sock < 1)
 alb[m] = np.array((26, 12, 10)) / 255 * (1 + .15 * noise[m])[:, None]
-emis[m] = np.array((.35, .1, 0)) * np.clip(1 - sock[m], 0, 1)[:, None] ** 2     # glow spilling in the socket
+emis[m] = np.array((.45, .3, 0)) * np.clip(1 - sock[m], 0, 1)[:, None] ** 2      # yellow glow spilling in the socket
 m = frontf & (eye < 1)
 g_ = np.clip(1 - eye[m], 0, 1)[:, None]
-emis[m] = np.array((1.0, .42, .04)) * (.75 + .25 * g_) + np.array((.0, .45, .25)) * g_ ** 2
+emis[m] = np.array((1.0, .72, .08)) * (.75 + .25 * g_) + np.array((.0, .25, .35)) * g_ ** 2
 alb[m] = 0; spec[m] = 0
 nas = frontf & (qy > -.05) & (qy < -.006) & (qx < .004 + .013 * np.clip((-.006 - qy) / .044, 0, 1))
 alb[nas] = np.array((22, 10, 8)) / 255
 ym = -.074 + .012 * (qx / .05) ** 2
 band = frontf & (qx < .058) & (np.abs(qy - ym) < .034)
-alb[band] = alb[band] * .45 + np.array((70, 20, 14)) / 255 * .55               # pulled-back scaly lips
+alb[band] = alb[band] * .7 + np.array((60, 40, 32)) / 255 * .3                 # jaw shadow
 tooth_u = frontf & (qx < .052) & (qy > ym) & (qy < ym + .02)
 tooth_l = frontf & (qx < .046) & (qy < ym) & (qy > ym - .017)
 fang = frontf & (np.abs(qx - .03) < .006) & (qy < ym) & (qy > ym - .02 + 1.6 * np.abs(qx - .03))
@@ -709,8 +732,8 @@ alb[m] = col; spec[m] = .5; gloss[m] = 24
 # horns: ivory -> black tip, ridged
 m = M == MATS.index('horn')
 t_ = tp[m]
-ridge = (np.modf(t_ * 9)[0] < .25)
-col = (1 - t_[:, None]) * np.array((200, 186, 150))[None] / 255 + t_[:, None] * np.array((30, 20, 18))[None] / 255
+ridge = (np.modf(t_ * 13)[0] < .3)
+col = (1 - t_[:, None]) * np.array((168, 138, 122))[None] / 255 + t_[:, None] * np.array((40, 28, 26))[None] / 255
 col[ridge] *= .7
 alb[m] = col * (1 + .15 * noise[m])[:, None]; spec[m] = .4; gloss[m] = 20
 
@@ -720,11 +743,11 @@ t_ = tp[m]
 plate_edges = np.array([0, .2, .32, .45, .5, .55, .62, .68, .77, .86, .93, 1.0])
 k = np.clip(np.searchsorted(plate_edges, t_) - 1, 0, len(plate_edges) - 2)
 seg = (t_ - plate_edges[k]) / (plate_edges[k + 1] - plate_edges[k])
-base = np.array((92, 40, 28)) / 255
+base = np.array((110, 30, 26)) / 255
 col = base[None] * (1.25 - .55 * seg)[:, None]          # bright plate top, shadowed overlap
-col[seg < .1] = np.array((168, 96, 56)) / 255           # lit plate lip
+col[seg < .1] = np.array((176, 70, 52)) / 255           # lit plate lip
 knee = (t_ > .45) & (t_ < .55)
-col[knee] = np.array((120, 64, 40)) / 255 * (1.1 - .3 * seg[knee])[:, None]
+col[knee] = np.array((130, 44, 36)) / 255 * (1.1 - .3 * seg[knee])[:, None]
 ridge = np.abs(np.modf(la[m] / .03)[0] - .5) < .08
 col[ridge] *= .7
 spots = hsh(np.floor(la[m] / .016), np.floor(lb[m] / .016), fid[m]) > .9
