@@ -65,7 +65,7 @@ void noise(Map out, int scale, unsigned seed, int octaves)
 
 void grime(Img im, float amount, unsigned seed, int streaks)
 {
-    Map n;
+    static Map n;
     noise(n, 4, seed, 3);
     for (int y = 0; y < T; y++) for (int x = 0; x < T; x++) n[y][x] = 1 - amount * (1 - n[y][x]);
     if (streaks) {

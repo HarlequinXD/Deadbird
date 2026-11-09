@@ -14,7 +14,6 @@
  */
 #include <stdlib.h>
 #include <string.h>
-#include <stdio.h>
 #include "gpu.h"
 #include "vram.h"
 #include "gen_lab.h"
@@ -193,7 +192,7 @@ S(extraction_panel)
 }
 S(cell_wall)
 {
-    Map n; GRng r; grng_seed(&r, 9);
+    static Map n; GRng r; grng_seed(&r, 9);
     t_new(im, C3(96, 90, 86));
     noise(n, 3, 245, 3);
     for (int y = 0; y < T; y++) for (int x = 0; x < T; x++) t_mul(im, x, y, 0.75f + 0.35f * n[y][x]);
@@ -307,7 +306,7 @@ static void plates(Img im, Col c, int tread, unsigned seed)
 S(floor_plate) { plates(im, C3(78, 82, 90), 1, 301); }
 S(floor_grate)
 {
-    Map g; noise(g, 4, 9, 3);
+    static Map g; noise(g, 4, 9, 3);
     t_new(im, C3(40, 44, 48));
     for (int y = 3; y < 61; y++) for (int x = 3; x < 61; x++) {
         if (x % 6 < 2 || y % 12 < 2) t_set(im, x, y, C3(62, 66, 72));
@@ -343,7 +342,7 @@ S(floor_drain)
 }
 S(floor_concrete)
 {
-    Map n; noise(n, 4, 308, 3);
+    static Map n; noise(n, 4, 308, 3);
     t_new(im, C3(92, 90, 86));
     for (int y = 0; y < T; y++) for (int x = 0; x < T; x++) t_mul(im, x, y, 0.75f + 0.35f * n[y][x]);
     rect_mul(im, 0, 31, 64, 33, 0.6f); rect_mul(im, 31, 0, 33, 64, 0.6f);
@@ -393,7 +392,7 @@ S(floor_lab)
 }
 S(floor_reactor)
 {
-    Map g; noise(g, 4, 313, 3);
+    static Map g; noise(g, 4, 313, 3);
     t_new(im, C3(40, 36, 34));
     for (int y = 0; y < 64; y++) for (int x = 0; x < 64; x++)
         if (x % 8 >= 2 && y % 8 >= 2) t_set(im, x, y, C3(60 + 140 * g[y][x], 24 + 50 * g[y][x], 10));
@@ -464,14 +463,14 @@ S(screen_vitals)
 }
 S(glass)
 {
-    Map n; noise(n, 2, 151, 3);
+    static Map n; noise(n, 2, 151, 3);
     t_new(im, C3(70, 120, 140));
     for (int y = 0; y < T; y++) for (int x = 0; x < T; x++) t_mul(im, x, y, 0.6f + 0.4f * n[y][x]);
     rect(im, 10, 0, 13, 64, C3(190, 230, 240)); rect(im, 16, 0, 17, 64, C3(190, 230, 240)); rect(im, 44, 0, 46, 64, C3(190, 230, 240));
 }
 S(energy)
 {
-    Map n; noise(n, 4, 161, 4);
+    static Map n; noise(n, 4, 161, 4);
     for (int y = 0; y < T; y++) for (int x = 0; x < T; x++) {
         float sw = gsin(((float)x / T * 2 + n[y][x] * 2.5f) * GPI * 2) * 0.5f + 0.5f;
         im[y][x][0] = 60 + 120 * sw * n[y][x]; im[y][x][1] = 140 * sw + 60 * n[y][x]; im[y][x][2] = 160 + 90 * sw;
@@ -555,7 +554,7 @@ S(shini_body)
 }
 S(shini_skull)
 {
-    Map n; noise(n, 4, 221, 3);
+    static Map n; noise(n, 4, 221, 3);
     t_new(im, C3(14, 10, 16));
     for (int y = 0; y < T; y++) for (int x = 0; x < T; x++) {
         int head = (x - 32) * (x - 32) / 400.f + (y - 26) * (y - 26) / 300.f < 1;
@@ -635,9 +634,8 @@ S(plate_side)
 
 /* ================================================================ ANIM: 4-frame screen strips */
 #define FRAMES SCREEN_FRAMES
-static void graph_screen(Img im, int x0, int y0, int x1, int y1, int k, int pct)
+static void graph_screen(Img im, int x0, int y0, int x1, int y1, int k, const char *label)
 {
-    char s[16];
     rect(im, x0, y0, x1, y1, C3(8, 26, 16));
     for (int x = x0; x < x1; x += 6) rect(im, x, y0, x + 1, y1, C3(16, 46, 28));
     for (int y = y0; y < y1; y += 6) rect(im, x0, y, x1, y + 1, C3(16, 46, 28));
@@ -648,30 +646,28 @@ static void graph_screen(Img im, int x0, int y0, int x1, int y1, int k, int pct)
         plot_col(im, x0 + i, (int)(mid + amp * gsin(a0 + ph) * (0.7f + 0.3f * gcos(b0 - ph))),
                  (int)(mid + amp * gsin(a1 + ph) * (0.7f + 0.3f * gcos(b1 - ph))), C3(90, 255, 130));
     }
-    sprintf(s, "OUT %d%%", pct);
-    ttext(im, s, x0 + 2, y1 - 6, C3(150, 255, 170), 1);
+    ttext(im, label, x0 + 2, y1 - 6, C3(150, 255, 170), 1);
 }
-static void vitals_screen(Img im, int x0, int y0, int x1, int y1, int k, int soul)
+static void vitals_screen(Img im, int x0, int y0, int x1, int y1, int k, int soul, const char *label)
 {
     static const int beat[16] = { 0, 0, 0, 0, 0, 1, -5, 8, -3, 0, 0, 0, 0, 0, 0, 0 };
-    char s[16];
     int base = y0 + 7, prev = base;
     rect(im, x0, y0, x1, y1, C3(26, 6, 8));
     for (int x = x0 + 1; x < x1 - 1; x++) { int y = base + beat[((x - k * 4) % 16 + 16) % 16]; plot_col(im, x, prev, y, C3(255, 70, 60)); prev = y; }
-    sprintf(s, "SOUL %02d%%", soul);
-    ttext(im, s, x0 + 2, y0 + 17, C3(255, 200, 80), 1);
+    ttext(im, label, x0 + 2, y0 + 17, C3(255, 200, 80), 1);
     if (k % 2 == 0) ttext(im, "CRITICAL", x0 + 2, y0 + 24, C3(255, 60, 40), 1);
     int bw = (x1 - x0 - 4) * soul / 100 + 1;
     rect(im, x0 + 2, y1 - 5, x1 - 2, y1 - 2, C3(60, 14, 14)); rect(im, x0 + 2, y1 - 5, x0 + 2 + bw, y1 - 2, C3(255, 60, 40));
 }
-static const int PCT[2] = { 97, 99 }, SOUL[2] = { 7, 6 };
+static const char *const PCT[2] = { "OUT 97%", "OUT 99%" }, *const SOULS[2] = { "SOUL 07%", "SOUL 06%" };
+static const int SOUL[2] = { 7, 6 };
 static void anim_tile(Img im, int i)
 {
     int wall = i < 4, graph = (i % 4) < 2, k = i % 2;
     if (wall) {
         panel_base(im, C3(92, 98, 108), 1);
         bevel(im, 5, 6, 59, 48, C3(36, 38, 44), 1.35f, 0.55f, 2);
-        if (graph) graph_screen(im, 8, 9, 56, 45, k, PCT[k]); else vitals_screen(im, 8, 9, 56, 45, k, SOUL[k]);
+        if (graph) graph_screen(im, 8, 9, 56, 45, k, PCT[k]); else vitals_screen(im, 8, 9, 56, 45, k, SOUL[k], SOULS[k]);
         rect_mul(im, 8, 9, 9, 45, 1.3f);
         rect(im, 27, 48, 37, 54, C3(50, 52, 58));
         rect_mul(im, 25, 54, 39, 56, 0.5f);
@@ -679,7 +675,7 @@ static void anim_tile(Img im, int i)
         grime(im, 0.2f, 261, 1);
     } else {
         t_new(im, C3(60, 66, 70));
-        if (graph) graph_screen(im, 2, 2, 62, 62, k, PCT[k]); else vitals_screen(im, 2, 2, 62, 62, k, SOUL[k]);
+        if (graph) graph_screen(im, 2, 2, 62, 62, k, PCT[k]); else vitals_screen(im, 2, 2, 62, 62, k, SOUL[k], SOULS[k]);
     }
 }
 
