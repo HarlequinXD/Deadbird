@@ -55,6 +55,7 @@ const TouchButton touch_buttons[] = {
     { 238, 214, 15, BTN_JUMP },
     { 300, 22, 11, PAD_START },
     { 252, 140, 24, PAD_TRIANGLE | PAD_SQUARE },          /* FATALITY: only while one is possible */
+    { 296, 150, 13, BTN_DODGE },                          /* dodge roll */
 };
 const int touch_button_count = (int)(sizeof(touch_buttons) / sizeof(touch_buttons[0]));
 
@@ -325,7 +326,7 @@ static void saw_combat(void)
 static void player_hit(CombatTarget *t, const Hit *h)
 {
     (void)t;
-    if (cine.active || php <= 0) return;
+    if (cine.active || php <= 0 || player_invulnerable(&pl)) return;   /* rolled under it */
     php -= h->damage;
     hurt_flash = 12;
     fx_spray(&h->at, 4, 6, h->dir_x * 10 >> 12, -10, h->dir_z * 10 >> 12, 16);
@@ -438,6 +439,12 @@ static void simulate(u32 pad)
     was_grounded = pl.grounded;
     if (pl.atk_event >= 1 && pl.atk_event <= 3)                               /* swing: whoosh + the saw screams */
         snd_play(SFX_SWING, 3800, 300, pl.atk_event == 3 ? 3400 : 3900 + rnd(500));
+    if (pl.roll_t == 2) snd_play(SFX_JUMP, 2600, 0, 4400 + rnd(400));      /* dodge roll: launch ... */
+    if (pl.roll_t == 9 || pl.roll_t == 21) {                                  /* ... shoulder and hooves slam down */
+        snd_play(SFX_LAND, pl.roll_t == 9 ? 2600 : 2000, 0, 5200 + rnd(500));
+        if (land_shake_t >= 12) { land_shake_t = 6; land_shake_amp = 40; }
+    }
+    if (pl.pivot_t == PIVOT_FRAMES - 1) snd_play(SFX_STEP_RUN, 3600, 0, 3000);   /* hooves dig in to turn round */
     if (pl.land_t == 1)                                                       /* boom, scaled by the fall */
         snd_play(SFX_LAND, (int)clamp(pl.land_amp, 1300, 4096), 0, 4500 - pl.land_amp / 6);
     if (pl.land_t == 1 && pl.land_amp > 1500) rumble = pl.land_amp >> 4;      /* thump on a hard landing */
@@ -500,7 +507,7 @@ static void flow(u32 pad, u32 press)
 /* ------------------------------------------------------------------ rendering */
 static void draw_touch(FrameBuf *fb)
 {
-    static const int icon_of[] = { UI_ICON_SAW, UI_ICON_JUMP, UI_ICON_PAUSE, 0 };
+    static const int icon_of[] = { UI_ICON_SAW, UI_ICON_JUMP, UI_ICON_PAUSE, 0, UI_ICON_SPRINT };
     int i;
     /* floating stick: a runic iron ring where the thumb landed, the demon eye follows the thumb */
     if (stick_on) {

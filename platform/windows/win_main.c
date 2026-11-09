@@ -174,7 +174,8 @@ static u32 read_input(void)
     if (keys['A'] || keys[VK_LEFT]) pad |= PAD_LEFT;
     if (keys['D'] || keys[VK_RIGHT]) pad |= PAD_RIGHT;
     if (keys[VK_SPACE]) pad |= PAD_CROSS;
-    if (keys[VK_SHIFT] || keys[VK_LSHIFT] || keys[VK_RSHIFT]) pad |= PAD_CIRCLE;
+    if (keys[VK_SHIFT] || keys[VK_LSHIFT] || keys[VK_RSHIFT]) pad |= PAD_R2;      /* sprint */
+    if (keys['C']) pad |= PAD_CIRCLE;                                            /* dodge roll */
     if (keys['F'] || keys['J'] || keys[VK_CONTROL] || (GetForegroundWindow() == wnd && (GetAsyncKeyState(VK_LBUTTON) & 0x8000)))
         pad |= PAD_SQUARE;                                     /* chainsaw: F, J, CTRL or left click */
     if (keys['R']) pad |= PAD_TRIANGLE;                        /* R + F = fatality */
@@ -207,7 +208,7 @@ static u32 read_input(void)
                 if (b & XB_RB) pad |= PAD_R1;
                 if (b & XB_START) pad |= PAD_START;
                 if (b & XB_BACK) pad |= PAD_SELECT;
-                if (st.pad.rt > 60) pad |= PAD_CIRCLE;           /* right trigger sprints too */
+                if (st.pad.rt > 60) pad |= PAD_R2;               /* right trigger: sprint (B: dodge roll) */
                 if (st.pad.lt > 60) pad |= PAD_L2;
                 stick(st.pad.lx, st.pad.ly, 7849, &lx, &ly);
                 stick(st.pad.rx, st.pad.ry, 8689, &rx, &ry);

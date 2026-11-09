@@ -55,9 +55,9 @@ for name, (du, dv, q) in SKINS.items():
     packer('mesh', txt, out)
     blobs.append((name + '_mesh', open(out, 'rb').read()))
 
-# UI atlas: cells the game no longer draws (sprint, camera turn icons) are left out
+# UI atlas: cells the game no longer draws (camera turn icons) are left out
 ui = np.array(Image.open(os.path.join(SRC, 'ui_tex.png')).convert('RGBA'))
-ui[112:144, 32:128, 3] = 0
+ui[112:144, 64:128, 3] = 0
 image('ui_tex', ui, 75)
 
 # title painting (opaque 320x240)

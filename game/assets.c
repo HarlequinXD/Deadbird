@@ -80,6 +80,7 @@ static const Cell CELLS[] = {
     { 64, 208, 16, 32, S1, 64, 224, 0 },     /* plate middle, lit */
     { 80, 208, 24, 32, S1, 80, 224, 0 },     /* selector claw */
     { 32, 144, 32, 32, S1, 104, 224, 1 },    /* glow (additive) */
+    { 32, 112, 32, 32, S1, 136, 224, 0 },    /* dodge roll (the double chevron) */
     { 0, 0, 64, 64, CP, 128, 128, 0 },       /* stick frame */
     { 64, 0, 64, 64, CP, 192, 128, 1 },      /* rune ring (additive) */
     { 64, 144, 64, 64, CP, 128, 192, 1 },    /* sigil (additive) */

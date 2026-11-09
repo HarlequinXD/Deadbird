@@ -11,6 +11,7 @@
 #undef DEMON_MESH_NO_DATA
 #include "demon_mesh.h"
 #include "chainsaw_mesh.h"
+#include "soldier_mesh.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -18,10 +19,11 @@
 #define CW 150
 #define CH 236
 static FrameBuf fb;
-#define ROWS 6
+#define ROWS 8
 static unsigned char sheet[CH * ROWS][CW * COLS][3];
 static Player pl;
 static Model saw_body, saw_chain;
+static int fixcam = -1;               /* >= 0: camera yaw fixed (moves sheet) */
 
 static void shot(const Model *m, int row, int col, int behind)
 {
@@ -31,7 +33,7 @@ static void shot(const Model *m, int row, int col, int behind)
     RECT r = { 0, 0, 320, 240 };
     const u16 *v = gpu_vram();
     int b, x, y;
-    mat_rot_x(&rx, 40); mat_rot_y(&ry, -(pl.yaw + (behind ? 0 : 1024))); mat_mul(&rx, &ry, &view);
+    mat_rot_x(&rx, 40); mat_rot_y(&ry, -(fixcam >= 0 ? fixcam : pl.yaw + (behind ? 0 : 1024))); mat_mul(&rx, &ry, &view);
     t.vx = (s16)-pl.x; t.vy = 1100; t.vz = (s16)-pl.z;
     view.t[0] = view.t[1] = view.t[2] = 0;
     mat_apply(&view, &t, &tv);
@@ -100,6 +102,41 @@ int main(int argc, char **argv)
         printf("%s: speed %d u/f, phase %d, run %d amp %d\n", row == 2 ? "run, from behind, curving right" : row ? "run" : "walk", (int)pl.speed, pl.phase, pl.runw, pl.amp);
     }
 
+    /* MOVES=1: rows 4-6 show the sprint, the dodge roll and the turn-round instead of the combo */
+    if (getenv("MOVES")) {
+        int a, k;
+        for (a = 0; a < level_area_count(); a++) if (!strcmp(level_area(a)->name, "Turbine Hall")) break;
+        fixcam = 2048;
+        for (row = 3; row < 6; row++) {
+            const LabArea *ar = level_area(a);
+            player_reset(&pl, ar->x0 + 1500, (ar->z0 + ar->z1) / 2, 1024);
+            for (i = 0; i < (row == 3 ? 85 : 40); i++) { player_update(&pl, 0, 1024, 4096); player_pose(&pl, &m); }
+            for (i = 0; i < COLS; i++) {
+                for (k = 0; k < 3; k++) {
+                    u32 pad = row == 4 && i == 0 && k == 0 ? BTN_DODGE : 0;
+                    int yaw = row == 5 ? 3072 : 1024;
+                    player_update(&pl, pad, yaw, 4096); player_pose(&pl, &m);
+                }
+                shot(&m, row, i, 0);
+                if (row == 5) printf("pivot %d yaw %d speed %d\n", pl.pivot_t, pl.yaw, (int)pl.speed);
+            }
+        }
+        printf("moves: sprint %d roll %d pivot %d\n", pl.sprint, pl.roll_t, pl.pivot_t);
+        {   /* rows 7-8: a trooper on the same controller: strafing while aiming, then running */
+            Model sm = asset_soldier;
+            const LabArea *ar = level_area(a);
+            sm.bones = (const DBONE *)soldier_bones; sm.nbones = SOLDIER_NBONES;
+            for (row = 6; row < 8; row++) {
+                player_reset(&pl, ar->x0 + 4000, (ar->z0 + ar->z1) / 2, 2048);
+                pl.aim = 1; pl.aim_yaw = 2048;
+                for (i = 0; i < 40; i++) { player_update(&pl, 0, row == 6 ? 1024 : 2048, row == 6 ? 1500 : 4096); player_pose(&pl, &sm); }
+                for (i = 0; i < COLS; i++) {
+                    for (k = 0; k < 3; k++) { player_update(&pl, 0, row == 6 ? 1024 : 2048, row == 6 ? 1500 : 4096); player_pose(&pl, &sm); }
+                    shot(&sm, row, i, 0);
+                }
+            }
+        }
+    } else
     /* rows 4-6: the chainsaw combo, side on: 24 frames over slash, backhand and slam */
     {
         static const int when[24] = { 2, 4, 6, 8, 9, 11, 14, 16,  2, 4, 6, 8, 9, 11, 14, 16,  3, 5, 8, 10, 12, 15, 19, 28 };

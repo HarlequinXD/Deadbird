@@ -105,11 +105,11 @@ int main(int argc, char **argv)
     run(0, 40);
     for (i = 0; i < 4; i++) { run(0, 3); sprintf(name, "05_run_%d", i); write_bmp(out, name); }
     game_set_stick(0, 0, 0, 0, 0);
-    run(PAD_UP | PAD_CIRCLE | PAD_RIGHT, 14);
+    run(PAD_UP | PAD_RIGHT, 14);
     write_bmp(out, "06_run_turn_lean");
-    run(PAD_RIGHT | PAD_CIRCLE, 30);
-    run(PAD_UP | PAD_CIRCLE, 1); run(PAD_UP | PAD_CIRCLE | PAD_CROSS, 1);
-    run(PAD_UP | PAD_CIRCLE, 12);
+    run(PAD_RIGHT, 30);
+    run(PAD_UP, 1); run(PAD_UP | PAD_CROSS, 1);
+    run(PAD_UP, 12);
     write_bmp(out, "07_jump");
     run(PAD_UP, 40);
     run(0, 30);
@@ -122,11 +122,11 @@ int main(int argc, char **argv)
     write_bmp(out, "11_after_walk");
     /* back off, then run into the wall again: she should just stop and lean on it */
     run(0, 20); run(PAD_RIGHT, 40); run(0, 10);
-    run(PAD_LEFT | PAD_CIRCLE, 26);
-    for (i = 0; i < 8; i++) { run(PAD_LEFT | PAD_CIRCLE, 3); sprintf(name, "14_wall_%d", i); write_bmp(out, name); }
+    run(PAD_LEFT, 26);
+    for (i = 0; i < 8; i++) { run(PAD_LEFT, 3); sprintf(name, "14_wall_%d", i); write_bmp(out, name); }
     /* hard turn while running: banking strip */
-    run(PAD_UP | PAD_CIRCLE, 40);
-    for (i = 0; i < 4; i++) { run(PAD_UP | PAD_RIGHT | PAD_CIRCLE, 3); sprintf(name, "15_bank_%d", i); write_bmp(out, name); }
+    run(PAD_UP, 40);
+    for (i = 0; i < 4; i++) { run(PAD_UP | PAD_RIGHT, 3); sprintf(name, "15_bank_%d", i); write_bmp(out, name); }
     /* chainsaw combo: slash, backhand, overhead slam (one press during each swing chains the next) */
     run(0, 40);
     {
@@ -165,6 +165,17 @@ int main(int argc, char **argv)
         game_set_stick(0, 0, 0, 0, 0);
         printf("stick held right for 150 frames: turned %d degrees\n", total * 360 / 4096);
         if (total < 1024) { printf("FAIL: holding the stick sideways doesn't keep turning\n"); return 1; }
+    }
+    {   /* sprint (a long flat-out run turns into one), a dodge roll, then the plant-and-turn */
+        game_set_stick(1, 60, 180, 60, 140);
+        run(0, 90);
+        for (i = 0; i < 6; i++) { run(0, 2); sprintf(name, "17_sprint_%d", i); write_bmp(out, name); }
+        for (i = 0; i < 10; i++) { run(i == 0 ? PAD_CIRCLE : 0, 3); sprintf(name, "18_roll_%d", i); write_bmp(out, name); }
+        run(0, 40);
+        game_set_stick(1, 60, 180, 60, 220);
+        for (i = 0; i < 6; i++) { run(0, 3); sprintf(name, "19_pivot_%d", i); write_bmp(out, name); }
+        game_set_stick(0, 0, 0, 0, 0);
+        run(0, 20);
     }
     {   /* enemy + FATALITY: walk up to the first trooper, chainsaw him until he reels, finish him */
         int k, st = 0, shots = 0;

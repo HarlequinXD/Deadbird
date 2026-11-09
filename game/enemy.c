@@ -42,9 +42,10 @@ static void on_hit(CombatTarget *t, const Hit *h)
     if (e->state == E_FATAL || e->state == E_CUT || e->state == E_DEAD) return;
     e->tgt.hp -= h->damage;
     e->hurt_t = 0;
-    e->vx += h->dir_x * (h->knockback / 16) >> 12 << 4;
-    e->vz += h->dir_z * (h->knockback / 16) >> 12 << 4;
+    e->body.vx += h->dir_x * (h->knockback / 16) >> 12 << 4;            /* knocked back: slides on his feet */
+    e->body.vz += h->dir_z * (h->knockback / 16) >> 12 << 4;
     e->yaw = player_input_angle(-h->dir_x, -h->dir_z) & 4095;        /* turns toward whoever hit him */
+    e->body.aim = 1; e->body.aim_yaw = e->yaw;
     {   /* blood out of the far side */
         fx_spray(&h->at, 4, 10, h->dir_x * 26 >> 12, -14, h->dir_z * 26 >> 12, 22);
         fx_spray(&h->at, 1, 8, h->dir_x * 14 >> 12, -10, h->dir_z * 14 >> 12, 18);
@@ -79,6 +80,9 @@ static void place(s32 x, s32 z, int yaw)
     memset(e, 0, sizeof(*e));
     e->x = x; e->z = z; e->y = level_ground(x, z, 0); e->yaw = yaw & 4095;
     e->alive = 1; e->state = E_IDLE; e->shoot_cd = 60 + rnd(60); e->strafe = 1;
+    player_reset(&e->body, x, z, yaw);
+    e->y = e->body.y;
+    e->home_x = x; e->home_z = z; e->patrol_wait = 60 + rnd(120); e->patrol_yaw = yaw & 4095;
     e->tgt.x = x; e->tgt.y = e->y; e->tgt.z = z; e->tgt.radius = E_RADIUS; e->tgt.height = E_HEIGHT;
     e->tgt.hp = e->tgt.max_hp = E_HP; e->tgt.team = TEAM_ENEMY; e->tgt.on_hit = on_hit; e->tgt.user = e;
     combat_add(&e->tgt);
@@ -108,15 +112,10 @@ Enemy *enemy_get(int i) { return (i >= 0 && i < n_enemies) ? &enemies[i] : 0; }
 static void set(FKPose *p, int ch, int v) { p->v[ch] = (s16)v; }
 static void mixch(FKPose *p, int ch, int v, int w) { p->v[ch] = (s16)(p->v[ch] + (((s32)v - p->v[ch]) * w >> 12)); }
 
-static void enemy_pose(Enemy *e)
+/* the trooper's own upper body over whatever the locomotion pose is */
+static void upper_body(Enemy *e, FKPose *o)
 {
-    FKPose *o = &e->pose, w;
     int s1 = isin(e->t * 61), s2 = isin(e->t * 37 + 900), k;
-    fk_sample(&clip_idle, (s32)(e->t % 96) << 8, o);
-    if (e->amp > 0) {
-        fk_sample(&clip_walk, (s32)((e->phase >> 2) & 16383), &w);
-        fk_blend(o, &w, e->amp, o);
-    }
     /* upper body: low ready on patrol, aimed with a two-hand grip in a fight */
     if (e->state == E_IDLE) {
         set(o, FK_RSD, 80); set(o, FK_RSS, 34); set(o, FK_REL, 34); set(o, FK_RFR, -70);
@@ -156,10 +155,25 @@ static void enemy_pose(Enemy *e)
     for (k = 0; k < FK_COUNT; k++) if (k == FK_PY) o->v[k] = 0;
 }
 
+static void enemy_pose(Enemy *e)
+{
+    fk_sample(&clip_idle, (s32)(e->t % 96) << 8, &e->pose);
+    upper_body(e, &e->pose);
+}
+
 static void enemy_skeleton(Enemy *e)
 {
     MATRIX root, ry, fall;
     VECTOR off;
+    if (e->state != E_DEAD) {               /* alive (or being cut): the full locomotion rig */
+        e->body.yaw = e->yaw;
+        player_pose_begin(&e->body);
+        upper_body(e, &e->body.pose);
+        player_pose_end(&e->body, &soldier);
+        memcpy(e->world, e->body.world, sizeof(e->world));
+        e->pose = e->body.pose;
+        return;
+    }
     enemy_pose(e);
     fk_bones(&soldier, &e->pose, e->bpose, &off);
     mat_rot_y(&ry, e->yaw);
@@ -230,26 +244,6 @@ static void lasers_update(void)
 }
 
 /* ------------------------------------------------------------------ AI */
-static void move(Enemy *e)
-{
-    s32 nx = e->x + (e->vx >> 4), nz = e->z + (e->vz >> 4), cnx, cnz, cx, cz, g;
-    int i;
-    for (i = 0; i < 2; i++) {
-        cx = nx; cz = nz;
-        if (!level_collide(&cx, &cz, e->y, E_RADIUS, &cnx, &cnz)) break;
-        nx = cx; nz = cz;
-    }
-    g = level_ground(nx, nz, e->y);
-    if (g > e->y + 300 || g < e->y - 300) { e->vx = e->vz = 0; return; }   /* no ledges / steps up */
-    e->x = nx; e->z = nz; e->y = g;
-}
-
-static void turn_to(Enemy *e, int want, int rate)
-{
-    int d = wrapa(want - e->yaw);
-    e->yaw = (e->yaw + clampi(d, -rate, rate)) & 4095;
-}
-
 void enemy_update(Player *pl, int frozen)
 {
     int i;
@@ -257,7 +251,7 @@ void enemy_update(Player *pl, int frozen)
     for (i = 0; i < n_enemies; i++) {
         Enemy *e = &enemies[i];
         s32 dx = pl->x - e->x, dz = pl->z - e->z, d = len2(dx, dz);
-        int face = player_input_angle(dx, dz) & 4095, speed = 0, sx = 0;
+        int face = player_input_angle(dx, dz) & 4095, speed = 0, sx = 0, run = 0, walk_yaw = 0, walk_mag = 0;
         if (e->state == E_CUT) { enemy_cut_step(e); continue; }
         if (frozen || e->state == E_FATAL) { e->t++; enemy_skeleton(e); continue; }
         if (d > 22000 && e->state == E_IDLE) { e->t++; continue; }           /* far away: sleep */
@@ -273,11 +267,22 @@ void enemy_update(Player *pl, int frozen)
             e->los_t = 8 + (i & 3);
         }
         switch (e->state) {
-        case E_IDLE:
+        case E_IDLE:                                                           /* patrol: out and back */
+            e->body.aim = 0;
+            if (e->patrol_wait > 0) e->patrol_wait--;
+            else {
+                s32 tx = e->home_x + (e->patrol_leg ? isin(e->patrol_yaw) * 2400 >> 12 : 0);
+                s32 tz = e->home_z + (e->patrol_leg ? icos(e->patrol_yaw) * 2400 >> 12 : 0);
+                s32 ex = tx - e->x, ez = tz - e->z;
+                if (len2(ex, ez) < 260 || e->body.pushing) {
+                    e->patrol_leg ^= 1; e->patrol_wait = 90 + rnd(120);
+                } else { walk_yaw = player_input_angle(ex, ez); walk_mag = 1700; }
+            }
             if (e->los || e->hurt_t < 60) { e->state = E_FIGHT; e->t = 0; e->shoot_cd = 30 + rnd(30); sound(SFX_UI_MOVE, 2000, e->x, e->z, 2600); }
             break;
         case E_FIGHT: {
-            turn_to(e, face, 70);
+            e->body.aim = 1; e->body.aim_yaw = face;                            /* gun on her, legs free */
+            if (d > 9500) run = 1;                                             /* far: run at her */
             if (d > 6800 || !e->los) speed = 20;                               /* close in */
             else if (d < 3000) speed = -15;                                    /* back off */
             if (--e->strafe_t <= 0) { e->strafe = rnd(3) - 1; e->strafe_t = 50 + rnd(90); }
@@ -299,7 +304,7 @@ void enemy_update(Player *pl, int frozen)
             else {
                 if (e->t % 50 == 0) e->wob = rnd(4096);
                 sx = (isin(e->wob) * 6) >> 12; speed = (icos(e->wob) * 5) >> 12;
-                e->yaw = (e->yaw + (isin(e->t * 23) * 6 >> 12)) & 4095;
+                e->body.aim_yaw = (e->body.aim_yaw + (isin(e->t * 23) * 6 >> 12)) & 4095;
             }
             if (e->t > 60 * 9) { e->tgt.hp = E_DAZE_HP + 20; e->state = E_FIGHT; e->shoot_cd = 50; }   /* shakes it off */
             break;
@@ -310,15 +315,25 @@ void enemy_update(Player *pl, int frozen)
             }
             break;
         }
-        /* move: walk / back off along facing, strafe sideways, slide off knockback */
-        {
+        /* move: the AI's wish (forward / back / strafe, relative to his facing, or a patrol heading)
+           drives Deadbird's controller, so he accelerates, turns, steps and plants his feet like her */
+        if (e->state != E_DEAD) {
             s32 fx_ = isin(e->yaw), fz = icos(e->yaw);
-            s32 wx = (fx_ * speed + fz * sx) >> 12 << 4, wz = (fz * speed - fx_ * sx) >> 12 << 4;
-            if (e->state == E_DEAD) wx = wz = 0;
-            e->vx += (wx - e->vx) / 6; e->vz += (wz - e->vz) / 6;
-            if (e->vx || e->vz) move(e);
-            e->amp += (((iabs_(speed) + iabs_(sx)) > 3 ? 4096 : 0) - e->amp) / 6;
-            e->phase += (len2(e->vx, e->vz) >> 4) * 52;
+            s32 wx = fx_ * speed + fz * sx, wz = fz * speed - fx_ * sx;
+            s32 m = (s32)isqrt((u32)(speed * speed + sx * sx));
+            int iy = walk_yaw, im = walk_mag;
+            if (m > 2) { iy = player_input_angle(wx, wz); im = run ? 4096 : (int)clampi(m * 2000 / 26, 300, 2800); }
+            if (e->state == E_STAGGER) im = 0;
+            e->body.x = e->x; e->body.z = e->z;
+            player_update(&e->body, 0, iy, im);
+            e->x = e->body.x; e->y = e->body.y; e->z = e->body.z; e->yaw = e->body.yaw;
+            e->amp = e->body.amp; e->phase = e->body.phase;
+            {   /* his boots on the grating */
+                int half = (e->body.phase >> 15) & 1;
+                if (half != e->step_half && e->body.amp > 1200 && e->body.grounded)
+                    sound(e->body.runw > 2048 ? SFX_STEP_RUN : SFX_STEP, 1300 + (e->body.runw >> 2), e->x, e->z, 5000 + rnd(500));
+                e->step_half = half;
+            }
         }
         /* keep Deadbird and the trooper from walking through each other */
         if (e->state != E_DEAD && d < E_RADIUS + 260 && d > 0) {
@@ -326,6 +341,7 @@ void enemy_update(Player *pl, int frozen)
             pl->x += dx * push / d; pl->z += dz * push / d;
             pl->x16 = pl->x * 16; pl->z16 = pl->z * 16;
             e->x -= dx * push / d; e->z -= dz * push / d;
+            e->body.x = e->x; e->body.z = e->z; e->body.x16 = e->x * 16; e->body.z16 = e->z * 16;
         }
         e->tgt.x = e->x; e->tgt.y = e->y; e->tgt.z = e->z;
         enemy_skeleton(e);
@@ -349,6 +365,7 @@ int enemy_fatality_target(const Player *pl)
 /* ------------------------------------------------------------------ fatality */
 void enemy_fatal_begin(Enemy *e, int face_yaw)
 {
+    e->body.vx = e->body.vz = 0; e->body.aim = 1; e->body.aim_yaw = face_yaw & 4095;
     e->state = E_FATAL; e->t = 0; e->vx = e->vz = 0; e->yaw = face_yaw & 4095;
     e->flail = 0; e->amp = 0; e->stagger_w = 0;
     e->tgt.alive = 0;

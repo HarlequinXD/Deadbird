@@ -33,7 +33,7 @@
 #define CL_SAW      82
 #define CL_PISTOL   83
 #define CL_FONT     84
-#define CL_UI       85                 /* 16 UI cells */
+#define CL_UI       85                 /* up to 16 UI cells */
 #define CL_TITLE    101                /* 20 title tiles */
 
 /* character page layout (texels within the page at CHR_PAGE_X/Y) */

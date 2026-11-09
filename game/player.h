@@ -20,7 +20,9 @@
 #include "demon_mesh.h"
 
 #define BTN_JUMP  PAD_CROSS
-#define BTN_RUN   PAD_CIRCLE                  /* hold to sprint even with a half-pushed stick */
+#define BTN_DODGE  PAD_CIRCLE                /* dodge roll (keep holding to sprint out of it) */
+#define PIVOT_FRAMES 14
+#define BTN_SPRINT PAD_R2                    /* hold to sprint; a long full-stick run turns into one anyway */
 #define BTN_ATTACK PAD_SQUARE                 /* chainsaw: press again during a swing to chain the combo */
 #define BTN_CAM_L PAD_L1
 #define BTN_CAM_R PAD_R1
@@ -55,6 +57,11 @@ typedef struct {
     int atk_active;            /* the blade is live this frame (inside the swing's hit window) */
     int hitstop;               /* frames frozen after a hit lands (weight / impact) */
     s32 atk_leg[7];            /* combo footwork, smoothed: L fwd/out/lift, R fwd/out/lift, pelvis drop */
+    /* locomotion extras */
+    int aim, aim_yaw;          /* set by AI: face aim_yaw and move independently (strafe, back-pedal) */
+    int roll_t, roll_yaw, rollw;   /* dodge roll: frames in (0 = none), its heading, pose weight */
+    int sprint, sprintw, run_hold;  /* sprinting, its blend weight, frames of full-stick running */
+    int pivot_t, pivot_yaw;    /* plant-and-turn when the stick is thrown the other way at speed */
     u32 pad, prev;
     FKPose pose;
     MATRIX bone_pose[DEMON_NBONES];
@@ -69,6 +76,10 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag);
 /* angle of (dx right, dz forward), 4096 = 360, 0 = forward */
 int  player_input_angle(s32 dx, s32 dz);
 void player_pose(Player *p, const Model *m);
+/* the same in two halves, so another character can edit the keyframed pose (p->pose) in between */
+void player_pose_begin(Player *p);
+void player_pose_end(Player *p, const Model *m);
+int  player_invulnerable(const Player *p);   /* mid-roll */
 /* the blade struck something: freeze for a few frames (hit-stop); push back off a surface
    (normal nx, nz, 4096 = 1) by push (1/16 units per frame, 0 = no recoil) */
 void player_hit_react(Player *p, s32 nx, s32 nz, int push, int stop);

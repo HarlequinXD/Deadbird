@@ -126,18 +126,21 @@ docs/PS1_PORT.md   notes on the PS1 build (PSn00bSDK)
 ## Controls
 
 **Xbox controller (Windows)**: left stick move (push far to run) · right stick camera ·
-**A** jump / confirm · **X** chainsaw (press again mid-swing to combo) · **B** or **RT** sprint · **LB / RB** swing camera · **START** pause ·
+**A** jump / confirm · **X** chainsaw (press again mid-swing to combo) · **B** dodge roll (hold to sprint out of it) · **RT** sprint · **LB / RB** swing camera · **START** pause ·
 **BACK** quit to title from pause · D-pad / left stick for menus · rumbles on hard landings.
 Any of the four controller slots, plugged in before or after starting.
 
-**Keyboard (Windows)**: WASD / arrows move · SHIFT sprint · SPACE jump · F, J, CTRL or left click chainsaw · Q / E camera ·
+**Keyboard (Windows)**: WASD / arrows move · SHIFT sprint · C dodge roll · SPACE jump · F, J, CTRL or left click chainsaw · Q / E camera ·
 ENTER / ESC pause · F11 or ALT+ENTER fullscreen.
 
 **PS1 / DualShock**: d-pad or left stick move · right stick camera · ✕ jump / confirm ·
-□ chainsaw combo · ○ sprint · L1 / R1 swing camera · START pause. Turn on analog mode (DualShock) in the
+□ chainsaw combo · ○ dodge roll · R2 sprint · L1 / R1 swing camera · START pause. Turn on analog mode (DualShock) in the
 emulator for the sticks.
 
-**Touch (Android)** - on-screen PS1 pad:
+Running flat out for a second or so turns into a sprint on any device; throwing the stick the other
+way at speed makes her plant her hooves and turn round. Rolling dodges laser bolts.
+
+**Touch (Android)** - on-screen PS1 pad (the small chevron button above the chainsaw is the dodge roll):
 
 - **D-pad**: move relative to the camera (menus: up/down; tap a menu row to pick it)
 - **Left thumb**: floating analog stick (the demon eye; push far to run) · **right half**: swipe to turn the camera

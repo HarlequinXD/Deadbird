@@ -29,6 +29,10 @@ typedef struct {
     s32 cut_px, cut_py, cut_pz;   /* world point the upper half pivots about (the waist) */
     s32 up_x, up_y, up_z, up_vx, up_vy, up_vz;
     int up_rot, up_rv, up_landed, lo_rot, lo_rv, lo_landed;
+    /* locomotion: Deadbird's controller (physics, gait, foot IK, strafing with planted feet) */
+    Player body;
+    s32 home_x, home_z;           /* patrol: walks out from here and back */
+    int patrol_leg, patrol_wait, patrol_yaw, step_half;
     FKPose pose;
     MATRIX bpose[16], world[16];
 } Enemy;

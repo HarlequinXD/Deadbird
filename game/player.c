@@ -20,6 +20,11 @@
 #define JUMP_V     (-1626)        /* 5.4 m/s */
 #define RADIUS     200
 #define RUN_PUSH   2870           /* stick past 70% runs */
+#define SPRINT_SPEED (94 * SUB)   /* 5.8 m/s: head down, long strides */
+#define SPRINT_AFTER 70           /* frames of flat-out running before it becomes a sprint */
+#define ROLL_LEN   30             /* dodge roll, frames */
+#define ROLL_SPEED (100 * SUB)
+#define PIVOT_LEN  PIVOT_FRAMES
 
 /* chainsaw combo: each swing lunges her forward (she slides on planted hooves) */
 typedef struct { int len, lunge_at, lunge, strike, chain, live0, live1; } Swing;
@@ -180,13 +185,47 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         if (input_mag > 300) p->yaw = input_yaw & 4095;
     }
 
-    if (input_mag > 300 && !p->atk) {
-        wx = isin(input_yaw); wz = icos(input_yaw);
-        if ((pad & BTN_RUN) || input_mag >= RUN_PUSH) wish = MAX_SPEED;
-        else wish = WALK_SPEED * clamp(input_mag * 4096 / 2000, 1200, 4096) >> 12;
+    /* dodge roll: from standing, moving, or out of a swing once it has struck */
+    if ((press & BTN_DODGE) && p->grounded && !p->roll_t &&
+        (!p->atk || p->atk_t > SWINGS[p->atk - 1].strike)) {
+        if (p->atk) { p->atk_last = p->atk; p->atk_last_t = p->atk_t; p->atk = 0; p->atk_active = 0; }
+        p->roll_t = 1;
+        p->roll_yaw = (input_mag > 300 ? input_yaw : p->yaw) & 4095;
+        p->yaw = p->roll_yaw;
+        p->pivot_t = 0;
+    }
+    if (p->roll_t) {
+        int t = p->roll_t;
+        s32 v = t < 18 ? ROLL_SPEED : ROLL_SPEED * (ROLL_LEN - t) / (ROLL_LEN - 18);
+        if (t < 3) v = ROLL_SPEED * (t + 1) / 4;
+        p->vx = v * isin(p->roll_yaw) >> 12; p->vz = v * icos(p->roll_yaw) >> 12;
+        if (++p->roll_t > ROLL_LEN) { p->roll_t = 0; if (pad & BTN_DODGE) p->sprint = 1; }
     }
 
-    if (p->grounded && p->atk) {
+    if (input_mag > 300 && !p->atk && !p->roll_t) {
+        int flat_out = (pad & BTN_SPRINT) || input_mag >= RUN_PUSH;
+        wx = isin(input_yaw); wz = icos(input_yaw);
+        if (flat_out) wish = MAX_SPEED;
+        else wish = WALK_SPEED * clamp(input_mag * 4096 / 2000, 1200, 4096) >> 12;
+        /* sprint: held button, kept from a roll, or after running flat out for a while */
+        p->run_hold = flat_out && p->grounded && p->speed16 > 56 * SUB ? p->run_hold + 1 : 0;
+        if ((pad & BTN_SPRINT) || p->run_hold > SPRINT_AFTER) p->sprint = 1;
+        if (!flat_out && !(pad & BTN_SPRINT)) p->sprint = 0;
+        if (p->sprint && !p->aim) wish = SPRINT_SPEED;
+        /* thrown the other way at speed: plant, skid and turn round */
+        if (p->grounded && !p->pivot_t && !p->aim && p->speed16 > 44 * SUB) {
+            int d = wrap(input_yaw - iatan2(p->vx, p->vz));
+            if (d > 1400 || d < -1400) { p->pivot_t = PIVOT_LEN; p->pivot_yaw = input_yaw & 4095; p->sprint = 0; p->run_hold = 0; }
+        }
+    } else if (!p->roll_t) { p->sprint = 0; p->run_hold = 0; }
+
+    if (p->roll_t) {
+        /* the roll carries her; no steering */
+    } else if (p->pivot_t) {
+        p->pivot_t--;
+        p->vx -= p->vx / 4; p->vz -= p->vz / 4;           /* hooves dig in */
+        if (p->pivot_t < 5 && wish) accelerate(p, wx, wz, wish, wish, ACCEL);
+    } else if (p->grounded && p->atk) {
         p->vx -= p->vx / 14; p->vz -= p->vz / 14;          /* long skid on the lunge */
     } else if (p->grounded) {
         friction(p);
@@ -252,7 +291,20 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
     {
         /* turn toward where the stick points (MediEvil / Slayer: snappy, ~0.2 of the gap a frame);
            with the stick released she keeps her facing instead of spinning toward a slide */
-        if (wish) {
+        if (p->roll_t) {
+            /* rolls keep their heading */
+        } else if (p->pivot_t) {
+            int d = wrap(p->pivot_yaw - p->yaw);
+            p->turn = d / 3;
+            if (p->turn == 0 && d) p->turn = d > 0 ? 1 : -1;
+            p->yaw = (p->yaw + p->turn) & 4095;
+        } else if (p->aim) {
+            /* strafing: keep facing the target, whichever way the legs go */
+            int d = wrap(p->aim_yaw - p->yaw);
+            p->turn = (int)clamp(d / 5, -80, 80);
+            if (p->turn == 0 && d) p->turn = d > 0 ? 1 : -1;
+            p->yaw = (p->yaw + p->turn) & 4095;
+        } else if (wish) {
             /* face where she is actually going when that is roughly where you push (so she runs
                along a wall she is sliding on); otherwise snap round toward the stick */
             int want = input_yaw, d;
@@ -274,15 +326,19 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         int amp_t = smooth((sp - 20) * 4096 / (174 - 20));                /* 0.08 .. 0.7 m/s */
         if (!p->grounded) amp_t = p->amp;
         if (p->atk) { run_t = 0; amp_t = 0; }                              /* braced: hooves slide, no steps */
+        if (p->roll_t) amp_t = 0;
+        p->sprintw += ((p->sprint ? smooth((sp - 70 * SUB) * 4096 / (20 * SUB)) : 0) - p->sprintw) / 6;
+        p->rollw += ((p->roll_t && p->roll_t < ROLL_LEN - 4 ? 4096 : 0) - p->rollw) / 3;
         p->runw += (run_t - p->runw) / 6;
         p->amp += (amp_t - p->amp) / 3;
         p->stance = 2580 + ((1680 - 2580) * p->runw >> 12);                /* 0.63 .. 0.41: heavy, long ground contact */
-        exc = 330 + (80 * p->runw >> 12);                                  /* long, slow strides */
+        exc = 330 + (80 * p->runw >> 12) + (90 * p->sprintw >> 12);       /* long, slow strides; longer sprinting */
         exc = exc * clamp(sp * 4096 / 300, 0, 4096) >> 12;                  /* full stride from 1.2 m/s */
         p->exc = exc;
         if (exc < 24) exc = 24;
         stride = 2 * exc * 4096 / p->stance;                                 /* ground covered per cycle */
-        if (p->grounded && !p->atk) p->phase += (int)(sp * 4096 / stride);  /* 65536 per cycle, sp in 1/16 */
+        if (p->grounded && !p->atk && !p->roll_t) p->phase += (int)(sp * 4096 / stride);  /* 65536 per cycle, sp in 1/16 */
+        if (p->pivot_t > 4) p->shuffle_amp = 4096;                           /* the stomping turn-round */
         if (sp < 2 * SUB && p->grounded) {
             /* standing: settle to a double-support moment so the next start is clean */
             int m = p->phase & 32767;
@@ -294,14 +350,15 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         else p->shuffle_amp -= p->shuffle_amp / 6;
         if (p->shuffle_amp > 200) p->shuffle_t = (p->shuffle_t + 260) & 8191;
         p->idle_t++;
-        p->airw += ((p->grounded ? 0 : 4096) - p->airw) / (p->grounded ? 2 : 4);
+        p->airw += ((p->grounded && !p->roll_t ? 0 : 4096) - p->airw) / (p->grounded && !p->roll_t ? 2 : 3);
         /* lean into acceleration, bank into turns */
         {
             /* (a wall stopping you is not braking: no lean back off it) */
             s32 acc = p->pushing ? 0 : p->speed16 - p->prev_speed16;
             int lean_t = (int)clamp(-acc * 16 * 16 / 12, -16 * 16, 12 * 16);
             int bank_t = (int)clamp((s32)p->turn * p->speed * 16 / 280, -22 * 16, 22 * 16);
-            if (!p->grounded) { lean_t = 0; bank_t /= 2; }
+            if (!p->grounded || p->roll_t) { lean_t = 0; bank_t /= 2; }
+            if (p->pivot_t) lean_t = 12 * 16;                               /* braced back against the skid */
             p->lean += (lean_t - p->lean) / 5;
             p->bank += (bank_t - p->bank) / 5;
         }
@@ -354,6 +411,16 @@ static void build_pose(Player *p)
             fk_sample(ATK[st - 1], (s32)at << 8, &a);
             fk_blend(o, &a, p->atk_w, o);
         }
+    }
+    if (p->rollw > 0) {                          /* tucked into a ball: the landing crouch, folded harder */
+        fk_sample(&clip_land, 0, &a);
+        fk_blend(o, &a, p->rollw, o);
+        o->v[FK_TRX] = (s16)(o->v[FK_TRX] - (24 * p->rollw >> 12));
+        o->v[FK_HRX] = (s16)(o->v[FK_HRX] - (20 * p->rollw >> 12));
+    }
+    if (p->sprintw > 0) {                        /* sprinting: head down, driving forward */
+        o->v[FK_PRX] = (s16)(o->v[FK_PRX] - (7 * p->sprintw >> 12));
+        o->v[FK_TRX] = (s16)(o->v[FK_TRX] - (9 * p->sprintw >> 12));
     }
     o->v[FK_PRX] += (s16)(p->lean / 16);
     o->v[FK_TRX] += (s16)(p->lean / 32);
@@ -451,8 +518,8 @@ static void place_feet(Player *p, const Model *m)
         fwd = fwd * (4096 - air) >> 12;
         /* airborne: tuck on the way up, reach down on the way down */
         off = mixi(off, sg > 0 ? 130 : -100, air);
-        lift = mixi(lift, p->vy < 0 ? 300 : 100, air);
-        pt = mixi(pt, p->vy < 0 ? 228 : 98, air);
+        lift = mixi(lift, p->vy < 0 || p->roll_t ? 300 : 100, air);
+        pt = mixi(pt, p->vy < 0 || p->roll_t ? 228 : 98, air);
 
         tgt[si].vx = an[si].vx + (mvx * off * 4 / 5 >> 12);
         if (sg > 0 && tgt[si].vx < 47) tgt[si].vx = 47;          /* side-steps never cross the feet */
@@ -541,17 +608,33 @@ static void place_feet(Player *p, const Model *m)
     }
 }
 
-void player_pose(Player *p, const Model *m)
+int player_invulnerable(const Player *p) { return p->roll_t > 2 && p->roll_t < 22; }
+
+void player_pose_begin(Player *p) { build_pose(p); }
+
+void player_pose_end(Player *p, const Model *m)
 {
     VECTOR off;
     MATRIX root, ry;
-    build_pose(p);
     fk_bones(m, &p->pose, p->bone_pose, &off);
     place_feet(p, m);
     mat_rot_y(&ry, p->yaw);
     mat_translate(&ry, p->x, p->y + p->step_off, p->z);
+    if (p->roll_t) {   /* the roll: the whole body turns head over heels about her middle */
+        MATRIX rx, piv;
+        int t = p->roll_t, a = t < 4 ? 0 : t > 24 ? 4096 : smooth((t - 4) * 4096 / 20);
+        s32 lift = (s32)(isin(a >> 1) * 720 >> 12);                    /* lifts as she goes over, so the head clears the floor */
+        mat_identity(&piv); mat_translate(&piv, 0, -560 - lift, 0);
+        mat_mul(&ry, &piv, &ry);
+        mat_rot_x(&rx, -a);                                            /* head goes forward and down */
+        mat_mul(&ry, &rx, &ry);
+        mat_identity(&piv); mat_translate(&piv, 0, 560, 0);
+        mat_mul(&ry, &piv, &ry);
+    }
     mat_identity(&root);
     mat_translate(&root, p->pelvis_x, p->pelvis_y, 0);
     mat_mul(&ry, &root, &root);
     model_skeleton(m, &root, p->bone_pose, p->world);
 }
+
+void player_pose(Player *p, const Model *m) { player_pose_begin(p); player_pose_end(p, m); }
