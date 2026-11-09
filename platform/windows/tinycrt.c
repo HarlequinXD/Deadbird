@@ -5,6 +5,7 @@
  * Built only by build_msvc.bat (with /NODEFAULTLIB).
  */
 #include <windows.h>
+#include <string.h>
 
 int _fltused = 0x9875;                       /* tells the linker floating point is in use */
 
