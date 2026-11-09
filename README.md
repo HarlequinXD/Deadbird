@@ -27,22 +27,37 @@ controller support), using a fast software model of the PS1's graphics chip.
 - **Keyframed upper body** (`game/fk.c`, clips in `game/fkclips.c`, authored by
   `tools/make_fkclips.py`): torso, head and arms play idle / walk / run clips in step with the
   legs, blended by speed, with air and landing poses on top.
-- **The level: a shinigami energy-extraction plant** (`gen/gen_lab.c`, built at start-up,
-  drawn by `game/level.c`; plan in `docs/level_map.png`). Where they drain shinigami - what
-  Deadbird is - for power. Ten big rooms with open floors (machines along the walls, room to
-  fight) joined by long halls, played start to finish:
-  1. *Loading Dock* - arrival bay, cargo containers, loading platform with stairs
-  2. *Security Checkpoint* - red scanner arch, guard consoles
-  3. *Processing Hall* - processing machines down both walls, overhead pipes
-  4. *Extraction Hall* - the great tank with a captured shinigami, four extraction pods,
-     a catwalk with stairs (a side hall shortcuts to the Pipe Gallery)
-  5. *Containment Block* - barred cells with captives under red light
-  6. *Research Lab* - monitor wall, operator desks, autopsy table, skull specimen jars
-  7. *Server Vault* - rows of server racks with a cross aisle, cold blue light
-  8. *Pipe Gallery* - a 24,000-unit-long gallery of giant pipes
-  9. *Turbine Hall* - generators with spinning fans, raised control platform
-  10. *Reactor Core* - the soul reactor (copper coil, pulsing plasma), ring of consoles
-  The route test walks it end to end: about 35 s sprinting, 1.5 min walking - before enemies.
+- **Level 1: the Extraction Plant** - a Build-style **sector map** (`maps/e1.map`, compiled by
+  `tools/make_map.py` into `gen/map_e1.c`, built at start-up by `gen/gen_lab.c`, drawn and
+  collided by `game/level.c`; top-down plan in `docs/maps/e1.png`). Where they drain shinigami -
+  what Deadbird is - for power. A hub level: the **Extraction Atrium** (a 14 m-tall octagon round
+  the great extraction tank) with three keycard wings around it, played in key order:
+  1. *Loading Dock* - a freight lift lowers her in from a shaft above the dock ceiling;
+     a raised loading bay with steps; a secret panel in the west wall
+  2. *Security Checkpoint* - a raised guard booth behind glass, steps down to the floor
+  3. *Processing Floor* - 15 steps down off the atrium; extraction pods; the **cyan keycard**
+  4. *Containment Block* (cyan door) - barred cells with captives under red light
+  5. *Lab Ramp* and *Research Lab* - a sloped corridor up 3 m; the **amber keycard**; an
+     overlook bay above the atrium you can jump down from (the way back)
+  6. *Server Vault* and *Pipe Gallery* (amber door) - rack aisles, a long pipe-lined run north
+  7. *Turbine Hall* - two turbines with spinning fans, a lift up to the catwalk 8 m up and the
+     **crimson keycard**; a crimson door is the shortcut back into the atrium
+  8. *Core Hall* and *Reactor Core* (crimson door) - a hall sloping down to a ledge, ramps down
+     into the pit; walking up to the core plays the ending (she saws it open, the plant goes up),
+     then a score screen: time, kills, secrets
+  23 troopers, 3 keycards, 6 soul shards (+25 health, 3 of them in secret closets). The route
+  test walks it end to end in key order: about 1 min running, 3.3 min walking - before fighting.
+- **Sector maps** (like the Build engine): a map is a text file of sectors - floor
+  plans with a floor and a ceiling height (either can slope). Two sectors sharing an edge make a
+  portal: the builder draws the **lower wall** up to the next floor and the **upper wall** down
+  from the next ceiling. Every wall part, floor and ceiling is cut into **2 m tiles, each with
+  its own texture** (rows of tiles per wall, single-tile overrides, floor and ceiling rules on the
+  world grid). Doors (locked to a keycard colour or not) slide up, lifts carry her between two
+  heights; windows are thin sectors with glass or bars. `stairs` builds a flight of step sectors,
+  `lightgrid` a field of lights, and props, lights, troopers and pickups are lines in the same
+  file. Collision is per wall (a step taller than 22 cm or a gap too low blocks), the floor comes
+  from the sector under her, and drawing floods from the camera's sector through the portals on
+  screen (stopping at shut doors), like Build. `maps/test.map` is a small test map.
 - **Textures with the detail painted in** (`gen/gen_labtex.c`, painted at start-up):
   80 procedural 64x64 tiles on five 4bpp pages, each tile with its own 16-colour CLUT, at a fixed
   **32 texels per metre** - one tile covers 2 x 2 m. Walls are built in 2 m bands: a base band
@@ -55,17 +70,17 @@ controller support), using a fast software model of the PS1's graphics chip.
   Screens are painted tiles with a 2-frame animation strip (the game steps the texture
   coordinate along it every 12 frames): plant output graphs ("OUT 97% / 99%") and
   captive shinigami vitals (scrolling heartbeat, "SOUL 07% -> 06%", blinking CRITICAL).
-  The world is laid out on the 2 m tile grid: walls repeat their room's pattern, and special
-  tiles like screens are placed by hand, one tile each (`PLACED` in `gen/gen_lab.c`) -
-  five wall screens in the whole plant. Desk consoles use bare-screen strips. Baked
+  Every tile is chosen in the map: walls repeat their rows' patterns along the world's 2 m grid,
+  and special tiles like screens are placed one by one. Desk consoles use bare-screen strips.
+  Locked doors and keycards use tinted copies of the bulkhead and panel palettes. Baked
   bevels, grime and occlusion in the paint; PS1 4x4 ordered dither.
-- **PS1-style level rendering**: about 8,300 textured quads (1 m polygons) with **baked
-  vertex lighting**: 139 coloured lights, shadow rays against every solid object, ambient
-  occlusion under props and in corners; the GPU gouraud-shades and dithers it. At run time:
-  only the rooms visible from the camera's room (its halls and the rooms beyond them), chunk
-  frustum culling, near-plane + guard-band polygon clipping, distance fog, pulsing
-  screens / plasma / alarm lights, additive light halos, rising energy rings, spinning fans.
-  Typically 550-1,100 level polygons on screen; the level (about 350 KB in RAM + 160 KB of VRAM
+- **PS1-style level rendering**: about 9,000 textured polygons (1 m pieces near the floor, 2 m
+  higher up) with **baked vertex lighting**: about 100 coloured lights, shadow rays against walls
+  and solid props, ambient occlusion under props and along walls; the GPU gouraud-shades and
+  dithers it. At run time: only the rooms seen through the portals on screen, chunk frustum
+  culling, near-plane + guard-band polygon clipping, distance fog, pulsing screens / plasma /
+  alarm lights, additive light halos, rising energy rings, spinning fans, sliding doors and lifts.
+  Typically 360-980 level polygons on screen; the level (about 390 KB in RAM + 160 KB of VRAM
   textures) is generated in about 0.3 s at start-up. Tour: `docs/lab_tour.png`.
 - **Camera**: third-person follow camera that drifts back behind you as you move; swing it with
   L1/R1 (< >) or by dragging a finger on the right side of the screen. Indoors it pulls in in
@@ -75,8 +90,8 @@ controller support), using a fast software model of the PS1's graphics chip.
 
 Almost nothing is stored: the game **builds itself at start-up** (about half a second on a PC).
 
-- **Generated by code** (`gen/`): the whole level (rooms, halls, props, 8,400 quads with the
-  lighting bake), its 80 painted textures, and every sound effect and ambience loop.
+- **Generated by code** (`gen/`): the whole level (from a 10 KB sector map: 9,000 polygons with
+  the lighting bake), its 80 painted textures, and every sound effect and ambience loop.
 - **Packed** (`assets/packed.h`, ~56 KB): what code can't paint - Deadbird's and the trooper's
   skins, the chainsaw and pistol, the touch UI, the font and the title painting - with a small
   JPEG-like codec and context-modelled meshes (`gen/pack.c`), re-quantised to 16-colour CLUTs
@@ -111,14 +126,16 @@ engine/            portable PS1 engine (C99, fixed point, no malloc)
   gpu_soft.c       software PS1 GPU (Android/PC only; PS1 uses the real GPU)
   model.[ch]       rigid hierarchical models (one GTE matrix per body part)
 game/              Deadbird itself (platform independent): flow, player movement + keyframed animation, level, HUD, fx, title
-gen/               procedural assets: level geometry + lighting bake, level textures, sounds,
-                   4-bit palettes, the image / mesh codec (pack.c)
+gen/               procedural assets: the sector-map builder + lighting bake (gen_lab.c), compiled
+                   maps (map_*.c), level textures, sounds, 4-bit palettes, the image / mesh codec
+maps/              the levels as text sector maps (e1.map = level 1, test.map for the tests)
 assets/            packed.h (skins, meshes, UI, font, title painting, ~56 KB), mesh headers, src/ (their sources)
 platform/android/  NativeActivity + GLES2 present + touch pad (Gradle project)
 platform/windows/  Win32 + GDI present, XInput (Xbox controller) + keyboard
 platform/psx/      real PS1 build (PSn00bSDK): GPU packet output, DualShock pad, CD image
 platform/headless/ PC test build that renders frames to BMP (used by CI)
-tools/             pack_assets.py + packer.c (assets/src -> packed.h), gen_dump.c (PS1 baking),
+tools/             make_map.py (maps -> gen/map_*.c + docs/maps/*.png), pack_assets.py + packer.c
+                   (assets/src -> packed.h), gen_dump.c (PS1 baking),
                    model builders (build_demon.py, ...) + import_authored.py, viewers
 docs/PS1_PORT.md   notes on the PS1 build (PSn00bSDK)
 ```

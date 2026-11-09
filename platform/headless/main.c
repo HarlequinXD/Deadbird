@@ -210,6 +210,23 @@ int main(int argc, char **argv)
         if (st / 1000 != E_CUT) { printf("FAIL: the fatality didn't cut him in half\n"); return 1; }
         run(0, 60);
         write_bmp(out, "24_after_fatality");
+        if (game_debug_goto_exit()) {                     /* the ending: the reactor, then the score */
+            static const int at[] = { 10, 40, 70, 86, 96, 110, 130, 180 };
+            int j = 0, f;
+            for (k = 0; k < 120 && game_debug_fatality() < 0; k++) run(0, 1);
+            if (game_debug_fatality() < 0) { printf("FAIL: walking up to the core didn't start the ending\n"); return 1; }
+            for (k = 0; k < 3000 && game_debug_fatality() >= 0; k++) {
+                run(0, 1);
+                f = game_debug_fatality();
+                if (j < 8 && f >= at[j]) { char nm[32]; sprintf(nm, "25_ending_%02d", j); write_bmp(out, nm); j++; }
+            }
+            run(0, 100);
+            write_bmp(out, "26_score");
+            printf("ending: %d frames captured, state %d (4 = score screen)\n", j, game_debug_state());
+            if (game_debug_state() != GS_END) { printf("FAIL: no score screen after the ending\n"); return 1; }
+            run(PAD_CROSS, 1); run(0, 30);
+            if (game_debug_state() != GS_TITLE) { printf("FAIL: the score screen didn't go back to the title\n"); return 1; }
+        }
     }
     write_wav(out);
     printf("audio: %.1f s mixed\n", audio_n / (double)SND_RATE);

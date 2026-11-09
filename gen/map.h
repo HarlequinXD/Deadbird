@@ -33,7 +33,7 @@ enum { KEY_NONE, KEY_CYAN, KEY_AMBER, KEY_CRIMSON };
 
 /* placement-script opcodes (props, lights) - see place_props() in gen_lab.c */
 enum { OP_END, OP_CUR, OP_BOX, OP_BOXF, OP_STAIRS, OP_RAILX, OP_RAILZ, OP_CRATE, OP_CAN, OP_CEIL, OP_LIGHT, OP_SPRITE,
-       OP_CONSOLE, OP_MACHINE, OP_CYL, OP_QUAD, OP_POD, OP_PILLAR, OP_RACK, OP_FAN, OP_SPECIAL };
+       OP_CONSOLE, OP_MACHINE, OP_CYL, OP_QUAD, OP_POD, OP_PILLAR, OP_RACK, OP_FAN, OP_SPECIAL, OP_BASE };
 enum { ND_NONE, ND_PX, ND_NX, ND_PY, ND_NY, ND_PZ, ND_NZ };
 enum { SPECIAL_TANK, SPECIAL_CELLS, SPECIAL_CORE, SPECIAL_CELL };
 
@@ -66,6 +66,7 @@ typedef struct {
 } MapDef;
 
 extern const MapDef map_test;
+extern const MapDef map_e1;
 
 /* build the level from this map instead of the built-in plant (call before gen_lab(); 0 = plant) */
 void gen_level_select(const MapDef *m);

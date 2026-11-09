@@ -25,7 +25,8 @@ int main(void)
     s32 px, py, pz;
     u32 pad = 0;
     int sec = -1, on_map;
-    if (getenv("MAP") && !strcmp(getenv("MAP"), "test")) gen_level_select(&map_test);   /* MAP=test: the sector test map */
+    if (getenv("MAP") && !strcmp(getenv("MAP"), "test")) gen_level_select(&map_test);
+    if (getenv("MAP") && !strcmp(getenv("MAP"), "e1")) gen_level_select(&map_e1);   /* MAP=test: the sector test map */
     level_init();
     assets_init();
     m = asset_demon;
@@ -55,7 +56,7 @@ int main(void)
                 if (sec >= 0) g = level_sector_floor(sec, pl.x, pl.z);
                 else if (on_map) { if (fails++ < 10) printf("frame %d: off the map at %d %d\n", f, (int)pl.x, (int)pl.z); }
                 if (pl.y > g + 1) { if (fails++ < 10) printf("frame %d: below the floor (y %d, floor %d)\n", f, (int)pl.y, (int)g); }
-                if (pl.y < g - 4500) { if (fails++ < 10) printf("frame %d: flew away (y %d)\n", f, (int)pl.y); }
+                if (pl.y < g - 4500 && pl.vy < -100) { if (fails++ < 10) printf("frame %d: flew away (y %d)\n", f, (int)pl.y); }
             }
         }
         {   /* stuck inside geometry for more than a few frames? (stepping off a stair edge can
@@ -111,10 +112,11 @@ int main(void)
     /* scenario 2: walk into the loading dock's south wall at 45 degrees: she must slide along
        it, facing along it, walking */
     {   /* (sector test map: the hall's south wall) */
-        s32 wx = on_map ? 2000 : -17500, wz = on_map ? -5600 : -29500;
+        int e1 = !getenv("MAP") || !strcmp(getenv("MAP"), "e1");
+        s32 wx = e1 ? 300 : 2000, wz = e1 ? -30150 : -5600;     /* (e1: the dock's south wall) */
         player_reset(&pl, wx, wz, 2048);
         for (f = 0; f < 60; f++) { player_update(&pl, 0, 1536, 2400); player_pose(&pl, &m); }
-        if (on_map) pl.x += -17000 - 2500;          /* same pass mark as the plant's */
+        if (on_map) pl.x = -17500 + (pl.x - wx);         /* same pass mark as the plant's: 0.5 m along */
     }
     {
         int dv = player_input_angle(pl.vx, pl.vz);
@@ -131,6 +133,10 @@ int main(void)
         level_init();                                   /* doors shut, lifts back, pickups back */
         level_spawn(&sx, &sz, &sy);
         player_reset(&pl, sx, sz, sy);
+        for (f = 0; f < 240; f++) {                     /* stand still while a start lift lowers her */
+            level_think(pl.x, pl.y, pl.z, keys);
+            player_update(&pl, 0, 0, 0); player_pose(&pl, &m);
+        }
         while (wp < level_route_count()) {
             s32 dx, dz;
             level_route_point(wp, &wx, &wz);

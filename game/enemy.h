@@ -13,7 +13,7 @@
 #include "combat.h"
 #include "player.h"
 
-#define MAX_ENEMIES 6
+#define MAX_ENEMIES 24
 enum { E_IDLE, E_FIGHT, E_STAGGER, E_DAZED, E_DEAD, E_FATAL, E_CUT };
 
 typedef struct {

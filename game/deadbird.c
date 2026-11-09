@@ -39,7 +39,9 @@ static u32 keys;                          /* keycards she carries: bit 1 cyan, 2
 static const char *msg; static int msg_t, msg_col;   /* a line of text on the HUD (pickups, locked doors) */
 static int key_flash_t, key_flash_col;    /* the HUD's key slot flashes when a door wants a key she lacks */
 /* FATALITY cutscene (vt = cutscene frames in 1/16, slowed in the grind) */
-static struct { int active, vt16, ei, base_yaw, title_t, side; s32 cx, cz, dir_x, dir_z, ex, ey, ez; } cine;
+static struct { int active, vt16, ei, base_yaw, title_t, side; s32 cx, cz, dir_x, dir_z, ex, ey, ez; } cine;   /* ei < 0: the reactor */
+static int play_frames, end_kills, end_troopers, end_secrets, end_secrets_n;   /* the level's clock and the score screen */
+static s32 exit_x, exit_z; static int has_exit;
 static Player pl;
 static int gs, gs_t, frame_count, shake, rumble;
 static s32 cam_yaw, cam_dist, cam_h, cam_side, cam_clip = 2900;
@@ -104,6 +106,15 @@ void game_debug_near_enemy(int i, s32 dist)
 int game_debug_enemy_state(int i) { Enemy *e = enemy_get(i); return e ? e->state * 1000 + e->tgt.hp : -1; }
 int game_debug_fatality(void) { return cine.active ? (cine.vt16 >> 4) : (fatal_ready >= 0 ? -2 : -1); }
 int game_debug_player_hp(void) { return php; }
+int game_debug_state(void) { return gs; }
+int game_debug_goto_exit(void)
+{
+    if (!has_exit) return 0;
+    pl.x = exit_x; pl.z = exit_z - 3600; pl.x16 = pl.x * 16; pl.z16 = pl.z * 16;
+    pl.y = level_ground(pl.x, pl.z, -20000); pl.y16 = pl.y * 16;
+    php = 100;
+    return 1;
+}
 
 static void player_hit(CombatTarget *t, const Hit *h);
 static void enemy_sound(int id, int vol, s32 x, s32 z, int pitch);
@@ -126,7 +137,13 @@ static void start_play(void)
     combat_add(&player_tgt);
     enemy_reset();
     php = 100; hurt_flash = 0; dead_t = 0; fatal_ready = -1;
-    keys = 0; msg = 0; msg_t = 0; key_flash_t = 0;
+    keys = 0; msg = 0; msg_t = 0; key_flash_t = 0; play_frames = 0;
+    {
+        int i;
+        has_exit = 0;
+        for (i = 0; i < level_thing_count(); i++)
+            if (level_thing(i)->type == 4) { exit_x = level_thing(i)->x; exit_z = level_thing(i)->z; has_exit = 1; }
+    }
     {
         LevelHooks lh;
         memset(&lh, 0, sizeof(lh));
@@ -393,13 +410,67 @@ static void cine_start(int ei)
     snd_play(SFX_SWING, 4096, 0, 3000);
 }
 
+/* the ending: she walks up to the reactor's core and puts the saw through it */
+static void core_start(void)
+{
+    s32 dx = exit_x - pl.x, dz = exit_z - pl.z, d = (s32)isqrt((u32)((dx >> 4) * (dx >> 4) + (dz >> 4) * (dz >> 4))) << 4;
+    if (d < 64) { dx = isin(pl.yaw); dz = icos(pl.yaw); d = 4096; }
+    memset(&cine, 0, sizeof(cine));
+    cine.active = 1; cine.ei = -1;
+    cine.dir_x = dx * 4096 / d; cine.dir_z = dz * 4096 / d;
+    pl.x = exit_x - (cine.dir_x * 2650 >> 12); pl.z = exit_z - (cine.dir_z * 2650 >> 12);
+    pl.y = level_ground(pl.x, pl.z, pl.y - 400);
+    pl.x16 = pl.x * 16; pl.z16 = pl.z * 16; pl.y16 = pl.y * 16;
+    pl.yaw = player_input_angle(cine.dir_x, cine.dir_z) & 4095;
+    cine.base_yaw = pl.yaw;
+    cine.cx = pl.x + (cine.dir_x * 500 >> 12); cine.cz = pl.z + (cine.dir_z * 500 >> 12);    /* just in front of her (outside the core) */
+    {   /* film from the side with more room */
+        VECTOR c, a;
+        int sd, best = -1;
+        c.vx = cine.cx; c.vy = pl.y - 1500; c.vz = cine.cz;
+        cine.side = 1;
+        for (sd = -1; sd <= 1; sd += 2) {
+            int look = (cine.base_yaw + sd * 1000) & 4095, t;
+            a.vx = cine.cx - (isin(look) * 4400 >> 12); a.vy = c.vy - 900; a.vz = cine.cz - (icos(look) * 4400 >> 12);
+            t = level_clip_segment(&c, &a, 120);
+            if (t > best) { best = t; cine.side = sd; }
+        }
+    }
+    attack_end(&saw_attack);
+    fatal_ready = -1;
+    snd_play(SFX_SWING, 4096, 0, 2600);
+}
+
 /* her swing frame, his reaction and the effects for cutscene frame f (called once per frame) */
 static void cine_frame(int f)
 {
-    Enemy *e = enemy_get(cine.ei);
+    Enemy *e = cine.ei >= 0 ? enemy_get(cine.ei) : 0;
     VECTOR w, at;
     int wgt = 4096;
     if (f > 146) { wgt = 4096 - (f - 146) * 64; if (wgt < 0) wgt = 0; }
+    if (!e) {                                          /* the reactor: the same kill, energy instead of blood */
+        player_script(&pl, wgt ? 4 : 0, f < 160 ? f : 160, wgt);
+        pl.shake = f >= 33 && f < 80 ? 2800 + (isin(f * 300) * 1000 >> 12) : (f >= 80 && f < 86 ? 3800 : 0);
+        player_pose(&pl, &demon);
+        at.vx = pl.x + (cine.dir_x * 1500 >> 12); at.vy = pl.y - 1100; at.vz = pl.z + (cine.dir_z * 1500 >> 12);
+        if (f >= 32 && f < 84) {
+            fx_spray(&at, 2, 3, (-cine.dir_z * 20 >> 12) + (rnd(21) - 10), -16 - rnd(10), (cine.dir_x * 20 >> 12) + (rnd(21) - 10), 18);
+            fx_spray(&at, 1, 4, -cine.dir_x * 12 >> 12, -8, -cine.dir_z * 12 >> 12, 24);
+            if (f == 32) { snd_play(SFX_ZAP, 4096, 0, 2400); snd_play(SFX_RIP, 4096, 0, 3000); land_shake_t = 0; land_shake_amp = 110; }
+            else if (f % 10 == 0) snd_play(SFX_ZAP, 3200, 0, 2200 + rnd(800));
+            rumble = 160;
+        }
+        if (f == 84 || f == 100 || f == 118) {          /* the core bursts */
+            at.vy -= 1200;
+            fx_spray(&at, 2, 50, 0, -30, 0, 40);
+            fx_spray(&at, 1, 30, 0, -20, 0, 40);
+            snd_play(SFX_SLAM, 4096, 0, f == 84 ? 3000 : 2400); snd_play(SFX_AMB_ALARM, 3600, 0, 3000);
+            land_shake_t = 0; land_shake_amp = f == 84 ? 220 : 160; rumble = 255;
+        }
+        if (f == 120) { snd_play(SFX_STINGER, 4096, 0, 3400); cine.title_t = 1; }
+        fx_update();
+        return;
+    }
     /* her FATALITY clip (clip_fatal: step in, grab, coil, drive, grind, rip, follow through) */
     player_script(&pl, wgt ? 4 : 0, f < 160 ? f : 160, wgt);
     pl.shake = f >= 33 && f < 80 ? 2600 + (isin(f * 300) * 900 >> 12) : (f >= 80 && f < 86 ? 3600 : 0);   /* straining */
@@ -442,6 +513,19 @@ static void cine_step(void)
     chain_ph += 26;
     if (land_shake_t < 99) land_shake_t++;
     level_update();
+    if ((cine.vt16 >> 4) >= 236 && cine.ei < 0) {      /* the plant is finished: the score */
+        int i;
+        cine.active = 0;
+        end_kills = end_troopers = 0;
+        for (i = 0; i < enemy_count(); i++) {
+            const Enemy *e = enemy_get(i);
+            end_troopers++;
+            if (e->state == E_DEAD || e->state == E_CUT) end_kills++;
+        }
+        end_secrets_n = level_secrets(&end_secrets);
+        gs = GS_END; gs_t = 0;
+        return;
+    }
     if ((cine.vt16 >> 4) >= 236) {                     /* back to the game */
         cine.active = 0;
         player_script(&pl, 0, 0, 0);
@@ -540,6 +624,10 @@ static void simulate(u32 pad)
     saw_combat();
     fatal_ready = php > 0 ? enemy_fatality_target(&pl) : -1;
     if (fatal_ready >= 0 && (pad & PAD_TRIANGLE) && (pad & PAD_SQUARE) && pl.grounded) cine_start(fatal_ready);
+    else if (has_exit && pl.grounded && php > 0 && iabs(pl.x - exit_x) < 4300 && iabs(pl.z - exit_z) < 4300 &&
+             iabs(pl.y - level_ground(exit_x, exit_z, pl.y)) < 600 &&
+             (pl.x - exit_x) * (pl.x - exit_x) / 16 + (pl.z - exit_z) * (pl.z - exit_z) / 16 < 4300 * 4300 / 16) core_start();
+    play_frames++;
     if (hurt_flash > 0) hurt_flash--;
     level_update();
     fx_update();
@@ -566,6 +654,12 @@ static void flow(u32 pad, u32 press)
         if (cine.active) cine_step();
         else simulate(pad);
         break;
+    case GS_END:
+        fx_update();
+        if (gs_t > 90 && (press & (PAD_CROSS | PAD_START | PAD_CIRCLE | PAD_SQUARE | PAD_TRIANGLE | BTN_JUMP))) {
+            snd_play(SFX_UI_OK, 3600, 0, 3400); go_title();
+        }
+        break;
     case GS_PAUSE:
         if (press & PAD_START) { gs = GS_PLAY; gs_t = 0; snd_play(SFX_PAUSE, 2600, 0, 5200); }
         if (press & (PAD_SELECT | BTN_JUMP)) { snd_play(SFX_UI_OK, 3600, 0, 3400); go_title(); }
@@ -574,6 +668,19 @@ static void flow(u32 pad, u32 press)
 }
 
 /* ------------------------------------------------------------------ rendering */
+/* "LABEL a SEP b" with b padded to `pad` digits (no printf: the Windows build has no C library) */
+static void score_line(char *o, const char *label, int a, const char *sep, int b, int pad)
+{
+    char t[12];
+    int n = 0, k;
+    while (*label) *o++ = *label++;
+    k = 0; do { t[k++] = (char)('0' + a % 10); a /= 10; } while (a && k < 10);
+    while (k) *o++ = t[--k];
+    while (*sep) *o++ = *sep++;
+    k = 0; do { t[k++] = (char)('0' + b % 10); b /= 10; n++; } while ((b || n < pad) && k < 10);
+    while (k) *o++ = t[--k];
+    *o = 0;
+}
 static void draw_touch(FrameBuf *fb)
 {
     static const int icon_of[] = { UI_ICON_SAW, UI_ICON_JUMP, UI_ICON_PAUSE, 0, UI_ICON_SPRINT };
@@ -637,7 +744,12 @@ static void cine_view(MATRIX *view, int sx, int sy)
     SVECTOR e; VECTOR tv;
     s32 cy = pl.y - 1050;
     int sd = cine.side;
-    if (f < 32)      { look = cine.base_yaw + sd * (700 + f * 4); R_ = 2700 - f * 10; H = 1000; ty = cy; }
+    if (cine.ei < 0) {     /* the reactor: over her shoulder at the core, in on the cut, then wide as it bursts */
+        if (f < 32)      { look = cine.base_yaw + sd * (900 + f * 2); R_ = 4400 - f * 10; H = 900; ty = cy - 500; }
+        else if (f < 84) { look = cine.base_yaw + sd * (1000 + (f - 32)); R_ = 3600 - (f - 32) * 6; H = 300; ty = cy - 300; }
+        else             { look = cine.base_yaw + sd * (750 - (f - 84)); R_ = 4600 + (f - 84) * 4; H = 1800; ty = cy - 1900; }
+    }
+    else if (f < 32) { look = cine.base_yaw + sd * (700 + f * 4); R_ = 2700 - f * 10; H = 1000; ty = cy; }
     else if (f < 84) { look = cine.base_yaw + sd * (1024 + (f - 32) * 5); R_ = 1500 - (f - 32) * 4; H = 380; ty = cy - 80; }
     else             { look = cine.base_yaw + sd * (1350 + (f - 84) * 3); R_ = 3300 + (f - 84) * 4; H = 1800; ty = cy + 450; }
     look &= 4095;
@@ -831,6 +943,10 @@ void game_frame(u32 pad)
         quad_g(fb, 0, 0, 320, 26, RGB(0, 0, 0), RGB(0, 0, 0), NO_SEMI, 1);
         quad_g(fb, 0, 214, 320, 240, RGB(0, 0, 0), RGB(0, 0, 0), NO_SEMI, 1);
         if (f >= 84 && f < 92) { int a = (92 - f) * 9; quad_g(fb, 0, 26, 320, 214, RGB(a, a / 10, a / 12), RGB(a, a / 10, a / 12), SEMI_ADD, 3); }
+        if (cine.ei < 0 && f >= 84 && f < 130) {          /* the reactor's flash: white, then orange */
+            int a = f < 92 ? 255 - (f - 84) * 12 : (130 - f) * 3;
+            quad_g(fb, 0, 26, 320, 214, RGB(a, a * 7 / 10, a / 3), RGB(a, a / 2, a / 6), SEMI_ADD, 3);
+        }
         if (f >= 32 && f < 34) quad_g(fb, 0, 26, 320, 214, RGB(70, 6, 4), RGB(70, 6, 4), SEMI_ADD, 3);
         if (cine.title_t) {
             /* FATALITY slams in large, settles, glows */
@@ -838,8 +954,21 @@ void game_frame(u32 pad)
             quad_g(fb, 0, y - 10, 320, y + sc * 10 + 10, RGB(0, 0, 0), RGB(40, 2, 2), SEMI_SUB, 3);
             quad_g(fb, 0, y - 12, 320, y - 10, RGB(200, 30, 10), RGB(200, 30, 10), NO_SEMI, 1);
             quad_g(fb, 0, y + sc * 10 + 10, 320, y + sc * 10 + 12, RGB(200, 30, 10), RGB(200, 30, 10), NO_SEMI, 1);
-            text_hell(fb, "FATALITY", 160, y, sc, frame_count, 1);
+            text_hell(fb, cine.ei < 0 ? "PLANT DESTROYED" : "FATALITY", 160, y, cine.ei < 0 ? (sc > 3 ? 3 : sc) : sc, frame_count, 1);
         }
+    } else if (gs == GS_END) {
+        /* the score: time, kills, secrets */
+        char b[32];
+        int sec = play_frames / 60;
+        quad_g(fb, 0, 0, 320, 240, RGB(120, 130, 130), RGB(150, 160, 160), SEMI_SUB, 3);
+        text_hell(fb, "PLANT DESTROYED", 160, 46, 2, frame_count, 2);
+        score_line(b, "TIME      ", sec / 60, ":", sec % 60, 2);
+        text(fb, b, 96, 100, 1, 220, 2);
+        score_line(b, "KILLS     ", end_kills, " / ", end_troopers, 1);
+        text(fb, b, 96, 120, 1, 220, 2);
+        score_line(b, "SECRETS   ", end_secrets, " / ", end_secrets_n, 1);
+        text(fb, b, 96, 140, 1, 220, 2);
+        if (gs_t > 90 && ((frame_count >> 4) & 1)) text_center(fb, "PRESS ANY BUTTON", 160, 188, 1, 160, 2);
     } else if (gs != GS_TITLE && gs != GS_CONTROLS) {
         draw_hud(fb);
         if (hurt_flash > 0) quad_g(fb, 0, 0, 320, 240, RGB(hurt_flash * 9, 0, 0), RGB(hurt_flash * 5, 0, 0), SEMI_ADD, 3);

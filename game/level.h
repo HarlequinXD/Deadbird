@@ -23,7 +23,7 @@
 typedef struct { s16 x, y, z; } LabVert;
 typedef struct { u16 v[4]; u8 uv[8]; u8 rgb[12]; u8 page, flags, anim, pal; } LabFace;   /* pal: extra CLUT + 1 */
 typedef struct { s16 cx, cy, cz; u16 r; u16 v0, nv, f0, nf; u8 area; u16 sec; } LabChunk;   /* sec: moving sector + 1 */
-typedef struct { s16 x0, z0, x1, z1, h; } LabBox;          /* solid from the floor up to y = -h */
+typedef struct { s16 x0, z0, x1, z1, h, lo; } LabBox;      /* a solid prop: from height lo up to h (up-positive) */
 typedef struct { s16 x, y, z, size; u8 r, g, b, anim, area; } LabSprite;
 typedef struct { s16 x, y, z, r, speed; } LabFan;
 typedef struct { s16 x, z, r, yt, yb; } LabRing;
@@ -81,6 +81,7 @@ void level_think(s32 px, s32 py, s32 pz, u32 keys);
 /* a pickup she's touching (taken once): returns its LabThing type or -1, its arg in *arg */
 int  level_pickup(s32 px, s32 py, s32 pz, int *arg);
 int  level_thing_count(void);
+int  level_secrets(int *found);                 /* secret shards: how many, *found taken */
 const LabThing *level_thing(int i);
 /* test hook: an endless flat floor with nothing on it */
 void level_debug_flat(int on);

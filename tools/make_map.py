@@ -6,8 +6,8 @@ preview to docs/maps/<name>.png.
 
 The map format (metres; heights go up; x east, z north; '#' starts a comment):
 
-  room NAME                         declare a room (an area: rooms are what visibility and the
-                                    level viewer work with); sectors name theirs with `room`
+  room ID Display Name              declare a room (an area: rooms are what visibility and the
+                                    level viewer work with); sectors name theirs by ID with `room`
   sector NAME [room R] floor H [ceil H] [fslope WALL H] [cslope WALL H]
               [door OPEN [lock cyan|amber|crimson]] [lift LOW HIGH]
       pts x,z x,z ...               the floor plan; any winding, concave is fine; no holes
@@ -24,13 +24,21 @@ The map format (metres; heights go up; x east, z north; '#' starts a comment):
   ROWS = tiles of the bottom row / the next row up / ... [/ top TILE]; a row's tiles repeat along
   the wall; `top TILE` pins one row under the ceiling. Tile names are gen_lab.h's without LT_.
 
+  stairs NAME [room R] x0,z0 x1,z1 n|s|e|w FROM TO [ceil H] [steps N]
+      a flight of step sectors filling the rectangle, climbing (or falling) from height FROM at the
+      side it starts from to TO at the side it heads (n|s|e|w); 0.2 m a step unless N is given.
+      Indented lines after it (ftex, walls, lows...) apply to every step.
+
   light x,z,h R G B RADIUS          a baked point light (colour 0..2)
+  lightgrid x0,z0 x1,z1 h STEP R G B RADIUS   lights every STEP metres across a rectangle
   sprite x,z,h SIZE R G B [ANIM]    a light halo (colour 0..255)
-  thing start|trooper|shard|exit|way x,z [yaw DEG] [patrol x,z]   (way: route-test waypoints, in order)     thing key cyan|amber|crimson x,z
+  thing start|trooper|shard|exit|way x,z [yaw DEG] [patrol x,z]   (way: route-test waypoints, in order;
+                                    a shard can add `secret`: it counts toward the secrets found)     thing key cyan|amber|crimson x,z
   prop box x0,z0 x1,z1 h0 h1 TOP SIDE [cell C] [noshadow] [nocoll]       (TOP may be -)
   prop boxf ... FRONT n|e|s|w [emit V]
   prop crate x,z SIZE H        prop can x,z           prop pillar x,z H
   prop console x,z n|e|s|w graph|vitals [h]        prop machine x0,z0 x1,z1 H n|e|s|w
+  (props stand on the floor under them; box, cyl, rail and fan heights are absolute)
   prop pod x,z n|e|s|w ANIM    prop rack x,z n|e|s|w  prop fan x,z,h R SPEED
   prop rail x0,z0 x1,z1 BASE   prop cyl x,z,h R LEN N TILE [axis x|y|z] [add] [anim A] [emit V] [cap TILE] [rep N]
   prop tank x,z                prop core x,z          prop cell x,z n|e|s|w
@@ -51,7 +59,7 @@ def tiles_from_header():
     return t
 
 TILES = tiles_from_header()
-OP = {n: i for i, n in enumerate("END CUR BOX BOXF STAIRS RAILX RAILZ CRATE CAN CEIL LIGHT SPRITE CONSOLE MACHINE CYL QUAD POD PILLAR RACK FAN SPECIAL".split())}
+OP = {n: i for i, n in enumerate("END CUR BOX BOXF STAIRS RAILX RAILZ CRATE CAN CEIL LIGHT SPRITE CONSOLE MACHINE CYL QUAD POD PILLAR RACK FAN SPECIAL BASE".split())}
 ND = {"n": 5, "s": 6, "e": 1, "w": 2}          # wall/face normal: ND_PZ, ND_NZ, ND_PX, ND_NX
 FACING = {"n": 0, "e": 1, "s": 2, "w": 3}
 KEYS = {"cyan": 1, "amber": 2, "crimson": 3}
@@ -125,6 +133,8 @@ class Sector:
     def w(self, i):
         return self.wall.setdefault(i, {"mid": None, "low": None, "up": None, "flags": 0, "cells": []})
 
+room_names = {}
+
 def parse(path):
     rooms, secs, lights, sprites, things, props = [], [], [], [], [], []
     cur = None
@@ -136,7 +146,7 @@ def parse(path):
         k = toks[0]
         try:
             if k == "room":
-                rooms.append(" ".join(toks[1:]))
+                rooms.append(toks[1]); room_names[toks[1]] = " ".join(toks[2:]) or toks[1]
             elif k == "sector":
                 cur = Sector(toks[1], ln); secs.append(cur)
                 i = 2
@@ -151,6 +161,18 @@ def parse(path):
                     elif a == "lock": cur.lock = KEYS[toks[i + 1]]; i += 2
                     elif a == "lift": cur.kind = 2; cur.ka = m(toks[i + 1]); cur.kb = m(toks[i + 2]); i += 3
                     else: raise MapError("unknown sector key %r" % a)
+            elif k == "stairs":
+                name, i, room, ceil, steps = toks[1], 2, None, None, None
+                if toks[i] == "room": room = toks[i + 1]; i += 2
+                (x0, z0), (x1, z1) = pt(toks[i]), pt(toks[i + 1]); d = toks[i + 2]; h0, h1 = m(toks[i + 3]), m(toks[i + 4]); i += 5
+                while i < len(toks):
+                    if toks[i] == "ceil": ceil = m(toks[i + 1]); i += 2
+                    elif toks[i] == "steps": steps = int(toks[i + 1]); i += 2
+                    else: raise MapError("unknown stairs key %r" % toks[i])
+                x0, x1 = sorted((x0, x1)); z0, z1 = sorted((z0, z1))
+                n = steps or max(1, int(math.ceil(abs(h1 - h0) / (0.2 * U) - 1e-6)))
+                cur = Sector(name, ln); cur.room = room; cur.stairs = (x0, z0, x1, z1, d, h0, h1, n, ceil)
+                secs.append(cur)
             elif k == "pts":
                 cur.pts += [pt(t) for t in toks[1:]]
             elif k in ("ftex", "ctex"):
@@ -183,6 +205,13 @@ def parse(path):
             elif k == "light":
                 x, z, h = toks[1].split(",")
                 lights.append((m(x), m(z), m(h), [int(round(float(c) * 100)) for c in toks[2:5]], m(toks[5])))
+            elif k == "lightgrid":
+                (x0, z0), (x1, z1) = pt(toks[1]), pt(toks[2]); h, step = m(toks[3]), m(toks[4])
+                c = [int(round(float(v) * 100)) for v in toks[5:8]]; rad = m(toks[8])
+                nx, nz = max(1, round(abs(x1 - x0) / step)), max(1, round(abs(z1 - z0) / step))
+                for j in range(nz):
+                    for i in range(nx):
+                        lights.append((x0 + (x1 - x0) * (2 * i + 1) // (2 * nx), z0 + (z1 - z0) * (2 * j + 1) // (2 * nz), h, c, rad))
             elif k == "sprite":
                 x, z, h = toks[1].split(",")
                 sprites.append((m(x), m(z), m(h), m(toks[2]), [int(c) for c in toks[3:6]], int(toks[6]) if len(toks) > 6 else 0))
@@ -198,6 +227,7 @@ def parse(path):
                     if toks[i] == "yaw": t["yaw"] = int(round(float(toks[i + 1]) * 4096 / 360)) & 4095; i += 2
                     elif toks[i] == "patrol": t["ax"], t["az"] = pt(toks[i + 1]); i += 2
                     elif toks[i] in KEYS: t["arg"] = KEYS[toks[i]]; i += 1
+                    elif toks[i] == "secret": t["arg"] = 1; i += 1
                     else: raise MapError("unknown thing key %r" % toks[i])
                 things.append(t)
             elif k == "prop":
@@ -219,6 +249,29 @@ def inside(p, x, z):
         if (z0 > z) != (z1 > z) and x < x0 + (z - z0) * (x1 - x0) / (z1 - z0):
             c = not c
     return c
+
+def expand_stairs(secs):
+    out = []
+    for s in secs:
+        st = getattr(s, "stairs", None)
+        if not st:
+            out.append(s); continue
+        x0, z0, x1, z1, d, h0, h1, n, ceil = st
+        for k in range(n):
+            a, b = k / n, (k + 1) / n
+            def lerp(p, q, t): return int(round(p + (q - p) * t))
+            if d == "n": r = (x0, lerp(z0, z1, a), x1, lerp(z0, z1, b))
+            elif d == "s": r = (x0, lerp(z1, z0, b), x1, lerp(z1, z0, a))
+            elif d == "e": r = (lerp(x0, x1, a), z0, lerp(x0, x1, b), z1)
+            else: r = (lerp(x1, x0, b), z0, lerp(x1, x0, a), z1)
+            c = Sector("%s_%d" % (s.name, k), s.line)
+            c.room = s.room
+            c.floor = int(round(h0 + (h1 - h0) * (k + 1) / n))
+            c.ceil = ceil if ceil is not None else max(h0, h1) + 4 * U
+            c.pts = [(r[0], r[1]), (r[2], r[1]), (r[2], r[3]), (r[0], r[3])]
+            c.flat = s.flat; c.walls_def = s.walls_def; c.lows_def = s.lows_def; c.ups_def = s.ups_def
+            out.append(c)
+    return out
 
 def finish(path, rooms, secs):
     names = {}
@@ -286,16 +339,22 @@ def overlap(a0, a1, b0, b1):
 # ------------------------------------------------------------------ props -> opcode stream
 def compile_props(path, rooms, secs, lights, sprites, props):
     out = []
-    room_of = lambda x, z: next((rooms.index(s.room) for s in secs if inside(s.pts, x, z)), 0)
-    cur = [-1]
-    def at(x, z):
-        r = room_of(x, z)
+    sec_of = lambda x, z: next((s for s in secs if inside(s.pts, x, z)), None)
+    cur, base = [-1], [0]
+    def at(x, z, absolute=False, h=None):
+        s = sec_of(x, z)
+        r = rooms.index(s.room) if s else 0
         if r != cur[0]:
             out.extend([OP["CUR"], r]); cur[0] = r
+        # props stand on the floor of the sector they're in (sloped floors: the hinge height);
+        # props given in absolute heights (boxes, cylinders, rails, fans, lights) don't move
+        b = 0 if absolute else (h if h is not None else (s.floor if s else 0))
+        if b != base[0]:
+            out.extend([OP["BASE"], b]); base[0] = b
     for (x, z, h, c, rad) in lights:
-        at(x, z); out += [OP["LIGHT"], x, -h, z] + c + [rad]
+        at(x, z, True); out += [OP["LIGHT"], x, -h, z] + c + [rad]
     for (x, z, h, size, c, anim) in sprites:
-        at(x, z); out += [OP["SPRITE"], x, -h, z, size] + c + [anim]
+        at(x, z, True); out += [OP["SPRITE"], x, -h, z, size] + c + [anim]
     for ln, t in props:
         try:
             k = t[0]
@@ -313,7 +372,7 @@ def compile_props(path, rooms, secs, lights, sprites, props):
                     elif t[i] == "nocoll": flags |= 2; i += 1
                     elif t[i] == "emit": emit = int(t[i + 1]); i += 2
                     else: raise MapError("unknown box key %r" % t[i])
-                at((x0 + x1) // 2, (z0 + z1) // 2)
+                at((x0 + x1) // 2, (z0 + z1) // 2, True)
                 out += [OP["BOX"] if k == "box" else OP["BOXF"], min(x0, x1), -h1, min(z0, z1), max(x0, x1), -h0, max(z0, z1), top, side, cell, flags]
                 if k == "boxf": out += [front, nd, emit]
             elif k == "crate":
@@ -323,9 +382,9 @@ def compile_props(path, rooms, secs, lights, sprites, props):
             elif k == "pillar":
                 x, z = pt(t[1]); at(x, z); out += [OP["PILLAR"], x, z, m(t[2])]
             elif k == "console":
-                x, z = pt(t[1]); at(x, z)
+                x, z = pt(t[1]); at(x, z, h=m(t[4]) if len(t) > 4 else None)
                 scr = {"graph": TILES["SCR_GRAPH"], "vitals": TILES["SCR_VITALS"]}[t[3]]
-                out += [OP["CONSOLE"], x, z, FACING[t[2]], scr, -m(t[4]) if len(t) > 4 else 0]
+                out += [OP["CONSOLE"], x, z, FACING[t[2]], scr, 0]
             elif k == "machine":
                 (x0, z0), (x1, z1) = pt(t[1]), pt(t[2]); at((x0 + x1) // 2, (z0 + z1) // 2)
                 out += [OP["MACHINE"], min(x0, x1), min(z0, z1), max(x0, x1), max(z0, z1), m(t[3]), ND[t[4]]]
@@ -334,15 +393,16 @@ def compile_props(path, rooms, secs, lights, sprites, props):
             elif k == "rack":
                 x, z = pt(t[1]); at(x, z); out += [OP["RACK"], x, z, ND[t[2]]]
             elif k == "fan":
-                x, z, h = t[1].split(","); x, z, h = m(x), m(z), m(h); at(x, z)
+                x, z, h = t[1].split(","); x, z, h = m(x), m(z), m(h); at(x, z, True)
                 out += [OP["FAN"], x, -h, z, m(t[2]), int(t[3])]
             elif k == "rail":
-                (x0, z0), (x1, z1) = pt(t[1]), pt(t[2]); base = m(t[3]); at((x0 + x1) // 2, (z0 + z1) // 2)
-                if z0 == z1: out += [OP["RAILX"], x0, x1, z0, base]
-                elif x0 == x1: out += [OP["RAILZ"], z0, z1, x0, base]
+                (x0, z0), (x1, z1) = pt(t[1]), pt(t[2]); rb = m(t[3]); at((x0 + x1) // 2, (z0 + z1) // 2, True)
+                base_ = rb
+                if z0 == z1: out += [OP["RAILX"], x0, x1, z0, base_]
+                elif x0 == x1: out += [OP["RAILZ"], z0, z1, x0, base_]
                 else: raise MapError("rails run along x or z")
             elif k == "cyl":
-                x, z, h = t[1].split(","); x, z, h = m(x), m(z), m(h); at(x, z)
+                x, z, h = t[1].split(","); x, z, h = m(x), m(z), m(h); at(x, z, True)
                 r, ln_, n, tl = m(t[2]), m(t[3]), int(t[4]), tile(t[5])
                 axis, flags, anim, emit, cap, rep, i = 1, 0, 0, 0, -1, 1, 6
                 while i < len(t):
@@ -358,7 +418,7 @@ def compile_props(path, rooms, secs, lights, sprites, props):
                 out += [OP["CYL"], x, -h, z, r, 0, -ln_ if axis == 1 else ln_, n, tl, flags, anim, emit, axis, cap, rep]
             elif k in ("tank", "core"):
                 x, z = pt(t[1]); at(x, z)
-                out += [OP["SPECIAL"], 0 if k == "tank" else 2, x, z, 0]
+                out += [OP["SPECIAL"], 0 if k == "tank" else 2, x, z, 1]
             elif k == "cell":
                 x, z = pt(t[1]); at(x, z); out += [OP["SPECIAL"], 3, x, z, FACING[t[2]]]
             else:
@@ -447,7 +507,7 @@ def emit_c(name, rooms, secs, things, props):
     if not things:
         o.append("    { 0, 0, 0, 0, 0, 0, 0 },")
     o.append("};")
-    o.append("static const char *const rooms[] = { %s };" % ", ".join('"%s"' % r for r in rooms))
+    o.append("static const char *const rooms[] = { %s };" % ", ".join('"%s"' % room_names.get(r, r) for r in rooms))
     o.append("const MapDef map_%s = { \"%s\", pts, %d, walls, secs, %d, spec, props, things, %d, rooms, %d };"
              % (name, name, len(pts), len(secs), len(things), len(rooms)))
     return "\n".join(o) + "\n", len(blob)
@@ -508,7 +568,7 @@ def preview(name, rooms, secs, lights, things, out_png):
         ss = [s for s in secs if s.room == r]
         if not ss: continue
         bx = [p[0] for s in ss for p in s.pts]; bz = [p[1] for s in ss for p in s.pts]
-        d.text(P((min(bx) + max(bx)) / 2, max(bz)), r, fill=(255, 255, 255), anchor="md")
+        d.text(P((min(bx) + max(bx)) / 2, max(bz)), room_names.get(r, r), fill=(255, 255, 255), anchor="md")
     d.text((8, 8), "%s - floor height shades dark (low) to light (high); red edges are steps; dots: lights, things" % name, fill=(200, 200, 200))
     os.makedirs(os.path.dirname(out_png), exist_ok=True)
     img.save(out_png)
@@ -517,6 +577,7 @@ def main():
     for path in sys.argv[1:] or [os.path.join(ROOT, "maps", "e1.map")]:
         name = os.path.splitext(os.path.basename(path))[0]
         rooms, secs, lights, sprites, things, props = parse(path)
+        secs = expand_stairs(secs)
         finish(path, rooms, secs)
         ops = compile_props(path, rooms, secs, lights, sprites, props)
         c, nspec = emit_c(name, rooms, secs, things, ops)

@@ -38,7 +38,8 @@ int main(int argc, char **argv)
     const char *out = argc > 1 ? argv[1] : ".";
     unsigned i;
     gpu_init();
-    if (getenv("MAP") && !strcmp(getenv("MAP"), "test")) gen_level_select(&map_test);   /* MAP=test: the sector test map */
+    if (getenv("MAP") && !strcmp(getenv("MAP"), "test")) gen_level_select(&map_test);
+    if (getenv("MAP") && !strcmp(getenv("MAP"), "e1")) gen_level_select(&map_e1);   /* MAP=test: the sector test map */
     level_init();
     {   /* VIEWS="x,y,z,yaw,pitch;...": extra camera spots in metres / degrees (y up), drawn after the room views */
         static LabView extra[16];

@@ -1,6 +1,6 @@
 /*
- * The level's data, generated at start-up by gen/gen_lab.c (on PS1: baked by tools/gen_dump into
- * gen/baked_lab.c). The LAB_* / lab_* names keep level.c reading it like a table.
+ * The level's data, generated at start-up by gen/gen_lab.c from the sector map (on PS1: baked by
+ * tools/gen_dump into baked.c). The LAB_* / lab_* names keep level.c reading it like a table.
  */
 #ifndef LAB_DATA_H
 #define LAB_DATA_H
@@ -15,7 +15,6 @@ typedef struct {
     LabFan fans[4]; int nfans;
     LabRing rings[2]; int nrings;
     LabPod pods[8]; int npods;
-    LabBox ceil[32]; int nceil;
     LabArea areas[32]; int nareas;
     LabView views[16]; int nviews;
     s32 route[48][2]; int nroute;
@@ -33,7 +32,6 @@ extern LabData lab;
 #define LAB_NFANS    lab.nfans
 #define LAB_NRINGS   lab.nrings
 #define LAB_NPODS    lab.npods
-#define LAB_NCEIL    lab.nceil
 #define LAB_NAREAS   lab.nareas
 #define LAB_NVIEWS   lab.nviews
 #define LAB_NROUTE   lab.nroute
@@ -48,19 +46,8 @@ extern LabData lab;
 #define lab_fans     lab.fans
 #define lab_rings    lab.rings
 #define lab_pods     lab.pods
-#define lab_ceil     lab.ceil
 #define lab_areas    lab.areas
 #define lab_views    lab.views
 #define lab_route    lab.route
-
-#define LAB_SPAWN_X   -19000
-#define LAB_SPAWN_Z   -26500
-#define LAB_SPAWN_YAW 0
-#define LAB_TANK_X    -2000
-#define LAB_TANK_Y    -2300
-#define LAB_TANK_Z    3000
-#define LAB_REACTOR_X 21500
-#define LAB_REACTOR_Y -2600
-#define LAB_REACTOR_Z 8500
 
 #endif

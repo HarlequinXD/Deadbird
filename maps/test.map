@@ -1,8 +1,8 @@
 # Test map: two rooms joined by a door and a window, a raised platform with stairs, a ramp
 # with a sloped ceiling, and a pillar. Used by the headless tests; not part of the game.
 
-room Hall
-room Annex
+room Hall Hall
+room Annex Annex
 
 sector hall room Hall floor 0 ceil 5
     pts -1.75,-6  8,-6  8,0  8,2  8,4  8,6  -8,6  -8,-2  -4,-2  -3.25,-2  -2.5,-2  -1.75,-2

@@ -52,6 +52,12 @@ void level_init(void)
             mover_t[i] = 0; mover_dir[i] = 0; mover_flag[i] = 0;
         }
         memset(taken, 0, sizeof(taken));
+        {   /* a lift she starts on sets off at once (the freight lift that brings her in) */
+            s32 sx, sz; int sy, si;
+            level_spawn(&sx, &sz, &sy);
+            si = level_sector_at(sx, sz, -1);
+            if (si >= 0 && si < MAX_SECS && lab_secs[si].kind == 2) mover_t[si] = 44;
+        }
     }
 }
 
@@ -59,17 +65,13 @@ void level_reload_textures(void) { uploaded = 0; level_init(); }
 void level_spawn(s32 *x, s32 *z, int *yaw)
 {
     gen_lab();
-    if (lab.has_spawn) { *x = lab.spawn_x; *z = lab.spawn_z; *yaw = lab.spawn_yaw; return; }
-    *x = LAB_SPAWN_X; *z = LAB_SPAWN_Z; *yaw = LAB_SPAWN_YAW;
+    *x = lab.spawn_x; *z = lab.spawn_z; *yaw = lab.spawn_yaw;
 }
 void level_tank(VECTOR *c)
 {
-    if (LAB_NSECS) {      /* sector maps: the first energy tank, if there is one */
-        if (LAB_NRINGS) { c->vx = lab_rings[0].x; c->vy = (lab_rings[0].yt + lab_rings[0].yb) / 2; c->vz = lab_rings[0].z; }
-        else { c->vx = lab.spawn_x; c->vy = -2000; c->vz = lab.spawn_z; }
-        return;
-    }
-    c->vx = LAB_TANK_X; c->vy = LAB_TANK_Y; c->vz = LAB_TANK_Z;
+    /* the first energy tank, if there is one (its hum) */
+    if (LAB_NRINGS) { c->vx = lab_rings[0].x; c->vy = (lab_rings[0].yt + lab_rings[0].yb) / 2; c->vz = lab_rings[0].z; }
+    else { c->vx = lab.spawn_x; c->vy = -2000; c->vz = lab.spawn_z; }
 }
 int  level_polys_drawn(void) { return polys_drawn; }
 int  level_data_bytes(void)
@@ -98,7 +100,9 @@ int  level_area_at(s32 x, s32 z)
 
 /* rooms worth drawing from a camera position: the PVS of every area within a doorway's
    reach of it (so standing in a doorway shows both sides) */
-static u32 visible_mask(const MATRIX *view)
+static u32 portal_mask(const MATRIX *view, const PROJ *pr, s32 cx, s32 cz, int start);
+
+static u32 visible_mask(const MATRIX *view, const PROJ *pr)
 {
     static u32 last = 0xffffffffu;
     VECTOR t, c;
@@ -109,7 +113,7 @@ static u32 visible_mask(const MATRIX *view)
     if (LAB_NSECS) {
         static int hint = -1;
         int si = level_sector_at(c.vx, c.vz, hint);
-        if (si >= 0) { hint = si; last = lab_areas[lab_secs[si].room].pvs; }
+        if (si >= 0) { hint = si; last = portal_mask(view, pr, c.vx, c.vz, si); }
         return last;
     }
     for (i = 0; i < LAB_NAREAS; i++) {
@@ -186,21 +190,23 @@ static int push_walls(s32 *x, s32 *z, s32 y, s32 r, s32 *nx, s32 *nz)
             const LabWall *w = &lab_walls[s->w0 + i];
             s32 ex = w->x1 - w->x0, ez = w->z1 - w->z0, side, qx, qz, dx, dz, d2, d;
             long long L2, tp;
+            int end;
             side = ((*x - w->x0) * w->nx + (*z - w->z0) * w->nz) >> 12;
             if (side >= r || side < (si == own ? -(r >> 1) : 1)) continue;    /* behind another sector's wall: not ours */
             L2 = (long long)ex * ex + (long long)ez * ez;
             tp = (long long)(*x - w->x0) * ex + (long long)(*z - w->z0) * ez;
             if (tp < -(long long)r * 2 * (ex < 0 ? -ex : ex) - (long long)r * 2 * (ez < 0 ? -ez : ez)) continue;
+            end = 1;
             if (tp <= 0) { qx = w->x0; qz = w->z0; }
             else if (tp >= L2) { qx = w->x1; qz = w->z1; }
-            else { qx = w->x0 + (s32)(tp * ex / L2); qz = w->z0 + (s32)(tp * ez / L2); }
+            else { qx = w->x0 + (s32)(tp * ex / L2); qz = w->z0 + (s32)(tp * ez / L2); end = 0; }
             dx = *x - qx; dz = *z - qz;
             if (dx >= r || dx <= -r || dz >= r || dz <= -r) continue;
             d2 = dx * dx + dz * dz;
             if (d2 >= r * r) continue;
             if (!wall_blocks(w, qx, qz, y)) continue;
             d = (s32)isqrt((u32)d2);
-            if (side <= 0 || d == 0) { *nx = w->nx; *nz = w->nz; }
+            if (d == 0 || (side <= 0 && !end)) { *nx = w->nx; *nz = w->nz; }     /* past the wall's face: back out */
             else { *nx = dx * ONE / d; *nz = dz * ONE / d; }
             *x = qx + (*nx * r >> 12); *z = qz + (*nz * r >> 12);
             hit = 1;
@@ -248,6 +254,56 @@ static s32 seg_walls(const VECTOR *a, const VECTOR *d, s32 m, int *wi)
     return best;
 }
 
+/* which rooms the camera can see: a flood from its sector through the portals on screen, each
+   one narrowing the window (horizontally - like Build), stopping at shut doors and the fog */
+static u32 portal_mask(const MATRIX *view, const PROJ *pr, s32 cx, s32 cz, int start)
+{
+    struct { s16 sec; s32 l, r; } st[96];
+    u8 seen[MAX_SECS];
+    s32 rx = view->m[0][0], rz = view->m[0][2], fx = view->m[2][0], fz = view->m[2][2];
+    s32 K = (SCREEN_W / 2 + 24) * 4096 / pr->h;           /* half the view's width, as lateral/depth */
+    int n = 0, i;
+    u32 mask = 0;
+    memset(seen, 0, (size_t)(LAB_NSECS < MAX_SECS ? LAB_NSECS : MAX_SECS));
+    st[n].sec = (s16)start; st[n].l = -K; st[n].r = K; n++;
+    while (n) {
+        int si = st[--n].sec;
+        s32 wl = st[n].l, wr = st[n].r;
+        const LabSec *s = &lab_secs[si];
+        mask |= 1u << lab_secs[si].room;
+        if (seen[si] >= 3) continue;
+        seen[si]++;
+        for (i = 0; i < s->nw; i++) {
+            const LabWall *w = &lab_walls[s->w0 + i];
+            s32 l0, l1, d0, d1, a, b;
+            int o;
+            if (!w->next) continue;
+            o = w->next - 1;
+            if (((cx - w->x0) * w->nx + (cz - w->z0) * w->nz) >> 12 < 0) continue;    /* faces away */
+            if (lab_secs[o].kind == 1 && sec_dyn[o] == 0) { mask |= 1u << lab_secs[o].room; continue; }   /* shut door */
+            l0 = ((w->x0 - cx) * rx + (w->z0 - cz) * rz) >> 12; d0 = ((w->x0 - cx) * fx + (w->z0 - cz) * fz) >> 12;
+            l1 = ((w->x1 - cx) * rx + (w->z1 - cz) * rz) >> 12; d1 = ((w->x1 - cx) * fx + (w->z1 - cz) * fz) >> 12;
+            if (d0 < 64 && d1 < 64) {
+                /* behind the camera: still pass through when she's standing in the doorway */
+                s32 near0 = (w->x0 - cx) * (w->x0 - cx) / 16 + (w->z0 - cz) * (w->z0 - cz) / 16;
+                if (near0 > 1500 * 1500 / 16) continue;
+                a = wl; b = wr;
+            } else {
+                if (d0 < 64) { l0 = l1 + (s32)((long long)(l0 - l1) * (d1 - 64) / (d1 - d0)); d0 = 64; }
+                if (d1 < 64) { l1 = l0 + (s32)((long long)(l1 - l0) * (d0 - 64) / (d0 - d1)); d1 = 64; }
+                if (d0 > FOG_FAR && d1 > FOG_FAR) continue;
+                a = (s32)((long long)l0 * 4096 / d0); b = (s32)((long long)l1 * 4096 / d1);
+                if (a > b) { s32 q = a; a = b; b = q; }
+                if (a < wl) a = wl;
+                if (b > wr) b = wr;
+                if (a > b) continue;
+            }
+            if (n < 96) { st[n].sec = (s16)o; st[n].l = a; st[n].r = b; n++; }
+        }
+    }
+    return mask;
+}
+
 /* ------------------------------------------------------------------ collision */
 s32 level_ground(s32 x, s32 z, s32 cur_y)
 {
@@ -263,6 +319,7 @@ s32 level_ground(s32 x, s32 z, s32 cur_y)
     for (i = 0; i < LAB_NBOXES; i++) {
         const LabBox *b = &lab_boxes[i];
         if (x < b->x0 || x > b->x1 || z < b->z0 || z > b->z1) continue;
+        if (-b->lo < cur_y - CLEAR_H) continue;          /* overhead */
         if (-b->h >= cur_y - STEP_HEIGHT && -b->h < best) best = -b->h;
     }
     return best;
@@ -299,6 +356,7 @@ int level_collide(s32 *x, s32 *z, s32 y, s32 r, s32 *nx, s32 *nz)
     for (i = 0; i < LAB_NBOXES; i++) {
         const LabBox *b = &lab_boxes[i];
         if (-b->h >= y - STEP_HEIGHT) continue;        /* low enough to step onto */
+        if (-b->lo < y - CLEAR_H) continue;             /* high enough to walk under */
         hit |= push_box(x, z, r, b->x0, b->z0, b->x1, b->z1, nx, nz);
     }
     return hit;
@@ -341,7 +399,7 @@ int level_hit_segment(const VECTOR *a, const VECTOR *b, VECTOR *at, VECTOR *nrm)
     for (i = 0; i < LAB_NBOXES; i++) {
         const LabBox *bx = &lab_boxes[i];
         if (maxx < bx->x0 || minx > bx->x1 || maxz < bx->z0 || minz > bx->z1) continue;   /* broad phase */
-        t = seg_box(a, &d, bx->x0, -bx->h, bx->z0, bx->x1, 0, bx->z1);
+        t = seg_box(a, &d, bx->x0, -bx->h, bx->z0, bx->x1, -bx->lo, bx->z1);
         if (t < best) { best = t; bi = i; }
     }
     if (bi >= 0) kind = lab_boxes[bi].h >= 9000 ? LEVEL_HIT_WALL : LEVEL_HIT_PROP;
@@ -385,13 +443,13 @@ int level_clip_segment(const VECTOR *a, const VECTOR *b, s32 m)
     d.vx = b->vx - a->vx; d.vy = b->vy - a->vy; d.vz = b->vz - a->vz;
     for (i = 0; i < LAB_NBOXES; i++) {
         const LabBox *bx = &lab_boxes[i];
-        s32 top = -bx->h - m;
-        if (a->vx >= bx->x0 - m && a->vx <= bx->x1 + m && a->vz >= bx->z0 - m && a->vz <= bx->z1 + m && a->vy >= top)
+        s32 top = -bx->h - m, bot = -bx->lo + m;
+        if (a->vx >= bx->x0 - m && a->vx <= bx->x1 + m && a->vz >= bx->z0 - m && a->vz <= bx->z1 + m && a->vy >= top && a->vy <= bot)
             continue;                                   /* starting inside (standing on it) */
-        t = seg_box(a, &d, bx->x0 - m, top, bx->z0 - m, bx->x1 + m, 0, bx->z1 + m);
+        t = seg_box(a, &d, bx->x0 - m, top, bx->z0 - m, bx->x1 + m, bot, bx->z1 + m);
         if (t < best) best = t;
     }
-    if (LAB_NSECS) {      /* sector walls, then the ceiling over the start and the end */
+    {                     /* sector walls, then the ceiling over the start and the end */
         int wi, si;
         t = seg_walls(a, &d, m, &wi);
         if (t < best) best = t;
@@ -407,18 +465,6 @@ int level_clip_segment(const VECTOR *a, const VECTOR *b, s32 m)
                 }
             }
         }
-        return (int)best;
-    }
-    /* ceiling of the room the segment starts in */
-    for (i = 0; i < LAB_NCEIL; i++) {
-        const LabBox *c = &lab_ceil[i];
-        s32 cy = -c->h + m;
-        if (a->vx < c->x0 || a->vx > c->x1 || a->vz < c->z0 || a->vz > c->z1) continue;
-        if (b->vy < cy && d.vy < 0) {
-            t = (s32)(((long long)(cy - a->vy) << 12) / d.vy);
-            if (t >= 0 && t < best) best = t;
-        }
-        break;
     }
     return (int)best;
 }
@@ -433,7 +479,7 @@ const LabThing *level_thing(int i) { return &lab.things[i]; }
 static void lsound(int id, int vol, s32 x, s32 z, int pitch) { if (hooks.sound) hooks.sound(id, vol, x, z, pitch); }
 
 #define DOOR_SPEED 96
-#define LIFT_SPEED 26
+#define LIFT_SPEED 40
 void level_think(s32 px, s32 py, s32 pz, u32 keys)
 {
     int si, here;
@@ -486,6 +532,15 @@ void level_think(s32 px, s32 py, s32 pz, u32 keys)
             }
         }
     }
+}
+
+int level_secrets(int *found)
+{
+    int i, n = 0, f = 0;
+    for (i = 0; i < lab.nthings && i < 64; i++)
+        if (lab.things[i].type == 3 && lab.things[i].arg) { n++; f += taken[i]; }
+    *found = f;
+    return n;
 }
 
 int level_pickup(s32 px, s32 py, s32 pz, int *arg)
@@ -839,7 +894,7 @@ static void draw_pickups(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t
 void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
 {
     int i, k;
-    u32 vis = visible_mask(view);
+    u32 vis = visible_mask(view, pr);
     for (i = 0; i < 8; i++) pulse_now[i] = pulse(i, t);
     screen_du = ((t / SCREEN_FRAME_TICKS) & 1) * 64;
 #ifdef PSX_GTE

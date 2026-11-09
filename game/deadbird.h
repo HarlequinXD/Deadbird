@@ -21,6 +21,8 @@ void game_debug_near_enemy(int i, s32 dist);
 int  game_debug_enemy_state(int i);       /* state * 1000 + hp */
 int  game_debug_fatality(void);           /* cutscene frame, -2 prompt showing, -1 none */
 int  game_debug_player_hp(void);
+int  game_debug_goto_exit(void);           /* puts her by the level's exit (0 = it has none) */
+int  game_debug_state(void);               /* gs */
 /* floating analog stick in screen pixels: origin where the thumb landed, current position */
 void game_set_stick(int active, int ox, int oy, int x, int y);
 /* gamepad analog sticks (Xbox controller etc.), each axis -4096..4096: left stick moves
@@ -30,7 +32,7 @@ void game_set_analog(int lx, int ly, int rx, int ry);
 /* controller rumble wanted this frame, 0..255 (hard landings) */
 int  game_rumble(void);
 /* flow states returned by game_phase() */
-enum { GS_TITLE, GS_CONTROLS, GS_PLAY, GS_PAUSE };
+enum { GS_TITLE, GS_CONTROLS, GS_PLAY, GS_PAUSE, GS_END };
 /* look finger dragged horizontally by dx screen pixels: swings the camera */
 void game_cam_drag(int dx);
 /* a finger went down at a screen point (menus) */

@@ -136,15 +136,34 @@ int main(int argc, char **argv)
         for (int k = 0; k < 8; k++) fprintf(out, "%d,", f->uv[k]);
         fprintf(out, "},{");
         for (int k = 0; k < 12; k++) fprintf(out, "%d,", f->rgb[k]);
-        fprintf(out, "},%d,%d,%d},", f->page, f->flags, f->anim);
+        fprintf(out, "},%d,%d,%d,%d},", f->page, f->flags, f->anim, f->pal);
     }
     fprintf(out, "\n};\nstatic const LabChunk lc[%d] = {", lab.nchunks);
     for (int i = 0; i < lab.nchunks; i++) {
         const LabChunk *c = &lab.chunks[i];
-        fprintf(out, "\n{%d,%d,%d,%d,%d,%d,%d,%d,%d},", c->cx, c->cy, c->cz, c->r, c->v0, c->nv, c->f0, c->nf, c->area);
+        fprintf(out, "\n{%d,%d,%d,%d,%d,%d,%d,%d,%d,%d},", c->cx, c->cy, c->cz, c->r, c->v0, c->nv, c->f0, c->nf, c->area, c->sec);
     }
     fprintf(out, "\n};\nstatic const LabBox lb[%d] = {", lab.nboxes);
-    for (int i = 0; i < lab.nboxes; i++) fprintf(out, "%s{%d,%d,%d,%d,%d},", i % 6 ? "" : "\n", lab.boxes[i].x0, lab.boxes[i].z0, lab.boxes[i].x1, lab.boxes[i].z1, lab.boxes[i].h);
+    for (int i = 0; i < lab.nboxes; i++) fprintf(out, "%s{%d,%d,%d,%d,%d,%d},", i % 6 ? "" : "\n", lab.boxes[i].x0, lab.boxes[i].z0, lab.boxes[i].x1, lab.boxes[i].z1, lab.boxes[i].h, lab.boxes[i].lo);
+    fprintf(out, "\n};\n");
+    /* sectors, walls and things (sector maps) */
+    fprintf(out, "static const LabSec lse[%d] = {", lab.nsecs);
+    for (int i = 0; i < lab.nsecs; i++) {
+        const LabSec *q = &lab.secs[i];
+        fprintf(out, "\n{%d,%d,%d,%d,{%d,%d,%d,%d,%d},{%d,%d,%d,%d,%d},%d,%d,%d,%d,%d,0,%d,%d,%d},", q->x0, q->z0, q->x1, q->z1,
+                q->f.h, q->f.ax, q->f.az, q->f.kx, q->f.kz, q->c.h, q->c.ax, q->c.az, q->c.kx, q->c.kz,
+                q->w0, q->nw, q->room, q->kind, q->lock, q->ka, q->kb, q->k0);
+    }
+    fprintf(out, "\n};\nstatic const LabWall lwa[%d] = {", lab.nwalls);
+    for (int i = 0; i < lab.nwalls; i++) {
+        const LabWall *q = &lab.walls[i];
+        fprintf(out, "%s{%d,%d,%d,%d,%d,%d,%d,%d},", i % 4 ? "" : "\n", q->x0, q->z0, q->x1, q->z1, q->nx, q->nz, q->next, q->sec);
+    }
+    fprintf(out, "\n};\nstatic const LabThing lth[%d] = {", lab.nthings);
+    for (int i = 0; i < lab.nthings; i++) {
+        const LabThing *q = &lab.things[i];
+        fprintf(out, "%s{%d,%d,%d,%d,%d,%d,%d},", i % 4 ? "" : "\n", q->type, q->arg, q->x, q->z, q->yaw, q->ax, q->az);
+    }
     fprintf(out, "\n};\n");
     /* the fixed-size remainder of LabData */
     fprintf(out, "static const LabSprite ls[%d] = {", lab.nsprites);
@@ -155,8 +174,6 @@ int main(int argc, char **argv)
     for (int i = 0; i < lab.nrings; i++) { const LabRing *q = &lab.rings[i]; fprintf(out, "{%d,%d,%d,%d,%d},", q->x, q->z, q->r, q->yt, q->yb); }
     fprintf(out, "};\nstatic const LabPod lp[%d] = {", lab.npods);
     for (int i = 0; i < lab.npods; i++) { const LabPod *q = &lab.pods[i]; fprintf(out, "{%d,%d,%d},", q->x, q->z, q->r); }
-    fprintf(out, "};\nstatic const LabBox lce[%d] = {", lab.nceil);
-    for (int i = 0; i < lab.nceil; i++) { const LabBox *q = &lab.ceil[i]; fprintf(out, "{%d,%d,%d,%d,%d},", q->x0, q->z0, q->x1, q->z1, q->h); }
     fprintf(out, "};\nstatic const LabArea la[%d] = {", lab.nareas);
     for (int i = 0; i < lab.nareas; i++) { const LabArea *q = &lab.areas[i]; fprintf(out, "\n{%d,%d,%d,%d,0x%xu,\"%s\"},", q->x0, q->z0, q->x1, q->z1, q->pvs, q->name); }
     fprintf(out, "};\nstatic const LabView lvw[%d] = {", lab.nviews);
@@ -172,8 +189,12 @@ int main(int argc, char **argv)
         "    lab.nverts = (int)(sizeof(lv) / sizeof(lv[0])); lab.nfaces = (int)(sizeof(lf) / sizeof(lf[0]));\n"
         "    lab.nchunks = (int)(sizeof(lc) / sizeof(lc[0])); lab.nboxes = (int)(sizeof(lb) / sizeof(lb[0]));\n"
         "    LCOPY(lab.sprites, ls, lab.nsprites); LCOPY(lab.fans, lfa, lab.nfans); LCOPY(lab.rings, lr, lab.nrings);\n"
-        "    LCOPY(lab.pods, lp, lab.npods); LCOPY(lab.ceil, lce, lab.nceil); LCOPY(lab.areas, la, lab.nareas);\n"
-        "    LCOPY(lab.views, lvw, lab.nviews); LCOPY(lab.route, lro, lab.nroute);\n}\n"
+        "    LCOPY(lab.pods, lp, lab.npods); LCOPY(lab.areas, la, lab.nareas);\n"
+        "    LCOPY(lab.views, lvw, lab.nviews); LCOPY(lab.route, lro, lab.nroute);\n"
+        "    lab.secs = (LabSec *)lse; lab.nsecs = (int)(sizeof(lse) / sizeof(lse[0]));\n"
+        "    lab.walls = (LabWall *)lwa; lab.nwalls = (int)(sizeof(lwa) / sizeof(lwa[0]));\n"
+        "    lab.things = (LabThing *)lth; lab.nthings = (int)(sizeof(lth) / sizeof(lth[0]));\n"
+        "    lab.spawn_x = %d; lab.spawn_z = %d; lab.spawn_yaw = %d; lab.has_spawn = 1;\n}\n"
         "static void put(const u16 *d, const short *r) { RECT q; q.x = r[0]; q.y = r[1]; q.w = r[2]; q.h = r[3]; gpu_load_image(&q, d); }\n"
         "void lab_upload_textures(void) { put(vram_top, vram_top_rect); put(vram_bot, vram_bot_rect); }\n"
         "void baked_upload(void) { lab_upload_textures(); put(vram_strip, vram_strip_rect); }\n"
@@ -183,6 +204,7 @@ int main(int argc, char **argv)
         "void baked_models(void)\n{\n"
         "    mdl(&asset_demon, demon_v, %d, demon_p, %d, %u, %u);\n    mdl(&asset_soldier, soldier_v, %d, soldier_p, %d, %u, %u);\n"
         "    mdl(&asset_saw, saw_v, %d, saw_p, %d, %u, %u);\n    mdl(&asset_pistol, pistol_v, %d, pistol_p, %d, %u, %u);\n}\n",
+        (int)lab.spawn_x, (int)lab.spawn_z, lab.spawn_yaw,
         asset_demon.nverts, asset_demon.nprims, asset_demon.tpage, asset_demon.clut,
         asset_soldier.nverts, asset_soldier.nprims, asset_soldier.tpage, asset_soldier.clut,
         asset_saw.nverts, asset_saw.nprims, asset_saw.tpage, asset_saw.clut,

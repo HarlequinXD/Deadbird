@@ -1,14 +1,16 @@
 /*
- * Builds Deadbird's level at start-up: the shinigami energy-extraction plant, dock to reactor.
+ * Builds Deadbird's level at start-up from a sector map (gen/map.h, maps/NAME.map):
  *
- *   rooms on a 2 m texture grid joined by straight halls; walls are plain quads with every detail
- *   painted into the textures; props (machines, consoles, pods, the great tank, the soul reactor,
- *   cages, racks, stairs, catwalks) are boxes, cylinders and quads.
- *   Lighting is baked into per-vertex colours from ~150 coloured point lights with shadow rays
- *   against every solid block, plus contact occlusion on floors and toward the floor on walls.
+ *   sectors become tiled floors, ceilings and walls (2 m tiles, each chosen in the map; lower and
+ *   upper walls at portals, slopes, glass and bars, moving doors and lifts in their own chunks);
+ *   props (machines, consoles, pods, the great tank, the soul reactor, cages, racks, crates) are
+ *   boxes, cylinders and quads placed by the map's script.
+ *   Lighting is baked into per-vertex colours from the map's coloured point lights, with shadow
+ *   rays against walls and solid props, plus contact occlusion on floors and toward the floor on
+ *   walls.
  *
- * Output: the LabData that game/lab_data.h exposes (chunked mesh, collision boxes, halos, fans,
- * areas with a potentially-visible set, camera views, the route waypoints).
+ * Output: the LabData that game/lab_data.h exposes (chunked mesh, sectors and walls, collision
+ * boxes, halos, fans, rooms with their links, camera views, things, the route waypoints).
  */
 #include <stdlib.h>
 #include <string.h>
@@ -36,13 +38,9 @@ static int iceil(float x) { int i = (int)x; return (float)i < x ? i + 1 : i; }
 /* ------------------------------------------------------------------ build state */
 typedef struct { V3 p[4]; int n, tile, flags, anim, emit, area; unsigned char uv[4][2]; int er, eg, eb; float rgb[4][3]; V3 nrm; float base; int dyn, pal; } GF;   /* base: floor y under a wall face */
 typedef struct { float x0, y0, z0, x1, y1, z1; } Occ;
-typedef struct { float x0, z0, x1, z1, h; } Col;
+typedef struct { float x0, z0, x1, z1, h, lo; } Col;      /* solid from height lo up to h */
 typedef struct { V3 p, c; float r; } Light;
-typedef struct {
-    const char *name; float x0, z0, x1, z1, H; int hall, axis_x; unsigned links; unsigned char open[4];
-    int ndoor[4]; float door[4][4][2];
-} Area;
-enum { SS, SN, SW, SE };            /* wall sides */
+typedef struct { const char *name; float x0, z0, x1, z1, H; unsigned links; } Area;       /* a room */
 
 static GF *faces; static int nfaces, capfaces;
 static Occ occ[1024]; static int nocc;
@@ -54,7 +52,6 @@ static LabSprite sprites[16]; static int nsprites;
 static LabFan fans[4]; static int nfans;
 static LabRing rings[2]; static int nrings;
 static LabPod pods[8]; static int npods;
-static Col ceils[32]; static int nceils;
 static Area areas[32]; static int nareas;
 static int CUR, CURDYN, CURPAL;          /* new faces: area, moving sector + 1, extra palette + 1 */
 
@@ -67,7 +64,7 @@ static GF *newface(void)
     return f;
 }
 static void occl(float x0, float y0, float z0, float x1, float y1, float z1) { Occ o = { x0, y0, z0, x1, y1, z1 }; occ[nocc++] = o; }
-static void coll(float x0, float z0, float x1, float z1, float h) { Col c = { x0, z0, x1, z1, h }; cols[ncols++] = c; }
+static void coll(float x0, float z0, float x1, float z1, float h) { Col c = { x0, z0, x1, z1, h, 0 }; cols[ncols++] = c; }
 static void light(V3 p, float r, float g, float b, float R) { lights[nlights].p = p; lights[nlights].c = v3(r, g, b); lights[nlights++].r = R; }
 static void sprite(int x, int y, int z, int s, int r, int g, int b, int anim, int area)
 {
@@ -174,272 +171,6 @@ static void cyl_collide(float x, float z, float r, float h)
     occl(x - k, -h, z - k, x + k, 0, z + k);
 }
 
-/* ------------------------------------------------------------------ rooms and halls */
-#define DOOR_H 4000
-#define WALL_T 240
-#define TEX_M  2000.f
-#define SUB    1000.f
-
-static int area(const char *name, float x0, float z0, float x1, float z1, float H, int hall)
-{
-    Area *a = &areas[nareas];
-    memset(a, 0, sizeof(*a));
-    a->name = name; a->x0 = x0; a->z0 = z0; a->x1 = x1; a->z1 = z1; a->H = H; a->hall = hall;
-    CUR = nareas;
-    Col c = { x0, z0, x1, z1, H }; ceils[nceils++] = c;
-    return nareas++;
-}
-
-typedef struct { const char *room; int side; float pos; int tile; } Placed;
-static const Placed PLACED[] = {
-    { "Security Checkpoint", SS, -2000, LT_WALL_GRAPH }, { "Extraction Hall", SN, 1000, LT_WALL_VITALS },
-    { "Research Lab", SN, -23000, LT_WALL_VITALS }, { "Research Lab", SN, -19000, LT_WALL_GRAPH },
-    { "Reactor Core", SS, 25000, LT_WALL_GRAPH },
-};
-typedef struct { const char *room; int nb, nm; int b[4], m[6]; } Style;
-static const Style STYLES[] = {
-    { "Loading Dock", 4, 6, { LT_BASE_PLAIN, LT_BASE_PIPES, LT_BASE_PLAIN, LT_BASE_HAZARD },
-      { LT_DOCK_PLATE, LT_DOCK_NUMBER, LT_DOCK_PLATE, LT_MID_POSTER_DANGER, LT_DOCK_PLATE, LT_MID_ARROW } },
-    { "Security Checkpoint", 2, 4, { LT_BASE_PLAIN, LT_BASE_VENT }, { LT_CHECKPOINT_PANEL, LT_MID_PANEL, LT_MID_AUTHORIZED, LT_MID_PANEL } },
-    { "Processing Hall", 3, 4, { LT_BASE_PIPES, LT_BASE_PLAIN, LT_BASE_VENT }, { LT_PROCESSING_PANEL, LT_MID_VPIPES, LT_MID_PANEL, LT_MID_POSTER_POWER } },
-    { "Extraction Hall", 4, 5, { LT_BASE_PLAIN, LT_BASE_PIPES, LT_BASE_VENT, LT_BASE_PLAIN },
-      { LT_EXTRACTION_PANEL, LT_MID_PANEL, LT_MID_POSTER_POWER, LT_MID_VPIPES, LT_MID_POSTER_DANGER } },
-    { "Containment Block", 1, 4, { LT_CELL_WALL }, { LT_CELL_WALL, LT_CELL_WARNING, LT_CELL_WALL, LT_MID_POSTER_DANGER } },
-    { "Research Lab", 1, 3, { LT_LAB_PANEL }, { LT_LAB_PANEL, LT_LAB_POSTER, LT_LAB_PANEL } },
-    { "Server Vault", 2, 3, { LT_BASE_PLAIN, LT_BASE_VENT }, { LT_VAULT_PANEL, LT_VAULT_PANEL, LT_MID_AUTHORIZED } },
-    { "Pipe Gallery", 1, 4, { LT_GALLERY_PIPES }, { LT_GALLERY_PIPES, LT_MID_VPIPES, LT_GALLERY_PIPES, LT_MID_POSTER_DANGER } },
-    { "Turbine Hall", 3, 4, { LT_BASE_PIPES, LT_BASE_HAZARD, LT_BASE_PLAIN }, { LT_TURBINE_PANEL, LT_MID_VPIPES, LT_TURBINE_PANEL, LT_MID_POSTER_DANGER } },
-    { "Reactor Core", 2, 4, { LT_REACTOR_PLATE, LT_BASE_HAZARD }, { LT_REACTOR_PLATE, LT_REACTOR_WARNING, LT_REACTOR_PLATE, LT_MID_POSTER_DANGER } },
-};
-static const Style DEFAULT_STYLE = { "", 1, 1, { LT_BASE_PLAIN }, { LT_MID_PANEL } };
-
-static void tex_cell(V3 o, V3 R, V3 D, float a, float b, float h0, float h1, float tu0, float hv0, int tile, int flags, const int *emit, float sub_)
-{
-    int nu = iceil((b - a) / sub_ - 1e-6f), nv = iceil((h1 - h0) / sub_ - 1e-6f);
-    if (nu < 1) nu = 1;
-    if (nv < 1) nv = 1;
-    if (LT_ANIMATED(tile)) flags |= F_ANIMUV;
-#define UU(p) iround(gclamp(((p) - tu0) / TEX_M * 63, 0, 63))
-#define VV(p) iround(gclamp(((p) - hv0) / TEX_M * 63, 0, 63))
-    for (int j = 0; j < nv; j++) {
-        float v0 = h0 + (h1 - h0) * j / nv, v1 = h0 + (h1 - h0) * (j + 1) / nv;
-        for (int i = 0; i < nu; i++) {
-            float u0 = a + (b - a) * i / nu, u1 = a + (b - a) * (i + 1) / nu;
-            V3 p0 = add(o, add(mul(R, u0), mul(D, v0)));
-            GF *f = newface();
-            tile_uv(tile, 0, 0, 0, 0, f->uv);
-            int tx = f->uv[0][0], ty = f->uv[0][1];
-            f->uv[0][0] = (u8)(tx + UU(u0)); f->uv[0][1] = (u8)(ty + VV(v0));
-            f->uv[1][0] = (u8)(tx + UU(u1)); f->uv[1][1] = (u8)(ty + VV(v0));
-            f->uv[2][0] = (u8)(tx + UU(u0)); f->uv[2][1] = (u8)(ty + VV(v1));
-            f->uv[3][0] = (u8)(tx + UU(u1)); f->uv[3][1] = (u8)(ty + VV(v1));
-            V3 dr = mul(R, u1 - u0), dd = mul(D, v1 - v0);
-            f->p[0] = p0; f->p[1] = add(p0, dr); f->p[2] = add(p0, dd); f->p[3] = add(add(p0, dr), dd);
-            f->n = 4; f->tile = tile; f->flags = flags | F_QUAD;
-            if (emit) { f->emit = 1; f->er = emit[0]; f->eg = emit[1]; f->eb = emit[2]; }
-        }
-    }
-}
-
-typedef struct { float a, b, t; } Column;
-static int columns(float L, int anchor /* 0 start 1 end 2 centre */, Column *out)
-{
-    int n = 0;
-    if (anchor == 1) {
-        float e = L;
-        Column tmp[64];
-        while (e > 1) { tmp[n].a = gmax(0, e - TEX_M); tmp[n].b = e; tmp[n].t = e - TEX_M; n++; e -= TEX_M; }
-        for (int i = 0; i < n; i++) out[i] = tmp[n - 1 - i];
-        return n;
-    }
-    float m = L - TEX_M * gfloor(L / TEX_M);
-    float off = anchor == 0 ? 0 : -(m > 0 ? (TEX_M - m) / 2 : 0), s = off;
-    while (s < L - 1) { out[n].a = gmax(0, s); out[n].b = gmin(L, s + TEX_M); out[n].t = s; n++; s += TEX_M; }
-    return n;
-}
-
-typedef int (*TexF)(int i, int j, int nu, int nv);
-static const Area *texf_area;
-static void floor_rect(float x0, float z0, float x1, float z1, float y, TexF texf, int up, float sub_, int flags, int emit_tile)
-{
-    static const int EM[3] = { 150, 160, 170 };
-    V3 R = v3(1, 0, 0), D = up ? v3(0, 0, -1) : v3(0, 0, 1), o = v3(x0, y, up ? z1 : z0);
-    Column cu[64], cv[64];
-    int nu = columns(x1 - x0, 2, cu), nv = columns(z1 - z0, 2, cv);
-    for (int j = 0; j < nv; j++) for (int i = 0; i < nu; i++) {
-        int tile = texf(i, j, nu, nv), em = tile == emit_tile;
-        tex_cell(o, R, D, cu[i].a, cu[i].b, cv[j].a, cv[j].b, cu[i].t, cv[j].t, tile, em ? flags | F_EMIT : flags, em ? EM : 0, sub_);
-    }
-}
-
-static int mid_col(int i, int j, int nu, int nv) { return texf_area->axis_x ? j == nv / 2 : i == nu / 2; }
-static int hall_floor(int i, int j, int nu, int nv) { return mid_col(i, j, nu, nv) && !texf_area->axis_x ? LT_FLOOR_STRIP : LT_FLOOR_PLATE; }
-static int hall_ceil(int i, int j, int nu, int nv) { return mid_col(i, j, nu, nv) ? ((i + j) % 3 == 0 ? LT_CEILING_LIGHT : LT_CEILING_CABLES) : LT_CEILING_PANEL; }
-static int room_floor(int i, int j, int nu, int nv) { return (i == 0 || i == nu - 1 || j == 0 || j == nv - 1) && (i + j) % 3 == 0 ? LT_FLOOR_GRATE : LT_FLOOR_PLATE; }
-static int room_ceil(int i, int j, int nu, int nv) { (void)nu; (void)nv; return i % 3 == 1 && j % 3 == 1 ? LT_CEILING_LIGHT : LT_CEILING_PANEL; }
-
-static void wall_section(V3 o, V3 d, float p, float q, float H, V3 n, const Style *st, int hall, int door_p, int door_q, int lintel, int seed,
-                         const Placed *place, int nplace)
-{
-    V3 right = cross(neg(n), v3(0, -1, 0));
-    int flip = dot(right, d) < 0;
-    V3 base = add(o, mul(d, flip ? q : p));
-    float L = q - p;
-    int door_left = flip ? door_q : door_p, door_right = flip ? door_p : door_q;
-    Column c[64];
-    int nc = columns(L, door_right && !door_left ? 1 : 0, c);
-    V3 top_o = add(base, v3(0, -H, 0)), D = v3(0, 1, 0);
-    for (int ci = 0; ci < nc; ci++) {
-        float rows[6][3]; int rt[6], rn = 0;     /* h0, h1, anchor(0 bottom 1 top) */
-#define ROW(h0_, h1_, t_, an_) (rows[rn][0] = (h0_), rows[rn][1] = (h1_), rows[rn][2] = (an_), rt[rn++] = (t_))
-        if (lintel) { }
-        else if (hall) { ROW(0, 2000, LT_HALL_WALL, 0); ROW(2000, gmin(H, 4000), LT_HALL_WALL_TOP, 0); }
-        else {
-            int k = ci + seed, bt = st->b[k % st->nb], mt = st->m[k % st->nm];
-            V3 ctr = add(base, mul(right, (c[ci].a + c[ci].b) / 2));
-            float along = gabs(right.x) > 0.5f ? ctr.x : ctr.z;
-            for (int pi = 0; pi < nplace; pi++) {
-                float s = (place[pi].pos - along) * ((right.x + right.z) > 0 ? 1 : -1);
-                if (-TEX_M / 2 <= s && s < TEX_M / 2 && c[ci].b - c[ci].a > TEX_M * 0.9f) mt = place[pi].tile;
-            }
-            if (door_left && ci == 0) bt = mt = LT_DOOR_JAMB_R;
-            if (door_right && ci == nc - 1) bt = mt = LT_DOOR_JAMB_L;
-            ROW(0, 2000, bt, 0); ROW(2000, 4000, mt, 0);
-        }
-        if (!hall) {
-            if (H <= 6000) ROW(4000, H, lintel ? LT_DOOR_LINTEL : LT_TOP_BEAM, lintel ? 0 : 1);
-            else {
-                ROW(4000, 6000, lintel ? LT_DOOR_LINTEL : LT_TOP_CIRCUIT, 0);
-                if (H - 6000 > TEX_M) { ROW(6000, H - TEX_M, LT_TOP_CIRCUIT, 0); ROW(H - TEX_M, H, LT_TOP_BEAM, 1); }
-                else ROW(6000, H, LT_TOP_BEAM, 1);
-            }
-        }
-        for (int r = 0; r < rn; r++) {
-            float h0 = rows[r][0], h1 = rows[r][1];
-            if (h1 - h0 <= 1) continue;
-            float v0 = H - h1, v1 = H - h0, hv0 = rows[r][2] == 0 ? H - h0 - TEX_M : H - h1;
-            tex_cell(top_o, right, D, c[ci].a, c[ci].b, v0, v1, c[ci].t, hv0, rt[r], 0, 0, SUB);
-        }
-    }
-}
-
-static void door_frame(V3 o, V3 U, V3 n)
-{
-    float L = len(U);
-    V3 d = mul(U, 1 / L), back = mul(neg(n), WALL_T);
-    Q(add(o, v3(0, -DOOR_H, 0)), back, v3(0, DOOR_H, 0), LT_BULKHEAD, d);
-    Q(add(add(o, U), v3(0, -DOOR_H, 0)), back, v3(0, DOOR_H, 0), LT_BULKHEAD, neg(d));
-    Q(add(o, v3(0, -DOOR_H, 0)), U, back, LT_HAZARD, v3(0, 1, 0));
-}
-
-static void build_shell(int ai, TexF ftex, TexF ctex)
-{
-    Area *a = &areas[ai];
-    float x0 = a->x0, z0 = a->z0, x1 = a->x1, z1 = a->z1, H = a->H;
-    CUR = ai; texf_area = a;
-    floor_rect(x0, z0, x1, z1, 0, ftex ? ftex : a->hall ? hall_floor : room_floor, 1, SUB, F_FLOOR, -1);
-    floor_rect(x0, z0, x1, z1, -H, ctex ? ctex : a->hall ? hall_ceil : room_ceil, 0, TEX_M, 0, LT_CEILING_LIGHT);
-    V3 so[4] = { v3(x0, 0, z0), v3(x0, 0, z1), v3(x0, 0, z0), v3(x1, 0, z0) };
-    V3 sd[4] = { v3(1, 0, 0), v3(1, 0, 0), v3(0, 0, 1), v3(0, 0, 1) };
-    float sl[4] = { x1 - x0, x1 - x0, z1 - z0, z1 - z0 };
-    V3 sn[4] = { v3(0, 0, 1), v3(0, 0, -1), v3(1, 0, 0), v3(-1, 0, 0) };
-    const Style *st = &DEFAULT_STYLE;
-    for (unsigned i = 0; i < sizeof(STYLES) / sizeof(STYLES[0]); i++) if (!strcmp(STYLES[i].room, a->name)) st = &STYLES[i];
-    for (int s = 0; s < 4; s++) {
-        if (a->open[s]) continue;
-        Placed place[8]; int np = 0;
-        for (unsigned i = 0; i < sizeof(PLACED) / sizeof(PLACED[0]); i++)
-            if (PLACED[i].side == s && !strcmp(PLACED[i].room, a->name)) place[np++] = PLACED[i];
-        /* sorted doorway holes */
-        float h[4][2]; int nh = a->ndoor[s];
-        memcpy(h, a->door[s], sizeof(h));
-        for (int i = 0; i < nh; i++) for (int j = i + 1; j < nh; j++) if (h[j][0] < h[i][0]) { float t0 = h[i][0], t1 = h[i][1]; h[i][0] = h[j][0]; h[i][1] = h[j][1]; h[j][0] = t0; h[j][1] = t1; }
-        float cuts[10]; int nc = 0;
-        cuts[nc++] = 0;
-        for (int i = 0; i < nh; i++) { cuts[nc++] = h[i][0]; cuts[nc++] = h[i][1]; }
-        cuts[nc++] = sl[s];
-        V3 o = so[s], d = sd[s], n = sn[s];
-        for (int k = 0; k < nc; k += 2) {
-            float p = cuts[k], q = cuts[k + 1];
-            if (q - p > 1) {
-                wall_section(o, d, p, q, H, n, st, a->hall, k > 0, k + 2 < nc, 0, k * 3 + 1, place, np);
-                V3 w0 = sub(add(o, mul(d, p)), mul(n, WALL_T)), w1 = add(o, mul(d, q));
-                coll(gmin(w0.x, w1.x), gmin(w0.z, w1.z), gmax(w0.x, w1.x), gmax(w0.z, w1.z), 9000);
-                occl(gmin(w0.x, w1.x), -H - 10, gmin(w0.z, w1.z), gmax(w0.x, w1.x), 10, gmax(w0.z, w1.z));
-            }
-        }
-        for (int i = 0; i < nh; i++) {
-            V3 w0 = sub(add(o, mul(d, h[i][0])), mul(n, WALL_T)), w1 = add(o, mul(d, h[i][1]));
-            if (H > DOOR_H) {
-                wall_section(o, d, h[i][0], h[i][1], H, n, st, a->hall, 0, 0, 1, 0, 0, 0);
-                occl(gmin(w0.x, w1.x), -H - 10, gmin(w0.z, w1.z), gmax(w0.x, w1.x), -DOOR_H, gmax(w0.z, w1.z));
-            }
-            door_frame(add(o, mul(d, h[i][0])), mul(d, h[i][1] - h[i][0]), n);
-        }
-    }
-}
-
-static void add_door(int ai, int side, float c0, float c1) { Area *a = &areas[ai]; a->door[side][a->ndoor[side]][0] = c0; a->door[side][a->ndoor[side]++][1] = c1; }
-
-static int hall_between(const char *name, int ra, int rb, float centre)
-{
-    const float width = 3000;
-    Area *A = &areas[ra], *B = &areas[rb];
-    int hi_;
-    if (A->x1 <= B->x0 || B->x1 <= A->x0) {
-        int lo = A->x1 <= B->x0 ? ra : rb, hi = lo == ra ? rb : ra;
-        Area L = areas[lo], Hh = areas[hi];
-        float z0 = centre - width / 2, z1 = centre + width / 2;
-        hi_ = area(name, L.x1, z0, Hh.x0, z1, DOOR_H, 1);
-        areas[hi_].open[SW] = areas[hi_].open[SE] = 1; areas[hi_].axis_x = 1;
-        add_door(lo, SE, z0 - L.z0, z1 - L.z0); add_door(hi, SW, z0 - Hh.z0, z1 - Hh.z0);
-    } else {
-        int lo = A->z1 <= B->z0 ? ra : rb, hi = lo == ra ? rb : ra;
-        Area L = areas[lo], Hh = areas[hi];
-        float x0 = centre - width / 2, x1 = centre + width / 2;
-        hi_ = area(name, x0, L.z1, x1, Hh.z0, DOOR_H, 1);
-        areas[hi_].open[SS] = areas[hi_].open[SN] = 1; areas[hi_].axis_x = 0;
-        add_door(lo, SN, x0 - L.x0, x1 - L.x0); add_door(hi, SS, x0 - Hh.x0, x1 - Hh.x0);
-    }
-    areas[hi_].links |= (1u << ra) | (1u << rb);
-    areas[ra].links |= 1u << hi_; areas[rb].links |= 1u << hi_;
-    return hi_;
-}
-
-static void dress_hall(int hi)
-{
-    Area *a = &areas[hi];
-    CUR = hi;
-    float L = a->axis_x ? a->x1 - a->x0 : a->z1 - a->z0;
-    int n = (int)(L / 3000); if (n < 1) n = 1;
-    for (int k = 0; k < n; k++)
-        light(a->axis_x ? v3(a->x0 + (k + 0.5f) * L / n, -3600, (a->z0 + a->z1) / 2) : v3((a->x0 + a->x1) / 2, -3600, a->z0 + (k + 0.5f) * L / n), 0.75f, 0.9f, 0.95f, 4800);
-}
-
-static void ceiling_lights(int ai, float r, float g, float b, float R, float step, float h)
-{
-    Area *a = &areas[ai];
-    float H = h ? h : a->H;
-    int nx = iround((a->x1 - a->x0) / step), nz = iround((a->z1 - a->z0) / step);
-    if (nx < 1) nx = 1;
-    if (nz < 1) nz = 1;
-    for (int j = 0; j < nz; j++) for (int i = 0; i < nx; i++)
-        light(v3(a->x0 + (i + 0.5f) * (a->x1 - a->x0) / nx, -H + 300, a->z0 + (j + 0.5f) * (a->z1 - a->z0) / nz), r, g, b, R);
-}
-
-static void stairs(float x0, float z0, float x1, float z1, float top, int axis_x, int up_positive)
-{
-    int n = iround(top / 130);
-    for (int i = 0; i < n; i++) {
-        if (axis_x) {
-            float L = (x1 - x0) / n, a = up_positive ? x0 + i * L : x1 - (i + 1) * L;
-            BOX(a, -(i + 1) * 130.f, z0, a + L, 0, z1, LT_STAIR_TREAD, LT_DARK_METAL, 1600, .nooccl = !(i > n / 2));
-        } else {
-            float L = (z1 - z0) / n, a = up_positive ? z0 + i * L : z1 - (i + 1) * L;
-            BOX(x0, -(i + 1) * 130.f, a, x1, 0, a + L, LT_STAIR_TREAD, LT_DARK_METAL, 1600, .nooccl = !(i > n / 2));
-        }
-    }
-}
 static void rail_x(float x0, float x1, float z, float base)
 {
     float a = gmin(x0, x1), b = gmax(x0, x1);
@@ -539,25 +270,6 @@ static void pillar(float x, float z, float H)
     BOX(x - 340, -500, z - 340, x + 340, 0, z + 340, LT_HAZARD, LT_HAZARD, 700, .nocoll = 1, .nooccl = 1);
 }
 
-/* ------------------------------------------------------------------ the plant's floors */
-static int f_dock(int i, int j, int nu, int nv)
-{
-    if (j == 1 && 1 <= i && i <= nu - 2) return LT_FLOOR_HAZARD;
-    if (i == nu - 1 && (j == 2 || j == 3)) return LT_FLOOR_ARROW;
-    return j == nv - 1 ? LT_FLOOR_EDGE : LT_FLOOR_DOCK;
-}
-static int f_proc(int i, int j, int nu, int nv) { return j == nv / 2 ? LT_FLOOR_GRATE : room_floor(i, j, nu, nv); }
-static int f_cont(int i, int j, int nu, int nv) { (void)nu; (void)nv; return (i * 7 + j * 3) % 11 == 0 ? LT_FLOOR_DRAIN : LT_FLOOR_CELL; }
-static int f_lab(int i, int j, int nu, int nv) { (void)i; (void)j; (void)nu; (void)nv; return LT_FLOOR_LAB; }
-static int f_vault(int i, int j, int nu, int nv) { (void)nu; (void)nv; return (i == 0 || i == 2 || i == 3) && j != 2 ? LT_FLOOR_GRATE : (j == 2 && i == 1 ? LT_FLOOR_ARROW : LT_FLOOR_PLATE); }
-static int f_gall(int i, int j, int nu, int nv) { (void)j; (void)nu; (void)nv; return i == 2 ? LT_FLOOR_GRATE : i == 1 ? LT_FLOOR_STRIP : LT_FLOOR_PLATE; }
-static int f_turb(int i, int j, int nu, int nv) { (void)nu; return j == nv - 1 ? LT_FLOOR_HAZARD : (i % 3 == 1 ? LT_FLOOR_GRATE : LT_FLOOR_PLATE); }
-static int f_core(int i, int j, int nu, int nv)
-{
-    if (1 <= i && i <= nu - 2 && 1 <= j && j <= nv - 2 && gabs(i - nu / 2.f + 0.5f) < 3 && gabs(j - nv / 2.f + 0.5f) < 3) return LT_FLOOR_REACTOR;
-    return (i == 0 || i == nu - 1 || j == 0 || j == nv - 1) ? LT_FLOOR_HAZARD : LT_FLOOR_PLATE;
-}
-
 /* ------------------------------------------------------------------ lighting bake */
 static int *wnear, nwnear;
 static int shadowed(V3 P, V3 L, const int *near, int nn)
@@ -592,7 +304,7 @@ static float floor_ao(V3 p)
     float best = 1e9f;
     for (int i = 0; i < ncols; i++) {
         const Col *c = &cols[i];
-        if (!(c->h > -p.y + 20)) continue;
+        if (!(c->h > -p.y + 20 && c->lo < -p.y + 300)) continue;
         float dx = gmax(gmax(c->x0 - p.x, p.x - c->x1), 0), dz = gmax(gmax(c->z0 - p.z, p.z - c->z1), 0);
         best = gmin(best, gsqrt(dx * dx + dz * dz));
     }
@@ -740,172 +452,6 @@ static void export_mesh(void)
 static V3 nd_of(int c) { static const signed char D[7][3] = { { 0, 0, 0 }, { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 } }; return v3(D[c][0], D[c][1], D[c][2]); }
 static float facing_of(int c) { return c == 0 ? 0 : c == 1 ? GPI / 2 : c == 2 ? GPI : -GPI / 2; }
 
-static const short PROPS[] = {
-    OP_CUR, 0,
-    OP_BOX, -25800, -2600, -22800, -20000, 0, -20200, LT_DARK_METAL, LT_CRATE, 1300, 0,
-    OP_BOX, -25800, -5200, -22800, -21500, -2600, -20200, LT_DARK_METAL, LT_CRATE, 1300, 2,
-    OP_BOX, -17400, -2600, -22800, -13200, 0, -20200, LT_DARK_METAL, LT_CRATE, 1300, 0,
-    OP_BOX, -26000, -520, -29000, -23200, 0, -24000, LT_FLOOR_GRATE, LT_PLATE_SIDE, 900, 0,
-    OP_STAIRS, -23200, -27500, -22100, -25500, 520, 1, 0,
-    OP_RAILZ, -29000, -27500, -23200, 520,
-    OP_RAILZ, -25500, -24000, -23200, 520,
-    OP_CRATE, -14500, -29400, 700, 700,
-    OP_CRATE, -13700, -29400, 700, 700,
-    OP_CRATE, -14200, -28700, 700, 700,
-    OP_CRATE, -12400, -29600, 700, 700,
-    OP_CAN, -25200, -23400,
-    OP_CAN, -24600, -23400,
-    OP_CEIL, 0, 80, 82, 88, 8500, 4600,
-    OP_LIGHT, -12300, -3300, -25000, 130, 15, 10, 2600,
-    OP_SPRITE, -12350, -3300, -25000, 260, 255, 40, 30, 5,
-    OP_CUR, 1,
-    OP_BOX, -4200, -3400, -24000, -3400, 0, -22800, LT_DARK_METAL, LT_HAZARD, 900, 0,
-    OP_BOX, -600, -3400, -24000, 200, 0, -22800, LT_DARK_METAL, LT_HAZARD, 900, 0,
-    OP_BOX, -3800, -3800, -23800, -200, -3400, -23000, LT_BEAM, LT_BEAM, 1200, 2,
-    OP_QUAD, -3400, -3420, -23800, 2800, 0, 0, 0, 0, 800, LT_FLOOR_LIGHT, F_EMIT | F_PULSE, 5, ND_PY, 180, 60, 50,
-    OP_LIGHT, -2000, -3200, -23400, 120, 20, 15, 3200,
-    OP_CONSOLE, -5000, -27200, 2, LT_SCR_GRAPH, 0,
-    OP_CONSOLE, 1000, -27200, 2, LT_SCR_VITALS, 0,
-    OP_CONSOLE, 1200, -22900, 0, LT_SCR_GRAPH, 0,
-    OP_CEIL, 1, 75, 80, 85, 7000, 4000,
-    OP_CUR, 2,
-    OP_MACHINE, -8800, -16000, -6800, -14400, 2600, ND_PZ,
-    OP_MACHINE, -8800, -9600, -6800, -8000, 2600, ND_NZ,
-    OP_LIGHT, -7800, -1200, -14000, 110, 50, 20, 2400,
-    OP_LIGHT, -7800, -1200, -10000, 110, 50, 20, 2400,
-    OP_MACHINE, -6200, -16000, -4200, -14400, 2600, ND_PZ,
-    OP_MACHINE, -6200, -9600, -4200, -8000, 2600, ND_NZ,
-    OP_LIGHT, -5200, -1200, -14000, 110, 50, 20, 2400,
-    OP_LIGHT, -5200, -1200, -10000, 110, 50, 20, 2400,
-    OP_MACHINE, 200, -16000, 2200, -14400, 2600, ND_PZ,
-    OP_MACHINE, 200, -9600, 2200, -8000, 2600, ND_NZ,
-    OP_LIGHT, 1200, -1200, -14000, 110, 50, 20, 2400,
-    OP_LIGHT, 1200, -1200, -10000, 110, 50, 20, 2400,
-    OP_MACHINE, 2800, -16000, 4800, -14400, 2600, ND_PZ,
-    OP_MACHINE, 2800, -9600, 4800, -8000, 2600, ND_NZ,
-    OP_LIGHT, 3800, -1200, -14000, 110, 50, 20, 2400,
-    OP_LIGHT, 3800, -1200, -10000, 110, 50, 20, 2400,
-    OP_CONSOLE, 4500, -12000, 1, LT_SCR_GRAPH, 0,
-    OP_CEIL, 2, 75, 78, 85, 7500, 4000,
-    OP_CUR, 3,
-    OP_SPECIAL, 0, -2000, 3000, 0,
-    OP_POD, -8300, -1500, 1, 3,
-    OP_POD, -8300, 7500, 1, 4,
-    OP_POD, 4300, -1500, 3, 3,
-    OP_POD, 4300, 7500, 3, 4,
-    OP_BOX, -6000, -1040, 8000, 2000, 0, 10000, LT_FLOOR_GRATE, LT_PLATE_SIDE, 900, 0,
-    OP_STAIRS, -8200, 8400, -6000, 10000, 1040, 1, 1,
-    OP_RAILX, -6000, 2000, 8000, 1040,
-    OP_RAILZ, 8000, 10000, 2000, 1040,
-    OP_CONSOLE, -2000, 9500, 0, LT_SCR_VITALS, -1040,
-    OP_PILLAR, -4500, -3400, 6500,
-    OP_PILLAR, 500, -3400, 6500,
-    OP_CEIL, 3, 80, 84, 92, 8500, 4700,
-    OP_CUR, 4,
-    OP_SPECIAL, 1, 0, 0, 0,
-    OP_CAN, -27600, 2600,
-    OP_CAN, -27600, 3300,
-    OP_CRATE, -27500, 4300, 700, 1200,
-    OP_LIGHT, -25000, -4400, 3000, 70, 60, 65, 7500,
-    OP_LIGHT, -19000, -4400, 3000, 70, 60, 65, 7500,
-    OP_CUR, 5,
-    OP_LIGHT, -21500, -2600, 21300, 40, 55, 50, 5000,
-    OP_CONSOLE, -25000, 20600, 0, LT_SCR_GRAPH, 0,
-    OP_CONSOLE, -22800, 20600, 0, LT_SCR_GRAPH, 0,
-    OP_CONSOLE, -20600, 20600, 0, LT_SCR_VITALS, 0,
-    OP_CONSOLE, -18400, 20600, 0, LT_SCR_VITALS, 0,
-    OP_BOX, -19500, -800, 15600, -18100, 0, 16400, LT_DARK_METAL, LT_MACHINE_PANEL, 800, 0,
-    OP_BOX, -19300, -900, 15850, -18500, -800, 16150, LT_SHINI_BODY, LT_SHINI_BODY, 900, 3,
-    OP_BOXF, -18500, -980, 15860, -18240, -800, 16140, LT_SHINI_BODY, LT_SHINI_BODY, 900, 3, LT_SHINI_SKULL, ND_PX, 0,
-    OP_QUAD, -19100, -905, 16150, 400, 0, 0, -200, 0, 700, LT_SHINI_BODY, F_DOUBLE, 0, ND_NONE, -1, 0, 0,
-    OP_QUAD, -19100, -905, 15850, 400, 0, 0, -200, 0, -700, LT_SHINI_BODY, F_DOUBLE, 0, ND_NONE, -1, 0, 0,
-    OP_LIGHT, -18800, -3000, 16000, 100, 100, 95, 3200,
-    OP_SPRITE, -18800, -3900, 16000, 450, 255, 250, 230, 0,
-    OP_BOX, -27000, -800, 15000, -26400, 0, 19000, LT_DARK_METAL, LT_MACHINE_PANEL, 800, 0,
-    OP_CYL, -26700, -800, 15400, 190, 0, -560, 6, LT_GLASS, F_ADD, 2, 0, 1, -1, 1,
-    OP_BOXF, -26780, -1140, 15320, -26620, -980, 15480, LT_SHINI_SKULL, LT_SHINI_SKULL, 400, 3, LT_SHINI_SKULL, ND_PX, 0,
-    OP_CYL, -26700, -800, 16150, 190, 0, -560, 6, LT_GLASS, F_ADD, 2, 0, 1, -1, 1,
-    OP_BOXF, -26780, -1140, 16070, -26620, -980, 16230, LT_SHINI_SKULL, LT_SHINI_SKULL, 400, 3, LT_SHINI_SKULL, ND_PX, 0,
-    OP_CYL, -26700, -800, 16900, 190, 0, -560, 6, LT_GLASS, F_ADD, 2, 0, 1, -1, 1,
-    OP_BOXF, -26780, -1140, 16820, -26620, -980, 16980, LT_SHINI_SKULL, LT_SHINI_SKULL, 400, 3, LT_SHINI_SKULL, ND_PX, 0,
-    OP_CYL, -26700, -800, 17650, 190, 0, -560, 6, LT_GLASS, F_ADD, 2, 0, 1, -1, 1,
-    OP_BOXF, -26780, -1140, 17570, -26620, -980, 17730, LT_SHINI_SKULL, LT_SHINI_SKULL, 400, 3, LT_SHINI_SKULL, ND_PX, 0,
-    OP_CYL, -26700, -800, 18400, 190, 0, -560, 6, LT_GLASS, F_ADD, 2, 0, 1, -1, 1,
-    OP_BOXF, -26780, -1140, 18320, -26620, -980, 18480, LT_SHINI_SKULL, LT_SHINI_SKULL, 400, 3, LT_SHINI_SKULL, ND_PX, 0,
-    OP_RACK, -16300, 14600, ND_NX,
-    OP_RACK, -16300, 15400, ND_NX,
-    OP_CEIL, 5, 80, 85, 90, 7000, 3800,
-    OP_CUR, 6,
-    OP_BOX, -7850, -2600, 13820, -7150, 0, 14580, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_BOX, -7850, -2600, 14620, -7150, 0, 15380, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_BOX, -7850, -2600, 15420, -7150, 0, 16180, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_BOX, -7850, -2600, 19820, -7150, 0, 20580, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_BOX, -7850, -2600, 20620, -7150, 0, 21380, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_BOX, -7850, -2600, 21420, -7150, 0, 22180, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_LIGHT, -6250, -3600, 15000, 35, 55, 100, 4000,
-    OP_LIGHT, -6250, -3600, 21000, 35, 55, 100, 4000,
-    OP_BOX, -5350, -2600, 13820, -4650, 0, 14580, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_BOX, -5350, -2600, 14620, -4650, 0, 15380, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_BOX, -5350, -2600, 15420, -4650, 0, 16180, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_BOX, -5350, -2600, 19820, -4650, 0, 20580, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_BOX, -5350, -2600, 20620, -4650, 0, 21380, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_BOX, -5350, -2600, 21420, -4650, 0, 22180, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_LIGHT, -3750, -3600, 15000, 35, 55, 100, 4000,
-    OP_LIGHT, -3750, -3600, 21000, 35, 55, 100, 4000,
-    OP_BOX, -2850, -2600, 13820, -2150, 0, 14580, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_BOX, -2850, -2600, 14620, -2150, 0, 15380, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_BOX, -2850, -2600, 15420, -2150, 0, 16180, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_BOX, -2850, -2600, 19820, -2150, 0, 20580, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_BOX, -2850, -2600, 20620, -2150, 0, 21380, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_BOX, -2850, -2600, 21420, -2150, 0, 22180, LT_DARK_METAL, LT_SERVER_RACK, 800, 0,
-    OP_LIGHT, -1250, -3600, 15000, 35, 55, 100, 4000,
-    OP_LIGHT, -1250, -3600, 21000, 35, 55, 100, 4000,
-    OP_CEIL, 6, 50, 60, 80, 6500, 4500,
-    OP_CUR, 7,
-    OP_BOX, 9100, -5600, 3880, 11000, -5300, 4120, LT_BEAM, LT_BEAM, 1200, 3,
-    OP_BOX, 9100, -5600, 7880, 11000, -5300, 8120, LT_BEAM, LT_BEAM, 1200, 3,
-    OP_BOX, 9100, -5600, 11880, 11000, -5300, 12120, LT_BEAM, LT_BEAM, 1200, 3,
-    OP_BOX, 9100, -5600, 15880, 11000, -5300, 16120, LT_BEAM, LT_BEAM, 1200, 3,
-    OP_BOX, 9100, -5600, 19880, 11000, -5300, 20120, LT_BEAM, LT_BEAM, 1200, 3,
-    OP_BOX, 9100, -5600, 23880, 11000, -5300, 24120, LT_BEAM, LT_BEAM, 1200, 3,
-    OP_LIGHT, 8000, -5000, 3500, 75, 80, 70, 6500,
-    OP_LIGHT, 10000, -300, 3500, 20, 90, 70, 2200,
-    OP_LIGHT, 8000, -5000, 7700, 75, 80, 70, 6500,
-    OP_LIGHT, 10000, -300, 7700, 20, 90, 70, 2200,
-    OP_LIGHT, 8000, -5000, 11900, 75, 80, 70, 6500,
-    OP_LIGHT, 10000, -300, 11900, 20, 90, 70, 2200,
-    OP_LIGHT, 8000, -5000, 16100, 75, 80, 70, 6500,
-    OP_LIGHT, 10000, -300, 16100, 20, 90, 70, 2200,
-    OP_LIGHT, 8000, -5000, 20300, 75, 80, 70, 6500,
-    OP_LIGHT, 10000, -300, 20300, 20, 90, 70, 2200,
-    OP_LIGHT, 8000, -5000, 24500, 75, 80, 70, 6500,
-    OP_LIGHT, 10000, -300, 24500, 20, 90, 70, 2200,
-    OP_CUR, 8,
-    OP_BOX, 8900, -3400, -18000, 12100, 0, -14600, LT_DARK_METAL, LT_MACHINE_BASE, 1000, 0,
-    OP_FAN, 10500, -1700, -14595, 1100, 1,
-    OP_CYL, 10500, -3400, -16300, 450, 0, -4100, 8, LT_PIPE, 0, 0, 0, 1, -1, 1,
-    OP_LIGHT, 10500, -1700, -13600, 110, 55, 25, 3600,
-    OP_BOX, 13900, -3400, -18000, 17100, 0, -14600, LT_DARK_METAL, LT_MACHINE_BASE, 1000, 0,
-    OP_FAN, 15500, -1700, -14595, 1100, -1,
-    OP_CYL, 15500, -3400, -16300, 450, 0, -4100, 8, LT_PIPE, 0, 0, 0, 1, -1, 1,
-    OP_LIGHT, 15500, -1700, -13600, 110, 55, 25, 3600,
-    OP_BOX, 18000, -1040, -18000, 22500, 0, -12000, LT_FLOOR_GRATE, LT_PLATE_SIDE, 900, 0,
-    OP_STAIRS, 18000, -12000, 20000, -10400, 1040, 0, 0,
-    OP_RAILX, 20000, 22500, -12000, 1040,
-    OP_RAILZ, -18000, -12000, 18000, 1040,
-    OP_CONSOLE, 21700, -17000, 1, LT_SCR_GRAPH, -1040,
-    OP_CONSOLE, 21700, -15000, 1, LT_SCR_GRAPH, -1040,
-    OP_CONSOLE, 21700, -13200, 1, LT_SCR_GRAPH, -1040,
-    OP_CEIL, 8, 72, 72, 78, 9000, 5000,
-    OP_CUR, 9,
-    OP_SPECIAL, 2, 21500, 8500, 0,
-    OP_LIGHT, 16000, -8500, 2000, 70, 70, 76, 10000,
-    OP_LIGHT, 27000, -8500, 2000, 70, 70, 76, 10000,
-    OP_LIGHT, 16000, -8500, 14000, 70, 70, 76, 10000,
-    OP_LIGHT, 27000, -8500, 14000, 70, 70, 76, 10000,
-    OP_END,
-
-};
 
 static void special_tank(float TX0, float TZ0)
 {
@@ -949,13 +495,7 @@ static void special_cell(float cx, float cz, float facing)
     light(v3(cx, -2300, cz), 1.0f, 0.15f, 0.12f, 2800);
 }
 
-static void special_cells(void)
-{
-    static const float CX[4] = { -26300, -24200, -19000, -16700 };
-    for (int ci = 0; ci < 4; ci++) { special_cell(CX[ci], -1200, 0); special_cell(CX[ci], 7200, GPI); }
-}
-
-static void special_core(float RX, float RZ)
+static void special_core(float RX, float RZ, int compact)
 {
     {
       static const int E[3] = { 170, 170, 170 };
@@ -964,21 +504,24 @@ static void special_core(float RX, float RZ)
       for (int k = 0; k < 3; k++) cylinder(v3(RX, -1300.f - 1300 * k, RZ), 1370, 0, -320, 12, LT_ENERGY, F_EMIT | F_PULSE, 6 + k % 2, E, 'y', -1, 1);
       cylinder(v3(RX, -5500, RZ), 1700, 0, -700, 12, LT_DARK_METAL, 0, 0, 0, 'y', LT_DARK_METAL, 1);
       CYL(v3(RX, -6200, RZ), 600, 0, -2800, 8, LT_PIPE);
-      cylinder(v3(RX + 1650, -6000, RZ), 320, 0, 5850, 8, LT_PIPE, 0, 0, 0, 'x', -1, 1);
-      cylinder(v3(RX - 7500, -6000, RZ), 320, 0, 5850, 8, LT_PIPE, 0, 0, 0, 'x', -1, 1);
-      cylinder(v3(RX, -6000, RZ + 1650), 320, 0, 5850, 8, LT_PIPE, 0, 0, 0, 'z', -1, 1);
+      if (!compact) cylinder(v3(RX + 1650, -6000, RZ), 320, 0, 5850, 8, LT_PIPE, 0, 0, 0, 'x', -1, 1);
+      if (!compact) cylinder(v3(RX - 7500, -6000, RZ), 320, 0, 5850, 8, LT_PIPE, 0, 0, 0, 'x', -1, 1);
+      if (!compact) cylinder(v3(RX, -6000, RZ + 1650), 320, 0, 5850, 8, LT_PIPE, 0, 0, 0, 'z', -1, 1);
       cyl_collide(RX, RZ, 2200, 300);
       coll(RX - 1400, RZ - 1400, RX + 1400, RZ + 1400, 9000);
       occl(RX - 1000, -5500, RZ - 1000, RX + 1000, 0, RZ + 1000);
       light(v3(RX, -2600, RZ), 1.5f, 0.75f, 0.3f, 14000); light(v3(RX, -7000, RZ), 0.8f, 0.5f, 0.3f, 8000);
       sprite((int)RX, -2600, (int)RZ, 2300, 255, 150, 60, 6, CUR);
-      for (int k = 0; k < 6; k++) { float a = k * GPI / 3 + GPI / 6; console(RX + gsin(a) * 5200, RZ + gcos(a) * 5200, a + GPI, k % 2 ? LT_SCR_GRAPH : LT_SCR_VITALS, 0); } }
+      if (!compact) for (int k = 0; k < 6; k++) { float a = k * GPI / 3 + GPI / 6; console(RX + gsin(a) * 5200, RZ + gcos(a) * 5200, a + GPI, k % 2 ? LT_SCR_GRAPH : LT_SCR_VITALS, 0); } }
 }
 
 static void place_props_from(const short *p)
 {
+    float base = 0;                         /* OP_BASE: the floor the next props stand on (up-positive) */
     for (;;) {
         int op = *p++;
+        int f0 = nfaces, c0 = ncols, o0 = nocc, l0 = nlights, s0 = nsprites, fa0 = nfans, r0 = nrings;
+        if (op == OP_BASE) { base = p[0]; p += 1; continue; }
 #define A(i) ((float)p[i])
         switch (op) {
         case OP_END: return;
@@ -994,12 +537,10 @@ static void place_props_from(const short *p)
             }
             box_(A(0), A(1), A(2), A(3), A(4), A(5), o);
             p += op == OP_BOXF ? 13 : 10; break; }
-        case OP_STAIRS: stairs(A(0), A(1), A(2), A(3), A(4), p[5], p[6]); p += 7; break;
         case OP_RAILX: rail_x(A(0), A(1), A(2), A(3)); p += 4; break;
         case OP_RAILZ: rail_z(A(0), A(1), A(2), A(3)); p += 4; break;
         case OP_CRATE: crate(A(0), A(1), A(2), A(3)); p += 4; break;
         case OP_CAN: canister(A(0), A(1)); p += 2; break;
-        case OP_CEIL: ceiling_lights(p[0], A(1) / 100.f, A(2) / 100.f, A(3) / 100.f, A(4), A(5), 0); p += 6; break;
         case OP_LIGHT: light(v3(A(0), A(1), A(2)), A(3) / 100.f, A(4) / 100.f, A(5) / 100.f, A(6)); p += 7; break;
         case OP_SPRITE: sprite(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], CUR); p += 8; break;
         case OP_CONSOLE: console(A(0), A(1), facing_of(p[2]), p[3], A(4)); p += 5; break;
@@ -1022,12 +563,21 @@ static void place_props_from(const short *p)
             p += 5; break;
         case OP_SPECIAL:
             if (p[0] == SPECIAL_TANK) special_tank(A(1), A(2));
-            else if (p[0] == SPECIAL_CELLS) special_cells();
-            else if (p[0] == SPECIAL_CORE) special_core(A(1), A(2));
+            else if (p[0] == SPECIAL_CORE) special_core(A(1), A(2), p[3]);
             else special_cell(A(1), A(2), facing_of(p[3]));
             p += 4; break;
         }
 #undef A
+        if (base != 0) {                    /* lift what that prop added onto its floor */
+            for (int i = f0; i < nfaces; i++) for (int k = 0; k < 4; k++) faces[i].p[k].y -= base;
+            for (int i = f0; i < nfaces; i++) faces[i].base -= base;
+            for (int i = c0; i < ncols; i++) { cols[i].h += base; cols[i].lo += base; }
+            for (int i = o0; i < nocc; i++) { occ[i].y0 -= base; occ[i].y1 -= base; }
+            for (int i = l0; i < nlights; i++) lights[i].p.y -= base;
+            for (int i = s0; i < nsprites; i++) sprites[i].y = (s16)(sprites[i].y - base);
+            for (int i = fa0; i < nfans; i++) fans[i].y = (s16)(fans[i].y - base);
+            for (int i = r0; i < nrings; i++) { rings[i].yt = (s16)(rings[i].yt - base); rings[i].yb = (s16)(rings[i].yb - base); }
+        }
     }
 }
 
@@ -1248,10 +798,16 @@ static void wall_part(unsigned spec, V3 a, V3 b, float Ba, float Bb, float Ta, f
         }
         if (top != 255 && ht - lim > 1) { band[nb][0] = lim; band[nb][1] = ht; band[nb][2] = ht; btile_row[nb] = -1; batop[nb] = 1; nb++; }
     }
-    /* columns along t from b */
-    float c0 = 0;
+    /* columns along t from b: on the world's 2 m grid (so neighbouring walls and steps carry on
+       where the last left off), or from the wall's end / centred on it */
+    float c0;
     if (wflags & WF_ALIGN_END) c0 = L - T * gfloor(L / T + 0.999f);
     else if (wflags & WF_ALIGN_MID) c0 = -(T * gfloor(L / T + 0.999f) - L) / 2;
+    else {
+        V3 d = mul(sub(a, b), 1 / L);
+        float s0 = b.x * d.x + b.z * d.z, m = s0 - T * gfloor(s0 / T);
+        c0 = m > 1 && m < T - 1 ? -m : 0;
+    }
     int col = 0;
     for (float cs = c0; cs < L - 1; cs += T, col++) {
         float t0 = gmax(0, cs), t1 = gmin(L, cs + T);
@@ -1263,7 +819,10 @@ static void wall_part(unsigned spec, V3 a, V3 b, float Ba, float Bb, float Ta, f
             else { int rr = r < nrows ? r : nrows - 1; tile = rows[rr][col % rl[rr]]; }
             for (int k = 0; k < nov; k++) if (ov[k * 3] == col && ov[k * 3 + 1] == (r < 0 ? nb - 1 : r)) tile = ov[k * 3 + 2];
             float h0 = band[bi][0], h1 = band[bi][1], anc = band[bi][2];
-            int nu = iceil((t1 - t0) / SUBW - 1e-3f), nv = iceil((h1 - h0) / SUBW - 1e-3f);
+            /* 1 m pieces near the floor (the PS1's affine texturing warps big polygons close up);
+               whole 2 m cells higher up */
+            int low = h0 < gmin(Fa, Fb) + 4096;
+            int nu = low ? iceil((t1 - t0) / SUBW - 1e-3f) : 1, nv = low ? iceil((h1 - h0) / SUBW - 1e-3f) : 1;
             for (int j = 0; j < nv; j++)
                 for (int i = 0; i < nu; i++) {
                     float u0 = t0 + (t1 - t0) * i / nu, u1 = t0 + (t1 - t0) * (i + 1) / nu;
@@ -1382,7 +941,7 @@ static int map_inside(const MapSector *s, float x, float z)
 static void gen_map_geometry(void)
 {
     MAP = map_sel;
-    nfaces = nocc = ncols = nlights = nsprites = nfans = nrings = npods = nceils = nareas = nwsegs = 0;
+    nfaces = nocc = ncols = nlights = nsprites = nfans = nrings = npods = nareas = nwsegs = 0;
     /* rooms are the areas: bounds and links from the sectors */
     for (int r = 0; r < MAP->nrooms && r < 32; r++) {
         Area *a = &areas[nareas++];
@@ -1419,13 +978,12 @@ static void gen_map_geometry(void)
     for (int i = 0; i < ncols; i++) {
         LabBox *b = &lab.boxes[i];
         b->x0 = (s16)(int)cols[i].x0; b->z0 = (s16)(int)cols[i].z0; b->x1 = (s16)(int)cols[i].x1; b->z1 = (s16)(int)cols[i].z1;
-        b->h = (s16)(int)gmin(cols[i].h, 32000);
+        b->h = (s16)(int)gmin(cols[i].h, 32000); b->lo = (s16)(int)cols[i].lo;
     }
     memcpy(lab.sprites, sprites, sizeof(sprites)); lab.nsprites = nsprites;
     memcpy(lab.fans, fans, sizeof(fans)); lab.nfans = nfans;
     memcpy(lab.rings, rings, sizeof(rings)); lab.nrings = nrings;
     memcpy(lab.pods, pods, sizeof(pods)); lab.npods = npods;
-    lab.nceil = 0;
     lab.nareas = nareas;
     for (int i = 0; i < nareas; i++) {
         unsigned seen = 1u << i, frontier = seen;
@@ -1516,102 +1074,10 @@ static void gen_map_geometry(void)
     free(wsegs); wsegs = 0; nwsegs = capwsegs = 0;
 }
 
-#define SPAWN_X -19000
-#define SPAWN_Z -26500
-static const int ROUTE_HALLS_N = 9;
-
 void gen_lab_geometry(void)
 {
-    if (map_sel) { gen_map_geometry(); return; }
-    nfaces = nocc = ncols = nlights = nsprites = nfans = nrings = npods = nceils = nareas = 0;
-    int DOCK = area("Loading Dock", -26000, -30000, -12000, -20000, 6500, 0);
-    int CHECK = area("Security Checkpoint", -6000, -28000, 2000, -22000, 4500, 0);
-    int PROC = area("Processing Hall", -10000, -16000, 6000, -8000, 5500, 0);
-    int EXTR = area("Extraction Hall", -9000, -4000, 5000, 10000, 6500, 0);
-    int CONT = area("Containment Block", -28000, -2000, -15000, 8000, 4800, 0);
-    int LAB = area("Research Lab", -27000, 14000, -16000, 22000, 4200, 0);
-    int VAULT = area("Server Vault", -10000, 13000, 0, 23000, 4500, 0);
-    int GALL = area("Pipe Gallery", 6000, 2000, 11000, 26000, 6000, 0);
-    int TURB = area("Turbine Hall", 6300, -18000, 22500, -4000, 7500, 0);
-    int CORE = area("Reactor Core", 14000, 0, 29000, 16000, 9000, 0);
-    int H[10];
-    H[0] = hall_between("Dock Hall", DOCK, CHECK, -25000);
-    H[1] = hall_between("Checkpoint Hall", CHECK, PROC, -2000);
-    H[2] = hall_between("Processing Hall North", PROC, EXTR, -2000);
-    H[3] = hall_between("Containment Hall", CONT, EXTR, 3000);
-    H[4] = hall_between("Lab Hall", CONT, LAB, -21600);
-    H[5] = hall_between("Vault Hall", LAB, VAULT, 18000);
-    H[6] = hall_between("Gallery Hall", VAULT, GALL, 18000);
-    H[7] = hall_between("Shortcut Hall", EXTR, GALL, 4000);
-    H[8] = hall_between("Turbine Hall Stair", TURB, GALL, 7900);
-    H[9] = hall_between("Core Hall", TURB, CORE, 21000);
-
-    build_shell(DOCK, f_dock, 0); build_shell(CHECK, 0, 0); build_shell(PROC, f_proc, 0); build_shell(EXTR, 0, 0);
-    build_shell(CONT, f_cont, 0); build_shell(LAB, f_lab, 0); build_shell(VAULT, f_vault, 0); build_shell(GALL, f_gall, 0);
-    build_shell(TURB, f_turb, 0); build_shell(CORE, f_core, 0);
-    for (int k = 0; k < 10; k++) { build_shell(H[k], 0, 0); dress_hall(H[k]); }
-
-    place_props_from(PROPS);
-
-    bake();
-    export_mesh();
-
-    /* the rest of LabData */
-    lab.nboxes = ncols; lab.boxes = (LabBox *)malloc(sizeof(LabBox) * (size_t)ncols);
-    for (int i = 0; i < ncols; i++) {
-        LabBox *b = &lab.boxes[i];
-        b->x0 = (s16)(int)cols[i].x0; b->z0 = (s16)(int)cols[i].z0; b->x1 = (s16)(int)cols[i].x1; b->z1 = (s16)(int)cols[i].z1;
-        b->h = (s16)(int)gmin(cols[i].h, 32000);
-    }
-    memcpy(lab.sprites, sprites, sizeof(sprites)); lab.nsprites = nsprites;
-    memcpy(lab.fans, fans, sizeof(fans)); lab.nfans = nfans;
-    memcpy(lab.rings, rings, sizeof(rings)); lab.nrings = nrings;
-    memcpy(lab.pods, pods, sizeof(pods)); lab.npods = npods;
-    lab.nceil = nceils;
-    for (int i = 0; i < nceils; i++) { LabBox *b = &lab.ceil[i]; b->x0 = (s16)ceils[i].x0; b->z0 = (s16)ceils[i].z0; b->x1 = (s16)ceils[i].x1; b->z1 = (s16)ceils[i].z1; b->h = (s16)ceils[i].h; }
-    lab.nareas = nareas;
-    for (int i = 0; i < nareas; i++) {
-        unsigned seen = 1u << i, frontier = seen;
-        for (int s = 0; s < 2; s++) {
-            unsigned nxt = 0;
-            for (int a = 0; a < nareas; a++) if (frontier & (1u << a)) nxt |= areas[a].links;
-            seen |= nxt; frontier = nxt;
-        }
-        LabArea *o = &lab.areas[i];
-        o->x0 = (s16)areas[i].x0; o->z0 = (s16)areas[i].z0; o->x1 = (s16)areas[i].x1; o->z1 = (s16)areas[i].z1; o->pvs = seen; o->name = areas[i].name;
-    }
-    /* camera views: back corner of each room, looking across it */
-    lab.nviews = 0;
-    for (int i = 0; i < nareas; i++) {
-        const Area *a = &areas[i];
-        if (a->hall) continue;
-        float cx = a->x0 + (a->x1 - a->x0) * 0.12f, cz = a->z0 + (a->z1 - a->z0) * 0.12f;
-        LabView *v = &lab.views[lab.nviews++];
-        v->name = a->name; v->x = (s32)cx; v->y = (s32)-gmin(a->H - 600, 3200); v->z = (s32)cz;
-        v->yaw = iround(gatan2((a->x0 + a->x1) / 2 - cx, (a->z0 + a->z1) / 2 - cz) / (2 * GPI) * 4096) & 4095; v->pitch = 170;
-    }
-    /* route waypoints: spawn, through every route hall, to the reactor */
-    {
-        static const int RH[9] = { 0, 1, 2, 3, 4, 5, 6, 8, 9 };
-        float px = SPAWN_X, pz = SPAWN_Z;
-        int n = 0;
-        lab.route[n][0] = SPAWN_X; lab.route[n++][1] = SPAWN_Z;
-        for (int k = 0; k < ROUTE_HALLS_N; k++) {
-            const Area *a = &areas[H[RH[k]]];
-            float cx = (a->x0 + a->x1) / 2, cz = (a->z0 + a->z1) / 2, e[2][2], dx, dz;
-            if (a->axis_x) { e[0][0] = a->x0; e[0][1] = cz; e[1][0] = a->x1; e[1][1] = cz; dx = 1; dz = 0; }
-            else { e[0][0] = cx; e[0][1] = a->z0; e[1][0] = cx; e[1][1] = a->z1; dx = 0; dz = 1; }
-            if ((e[1][0] - px) * (e[1][0] - px) + (e[1][1] - pz) * (e[1][1] - pz) < (e[0][0] - px) * (e[0][0] - px) + (e[0][1] - pz) * (e[0][1] - pz)) {
-                float t0 = e[0][0], t1 = e[0][1]; e[0][0] = e[1][0]; e[0][1] = e[1][1]; e[1][0] = t0; e[1][1] = t1; dx = -dx; dz = -dz;
-            }
-            float pts[4][2] = { { e[0][0] - dx * 2000, e[0][1] - dz * 2000 }, { e[0][0], e[0][1] }, { e[1][0], e[1][1] }, { e[1][0] + dx * 2000, e[1][1] + dz * 2000 } };
-            for (int q = 0; q < 4; q++) { lab.route[n][0] = (s32)pts[q][0]; lab.route[n++][1] = (s32)pts[q][1]; }
-            px = pts[3][0]; pz = pts[3][1];
-        }
-        lab.route[n][0] = 18500; lab.route[n++][1] = 5000;
-        lab.nroute = n;
-    }
-    free(faces); faces = 0; nfaces = capfaces = 0;
+    if (!map_sel) map_sel = &map_e1;                 /* the game's level */
+    gen_map_geometry();
 }
 
 void gen_lab(void)
