@@ -248,10 +248,18 @@ static void audio_update(void)
     rv = (int)clamp(3400 - d * 3400 / 15000, 500, 3400);
     snd_loop(0, SFX_AMB_HUM, play ? 1500 : menu ? 1100 : 700, 0, 4096);
     snd_loop(1, SFX_AMB_REACTOR, play ? rv : menu ? 1700 : 600, play ? pan_of(tank.vx, tank.vz) : 0, menu ? 3500 : 4096);
-    /* her chainsaw: idles, revs and climbs in pitch as she runs */
-    snd_loop(2, SFX_SAW_IDLE, play ? 1250 : 0, 400, 4096 + pl.speed * 9);
-    snd_loop(3, SFX_SAW_REV, play ? (pl.atk_w ? 3400 * pl.atk_w >> 12 : (pl.runw * 2400 >> 12) + (pl.grounded ? 0 : 500)) : 0, 400,
-             pl.atk_w ? 4700 : 3500 + pl.runw / 5 + pl.speed * 4);
+    /* her chainsaw: one quiet idle loop. Running opens the throttle a little (louder, higher);
+       an attack builds the revs up while she swings, then they settle back down to the idle */
+    {
+        static int throttle;                                   /* 0..4096 */
+        int want = play ? (pl.runw * 1400 >> 12) + (pl.speed * 3) : 0;
+        if (play && pl.atk) want = 2600 + (pl.atk_w * 1400 >> 12);
+        if (want > 4096) want = 4096;
+        throttle += want > throttle ? (want - throttle) / 10 + 1 : (want - throttle) / 24 - (want < throttle);
+        if (!play) throttle = 0;
+        snd_loop(2, SFX_SAW_IDLE, play ? 1200 + (throttle * 1500 >> 12) : 0, 400, 4096 + (throttle * 2600 >> 12));
+        snd_loop(3, SFX_SAW_REV, 0, 400, 4096);                /* the loud rev loop is no longer used */
+    }
     /* distant plant noises and the moans of captive shinigami */
     if (gs != GS_PAUSE && --amb_timer <= 0) {
         int r = rnd(100), id = r < 36 ? SFX_AMB_STEAM : r < 68 ? SFX_AMB_CLANK : r < 90 ? SFX_AMB_WAIL : SFX_AMB_ALARM;
