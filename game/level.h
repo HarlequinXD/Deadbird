@@ -32,6 +32,7 @@ typedef struct { s16 x0, z0, x1, z1; u32 pvs; const char *name; } LabArea;   /* 
 typedef struct { const char *name; s32 x, y, z; int yaw, pitch; } LabView;
 
 void level_init(void);
+void level_reload_textures(void);   /* re-upload the texture pages (after the title borrowed them) */
 /* highest walkable ground at (x,z) for something currently at height cur_y */
 s32  level_ground(s32 x, s32 z, s32 cur_y);
 /* push a circle out of blocking geometry; returns 1 if it was blocked, with push normal (4.12) */

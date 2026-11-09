@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include "deadbird.h"
+#include "snd.h"
 #include "gpu.h"
 
 
@@ -39,7 +40,39 @@ static void write_bmp(const char *dir, const char *name)
 }
 
 static int frames_run;
-static void run(u32 pad, int n) { int i; for (i = 0; i < n; i++) { game_frame(pad); frames_run++; } }
+/* the game's sound, mixed exactly as the Android/Windows builds do, saved as a WAV of the session */
+#define AUDIO_MAX (SND_RATE * 60)
+static s16 audio[AUDIO_MAX * 2];
+static int audio_n, audio_acc;
+static void frame(u32 pad)
+{
+    int n;
+    game_frame(pad);
+    frames_run++;
+    audio_acc += SND_RATE;
+    n = audio_acc / 60; audio_acc -= n * 60;
+    if (audio_n + n <= AUDIO_MAX) { snd_mix(&audio[audio_n * 2], n); audio_n += n; }
+}
+static void run(u32 pad, int n) { int i; for (i = 0; i < n; i++) frame(pad); }
+
+static void write_wav(const char *dir)
+{
+    char path[512];
+    FILE *f;
+    unsigned char h[44] = { 'R','I','F','F',0,0,0,0,'W','A','V','E','f','m','t',' ',16,0,0,0,1,0,2,0,
+                            0,0,0,0,0,0,0,0,4,0,16,0,'d','a','t','a' };
+    unsigned data = (unsigned)audio_n * 4, rate = SND_RATE, bps = SND_RATE * 4, riff = data + 36;
+    int k;
+    for (k = 0; k < 4; k++) { h[4 + k] = (unsigned char)(riff >> (8 * k)); h[24 + k] = (unsigned char)(rate >> (8 * k));
+                              h[28 + k] = (unsigned char)(bps >> (8 * k)); }
+    sprintf(path, "%s/session_audio.wav", dir);
+    f = fopen(path, "wb");
+    if (!f) return;
+    fwrite(h, 1, 40, f);
+    fwrite(&data, 4, 1, f);
+    fwrite(audio, 4, (size_t)audio_n, f);
+    fclose(f);
+}
 
 int main(int argc, char **argv)
 {
@@ -83,7 +116,7 @@ int main(int argc, char **argv)
     write_bmp(out, "09_turn_back_toward_camera");
     run(PAD_R1, 30);
     write_bmp(out, "10_camera_swing");
-    for (i = 0; i < 400; i++) { game_frame(PAD_LEFT); frames_run++; }
+    for (i = 0; i < 400; i++) frame(PAD_LEFT);
     write_bmp(out, "11_after_walk");
     /* back off, then run into the wall again: she should just stop and lean on it */
     run(0, 20); run(PAD_RIGHT, 40); run(0, 10);
@@ -116,6 +149,8 @@ int main(int argc, char **argv)
         printf("stick held right for 150 frames: turned %d degrees\n", total * 360 / 4096);
         if (total < 1024) { printf("FAIL: holding the stick sideways doesn't keep turning\n"); return 1; }
     }
+    write_wav(out);
+    printf("audio: %.1f s mixed\n", audio_n / (double)SND_RATE);
     printf("ran %d frames, %.3f ms/frame avg\n", frames_run,
            (double)(clock() - t0) * 1000.0 / CLOCKS_PER_SEC / frames_run);
     return 0;

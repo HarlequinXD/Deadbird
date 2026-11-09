@@ -22,6 +22,7 @@
 #include <math.h>
 #include <string.h>
 #include "deadbird.h"
+#include "snd.h"
 /* the engine names its VRAM rectangle RECT like libgpu does; keep it apart from Win32's RECT */
 #define RECT PSX_RECT
 #include "gpu.h"
@@ -226,6 +227,42 @@ static u32 read_input(void)
     return pad;
 }
 
+/* ------------------------------------------------------------------ sound (waveOut, no extra DLLs) */
+#define AUD_BUFS   8
+#define AUD_FRAMES 512                       /* 23 ms each at 22 kHz */
+static HWAVEOUT wout;
+static WAVEHDR whdr[AUD_BUFS];
+static s16 wbuf[AUD_BUFS][AUD_FRAMES * 2];
+
+static void audio_open(void)
+{
+    WAVEFORMATEX wf;
+    int i;
+    memset(&wf, 0, sizeof(wf));
+    wf.wFormatTag = WAVE_FORMAT_PCM; wf.nChannels = 2; wf.nSamplesPerSec = SND_RATE; wf.wBitsPerSample = 16;
+    wf.nBlockAlign = 4; wf.nAvgBytesPerSec = SND_RATE * 4;
+    if (waveOutOpen(&wout, WAVE_MAPPER, &wf, 0, 0, CALLBACK_NULL) != MMSYSERR_NOERROR) { wout = 0; return; }
+    for (i = 0; i < AUD_BUFS; i++) {
+        memset(&whdr[i], 0, sizeof(whdr[i]));
+        whdr[i].lpData = (LPSTR)wbuf[i]; whdr[i].dwBufferLength = sizeof(wbuf[i]);
+        waveOutPrepareHeader(wout, &whdr[i], sizeof(WAVEHDR));
+        whdr[i].dwFlags |= WHDR_DONE;
+    }
+}
+
+/* refill every buffer the device has finished with (called each loop: keeps ~50-180 ms queued) */
+static void audio_pump(void)
+{
+    int i;
+    if (!wout) return;
+    for (i = 0; i < AUD_BUFS; i++)
+        if (whdr[i].dwFlags & WHDR_DONE) {
+            snd_mix(wbuf[i], AUD_FRAMES);
+            whdr[i].dwFlags &= ~(DWORD)WHDR_DONE;
+            waveOutWrite(wout, &whdr[i], sizeof(WAVEHDR));
+        }
+}
+
 int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
 {
     WNDCLASSA wc;
@@ -240,7 +277,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
     wc.lpfnWndProc = wndproc;
     wc.hInstance = inst;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.hIcon = LoadIcon(NULL, IDI_APPLICATION);
+    wc.hIcon = LoadIcon(inst, MAKEINTRESOURCE(1));          /* the Deadbird skull (deadbird.rc) */
     wc.lpszClassName = "Deadbird";
     RegisterClassA(&wc);
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
@@ -259,6 +296,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
     xinput_load();
     game_init();
     game_set_touch_ui(0);
+    audio_open();
 
     QueryPerformanceFrequency(&freq);
     QueryPerformanceCounter(&last);
@@ -280,6 +318,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
             acc -= step;
             ticks++;
         }
+        audio_pump();
         if (ticks) {
             HDC dc = GetDC(wnd);
             present(dc);
@@ -289,6 +328,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
         }
     }
     if (x_set && pad_slot >= 0) { XVibe off = { 0, 0 }; x_set((DWORD)pad_slot, &off); }
+    if (wout) { waveOutReset(wout); waveOutClose(wout); }
     timeEndPeriod(1);
     return 0;
 }

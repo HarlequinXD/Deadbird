@@ -16,4 +16,4 @@ set_target_properties(deadbird PROPERTIES C_STANDARD 99)
 target_compile_options(deadbird PRIVATE -O2 -Wall)
 # keep the NativeActivity entry point from the static glue library
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -u ANativeActivity_onCreate")
-target_link_libraries(deadbird native_app_glue android EGL GLESv2 log m)
+target_link_libraries(deadbird native_app_glue android EGL GLESv2 OpenSLES log m)

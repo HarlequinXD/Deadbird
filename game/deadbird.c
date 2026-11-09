@@ -1,6 +1,6 @@
 /*
  * Deadbird - third-person shooter test level.
- * Title (Deadbird roaming the level on autopilot behind the menu) -> controls -> play.
+ * Title (painted backdrop + menu) -> controls -> play. Sound effects and ambience via snd.h.
  * Pure fixed-point C, no floats, no malloc: PS1-portable.
  */
 #include "deadbird.h"
@@ -10,6 +10,8 @@
 #include "model.h"
 #include "player.h"
 #include "level.h"
+#include "ui.h"
+#include "snd.h"
 #include "ik.h"
 #include "fk.h"
 #include "hud.h"
@@ -48,7 +50,6 @@ const TouchButton touch_buttons[] = {
     { 300, 122, 11, PAD_START },
 };
 const int touch_button_count = (int)(sizeof(touch_buttons) / sizeof(touch_buttons[0]));
-static const char *touch_labels[] = { "J", "R", "<", ">", "II" };
 
 u32 touch_hit(int x, int y)
 {
@@ -79,25 +80,11 @@ int  game_phase(void) { return gs; }
 void game_debug_side_cam(int on) { debug_side_cam = on; }
 int  game_debug_player_yaw(void) { return pl.yaw; }
 
-/* ------------------------------------------------------------------ attract autopilot */
-static u32 autopilot(int t)
-{
-    /* wander: walk, run, curve left and right, jump now and then, stop to idle */
-    int ph = t % 900;
-    u32 b = PAD_UP;
-    if (ph > 200 && ph < 420) b |= BTN_RUN;
-    if ((t / 50) % 6 == 1) b |= PAD_RIGHT;
-    if ((t / 70) % 7 == 4) b |= PAD_LEFT;
-    if (ph == 300 || ph == 700) b |= BTN_JUMP;
-    if (ph > 840) b = 0;                        /* stop to show the idle stance */
-    return b;
-}
-
 static void start_play(void)
 {
     s32 sx, sz;
     int syaw;
-    level_init();
+    level_reload_textures();                 /* the title backdrop borrowed the level's pages */
     fx_reset();
     level_spawn(&sx, &sz, &syaw);
     player_reset(&pl, sx, sz, syaw);
@@ -118,6 +105,7 @@ static void go_title(void)
     cam_clip = 2900;
     gs = GS_TITLE; gs_t = 0;
     title_reset();
+    ui_title_bg_upload();
 }
 
 void game_init(void)
@@ -141,6 +129,8 @@ void game_init(void)
     }
     player_init(&demon);
     hud_init();
+    ui_init();
+    snd_init();
     title_init();
     cam_dist = 2700; cam_h = 1650;
     go_title();
@@ -186,12 +176,56 @@ static void read_move(u32 pad, int *yaw, int *mag)
     *yaw = (cam_yaw + player_input_angle(dx, dz)) & 4095;
 }
 
+/* ------------------------------------------------------------------ sound */
+static int amb_timer = 120, was_grounded = 1;
+static s32 clamp(s32 v, s32 lo, s32 hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+static int rnd(int n) { return (int)(fx_rand() % (u32)n); }
+
+/* pan of a world point as heard from the camera (-4096 left .. 4096 right) */
+static int pan_of(s32 x, s32 z)
+{
+    s32 dx = x - pl.x, dz = z - pl.z, d = (s32)isqrt((u32)((dx >> 4) * (dx >> 4) + (dz >> 4) * (dz >> 4))) << 4;
+    if (d < 64) return 0;
+    return (int)((dx * -icos(cam_yaw) + dz * isin(cam_yaw)) / d) * 3 / 4;
+}
+
+/* loops and ambience, once per 60 Hz tick */
+static void audio_update(void)
+{
+    int play = gs == GS_PLAY, menu = gs == GS_TITLE || gs == GS_CONTROLS;
+    VECTOR tank;
+    s32 dx, dz, d;
+    int rv;
+    /* power-plant hum everywhere; the reactor drone swells near the great tank */
+    level_tank(&tank);
+    dx = (tank.vx - pl.x) >> 4; dz = (tank.vz - pl.z) >> 4;
+    d = (s32)isqrt((u32)(dx * dx + dz * dz)) << 4;
+    rv = (int)clamp(3400 - d * 3400 / 15000, 500, 3400);
+    snd_loop(0, SFX_AMB_HUM, play ? 1500 : menu ? 1100 : 700, 0, 4096);
+    snd_loop(1, SFX_AMB_REACTOR, play ? rv : menu ? 1700 : 600, play ? pan_of(tank.vx, tank.vz) : 0, menu ? 3500 : 4096);
+    /* her chainsaw: idles, revs and climbs in pitch as she runs */
+    snd_loop(2, SFX_SAW_IDLE, play ? 1250 : 0, 400, 4096 + pl.speed * 9);
+    snd_loop(3, SFX_SAW_REV, play ? (pl.runw * 2400 >> 12) + (pl.grounded ? 0 : 500) : 0, 400, 3500 + pl.runw / 5 + pl.speed * 4);
+    /* distant plant noises and the moans of captive shinigami */
+    if (gs != GS_PAUSE && --amb_timer <= 0) {
+        int r = rnd(100), id = r < 36 ? SFX_AMB_STEAM : r < 68 ? SFX_AMB_CLANK : r < 90 ? SFX_AMB_WAIL : SFX_AMB_ALARM;
+        if (menu && id == SFX_AMB_STEAM) id = SFX_AMB_WAIL;
+        snd_play(id, 1300 + rnd(1500), rnd(6001) - 3000, 3500 + rnd(1200));
+        amb_timer = 150 + rnd(360);
+    }
+}
+
 static void simulate(u32 pad)
 {
     int myaw, mmag;
     camera_update(pad);
     read_move(pad, &myaw, &mmag);
     player_update(&pl, pad, myaw, mmag);
+    if (was_grounded && !pl.grounded && pl.vy < -600) snd_play(SFX_JUMP, 3000, 0, 3800 + rnd(600));
+    was_grounded = pl.grounded;
+    if (pl.land_t == 1)                                                       /* boom, scaled by the fall */
+        snd_play(SFX_LAND, (int)clamp(pl.land_amp, 1300, 4096), 0, 4500 - pl.land_amp / 6);
     if (pl.land_t == 1 && pl.land_amp > 1500) rumble = pl.land_amp >> 4;      /* thump on a hard landing */
     if (pl.land_t == 1 && pl.land_amp > 1000) {                               /* screen shake on landing */
         land_shake_t = 0;
@@ -205,6 +239,9 @@ static void simulate(u32 pad)
             land_shake_t = 9;
             land_shake_amp = 22 + (pl.runw * 26 >> 12);
         }
+        if (half != prev_half && pl.grounded && pl.amp > 1200 && pl.land_t > 4)  /* hoof on the grating */
+            snd_play(pl.runw > 2048 ? SFX_STEP_RUN : SFX_STEP, 1700 + (pl.amp >> 3) + (pl.runw >> 2),
+                     half ? 900 : -900, 3700 + rnd(700));
         prev_half = half;
     }                                             /* chain idles, revs when she runs */
     player_pose(&pl, &demon);
@@ -217,57 +254,43 @@ static void flow(u32 pad, u32 press)
     gs_t++;
     switch (gs) {
     case GS_TITLE: {
-        int c;
-        simulate(autopilot(gs_t));
-        c = title_update(pad, press);
+        int c = title_update(pad, press);
         if (c == MENU_PLAY) start_play();
         else if (c == MENU_CONTROLS) { gs = GS_CONTROLS; gs_t = 0; }
         break;
     }
     case GS_CONTROLS:
-        simulate(autopilot(gs_t + 300));
-        if (gs_t > 10 && (press & (PAD_CROSS | PAD_START | PAD_CIRCLE | PAD_SQUARE | PAD_TRIANGLE))) { gs = GS_TITLE; gs_t = 0; title_reset(); }
+        if (gs_t > 10 && (press & (PAD_CROSS | PAD_START | PAD_CIRCLE | PAD_SQUARE | PAD_TRIANGLE))) {
+            gs = GS_TITLE; gs_t = 0; title_reset(); snd_play(SFX_UI_MOVE, 3000, 0, 3600);
+        }
         break;
     case GS_PLAY:
-        if (press & PAD_START) { gs = GS_PAUSE; gs_t = 0; break; }
+        if (press & PAD_START) { gs = GS_PAUSE; gs_t = 0; snd_play(SFX_PAUSE, 3600, 0, 4096); break; }
         simulate(pad);
         break;
     case GS_PAUSE:
-        if (press & PAD_START) { gs = GS_PLAY; gs_t = 0; }
-        if (press & (PAD_SELECT | BTN_JUMP)) go_title();
+        if (press & PAD_START) { gs = GS_PLAY; gs_t = 0; snd_play(SFX_PAUSE, 2600, 0, 5200); }
+        if (press & (PAD_SELECT | BTN_JUMP)) { snd_play(SFX_UI_OK, 3600, 0, 3400); go_title(); }
         break;
     }
 }
 
 /* ------------------------------------------------------------------ rendering */
-static void ring(FrameBuf *fb, int cx, int cy, int r, u32 col)
-{
-    static const s16 cs[9] = { 4096, 2896, 0, -2896, -4096, -2896, 0, 2896, 4096 };
-    static const s16 sn[9] = { 0, 2896, 4096, 2896, 0, -2896, -4096, -2896, 0 };
-    int k;
-    for (k = 0; k < 8; k++)
-        tri_f(fb, cx, cy, cx + (r * cs[k] >> 12), cy + (r * sn[k] >> 12),
-              cx + (r * cs[k + 1] >> 12), cy + (r * sn[k + 1] >> 12), col, SEMI_ADD, 0);
-}
-
 static void draw_touch(FrameBuf *fb)
 {
+    static const int icon_of[] = { UI_ICON_JUMP, UI_ICON_SPRINT, UI_ICON_CAM_L, UI_ICON_CAM_R, UI_ICON_PAUSE };
     int i;
-    /* floating stick: base where the thumb landed, knob follows (hint shown when idle) */
+    /* floating stick: a runic iron ring where the thumb landed, the demon eye follows the thumb */
     if (stick_on) {
         s32 dx = stick_x - stick_ox, dy = stick_y - stick_oy, len = (s32)isqrt((u32)(dx * dx + dy * dy));
         if (len > STICK_R) { dx = dx * STICK_R / len; dy = dy * STICK_R / len; }
-        ring(fb, stick_ox, stick_oy, STICK_R + 4, RGB(46, 10, 6));
-        ring(fb, stick_ox + dx, stick_oy + dy, 15, RGB(150, 46, 18));
+        ui_stick(fb, stick_ox, stick_oy, stick_ox + dx, stick_oy + dy, STICK_R, 1, frame_count);
     } else {
-        ring(fb, 52, 184, STICK_R + 4, RGB(26, 6, 4));
-        ring(fb, 52, 184, 13, RGB(60, 18, 8));
+        ui_stick(fb, 52, 184, 52, 184, STICK_R, 0, frame_count);
     }
     for (i = 0; i < touch_button_count; i++) {
         const TouchButton *b = &touch_buttons[i];
-        int lit = (cur_pad & b->button) != 0, c = lit ? 150 : 60;
-        ring(fb, b->x, b->y, b->r, RGB(c, c / 3, c / 5));
-        text_center(fb, touch_labels[i], b->x + 1, b->y - 4, 1, lit ? 255 : 150, 0);
+        ui_button(fb, b->x, b->y, b->r, icon_of[i], (cur_pad & b->button) != 0, frame_count);
     }
 }
 
@@ -383,12 +406,12 @@ static void draw_controls(FrameBuf *fb)
 {
     static const char *lines[][2] = {
         { "LEFT THUMB",   "STICK - PUSH FAR TO RUN" },
-        { "HOLD R",       "SPRINT" },
-        { "J",            "JUMP" },
-        { "<  >",         "SWING THE CAMERA" },
+        { "HOLD FLAME",   "SPRINT" },
+        { "WINGS",        "JUMP" },
+        { "CLAW ARROWS",  "SWING THE CAMERA" },
         { "RIGHT THUMB",  "DRAG TO TURN THE CAMERA" },
         { "",             "CAMERA FOLLOWS YOU" },
-        { "II",           "PAUSE" },
+        { "BONES",        "PAUSE" },
     };
     static const char *pad_lines[][2] = {               /* Xbox controller / keyboard (PC) */
         { "LEFT STICK",   "MOVE - PUSH FAR TO RUN" },
@@ -419,6 +442,7 @@ void game_step(u32 pad)
     frame_count++;
     rumble = rumble * 3 / 4;
     flow(pad, press);
+    audio_update();
 }
 
 void game_frame(u32 pad)
@@ -431,21 +455,24 @@ void game_frame(u32 pad)
 
     ot_clear(fb);
     gpu_set_draw_env(0, by, SCREEN_W, SCREEN_H, 0, by, 1);
-    draw_world(fb, &pr);
-
     if (gs == GS_TITLE) {
-        quad_g(fb, 0, 0, 320, 240, RGB(70, 80, 80), RGB(30, 50, 50), SEMI_SUB, 40);
         title_draw(fb, frame_count);
     } else if (gs == GS_CONTROLS) {
-        quad_g(fb, 0, 0, 320, 240, RGB(80, 90, 90), RGB(80, 90, 90), SEMI_SUB, 40);
+        ui_title_bg(fb, 60, OT_LEN - 1);
+        embers_draw(fb, frame_count, 30);
         draw_controls(fb);
     } else {
+        draw_world(fb, &pr);
+    }
+    if (gs != GS_TITLE && gs != GS_CONTROLS) {
         draw_hud(fb);
         if (gs == GS_PAUSE) {
             quad_g(fb, 0, 0, 320, 240, RGB(90, 100, 100), RGB(90, 100, 100), SEMI_SUB, 4);
             text_hell(fb, "PAUSED", 160, 80, 3, frame_count, 2);
-            text_center(fb, touch_ui ? "II  RESUME" : "START  RESUME", 160, 130, 1, 200, 2);
-            text_center(fb, touch_ui ? "J  QUIT TO TITLE" : "A  QUIT TO TITLE", 160, 146, 1, 200, 2);
+            ui_plate(fb, 160, 118, 200, 1, frame_count, 8);
+            ui_plate(fb, 160, 156, 200, 0, frame_count, 8);
+            text_center(fb, touch_ui ? "BONES  RESUME" : "START  RESUME", 161, 129, 1, 255, 2);
+            text_center(fb, touch_ui ? "WINGS  QUIT TO TITLE" : "A  QUIT TO TITLE", 161, 167, 1, 170, 2);
         }
         if (touch_ui) draw_touch(fb);
     }

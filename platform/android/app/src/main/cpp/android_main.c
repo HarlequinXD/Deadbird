@@ -11,8 +11,11 @@
 #include <GLES2/gl2.h>
 #include <time.h>
 #include <string.h>
+#include <SLES/OpenSLES.h>
+#include <SLES/OpenSLES_Android.h>
 #include "deadbird.h"
 #include "gpu.h"
+#include "snd.h"
 
 #define LOG(...) __android_log_print(ANDROID_LOG_INFO, "Deadbird", __VA_ARGS__)
 #define TEX_W 512
@@ -36,6 +39,56 @@ static struct { int id, x, y, down; } touches[MAX_TOUCH];
 static int stick_id = -1, stick_ox, stick_oy, stick_x, stick_y;
 /* look finger: lands on the right side away from buttons and drags the camera round (Slayer style) */
 static int look_id = -1, look_x;
+
+/* ------------------------------------------------------------------ sound: OpenSL ES buffer queue */
+#define AUD_FRAMES 512
+static SLObjectItf sl_engine_obj, sl_mix_obj, sl_player_obj;
+static SLPlayItf sl_play;
+static SLAndroidSimpleBufferQueueItf sl_queue;
+static s16 aud_buf[2][AUD_FRAMES * 2];
+static int aud_cur;
+
+static void aud_callback(SLAndroidSimpleBufferQueueItf q, void *ctx)
+{
+    (void)ctx;
+    snd_mix(aud_buf[aud_cur], AUD_FRAMES);           /* the mixer applies the game's queued commands */
+    (*q)->Enqueue(q, aud_buf[aud_cur], sizeof(aud_buf[0]));
+    aud_cur ^= 1;
+}
+
+static void audio_open(void)
+{
+    SLEngineItf eng;
+    SLDataLocator_AndroidSimpleBufferQueue loc_q = { SL_DATALOCATOR_ANDROIDSIMPLEBUFFERQUEUE, 2 };
+    SLDataFormat_PCM fmt = { SL_DATAFORMAT_PCM, 2, SND_RATE * 1000, SL_PCMSAMPLEFORMAT_FIXED_16, SL_PCMSAMPLEFORMAT_FIXED_16,
+                             SL_SPEAKER_FRONT_LEFT | SL_SPEAKER_FRONT_RIGHT, SL_BYTEORDER_LITTLEENDIAN };
+    SLDataSource src = { &loc_q, &fmt };
+    SLDataLocator_OutputMix loc_out;
+    SLDataSink sink;
+    const SLInterfaceID ids[1] = { SL_IID_BUFFERQUEUE };
+    const SLboolean req[1] = { SL_BOOLEAN_TRUE };
+    if (slCreateEngine(&sl_engine_obj, 0, 0, 0, 0, 0) != SL_RESULT_SUCCESS) return;
+    (*sl_engine_obj)->Realize(sl_engine_obj, SL_BOOLEAN_FALSE);
+    (*sl_engine_obj)->GetInterface(sl_engine_obj, SL_IID_ENGINE, &eng);
+    if ((*eng)->CreateOutputMix(eng, &sl_mix_obj, 0, 0, 0) != SL_RESULT_SUCCESS) return;
+    (*sl_mix_obj)->Realize(sl_mix_obj, SL_BOOLEAN_FALSE);
+    loc_out.locatorType = SL_DATALOCATOR_OUTPUTMIX; loc_out.outputMix = sl_mix_obj;
+    sink.pLocator = &loc_out; sink.pFormat = 0;
+    if ((*eng)->CreateAudioPlayer(eng, &sl_player_obj, &src, &sink, 1, ids, req) != SL_RESULT_SUCCESS) return;
+    (*sl_player_obj)->Realize(sl_player_obj, SL_BOOLEAN_FALSE);
+    (*sl_player_obj)->GetInterface(sl_player_obj, SL_IID_PLAY, &sl_play);
+    (*sl_player_obj)->GetInterface(sl_player_obj, SL_IID_BUFFERQUEUE, &sl_queue);
+    (*sl_queue)->RegisterCallback(sl_queue, aud_callback, 0);
+    memset(aud_buf, 0, sizeof(aud_buf));
+    (*sl_queue)->Enqueue(sl_queue, aud_buf[0], sizeof(aud_buf[0]));
+    (*sl_queue)->Enqueue(sl_queue, aud_buf[1], sizeof(aud_buf[1]));
+    (*sl_play)->SetPlayState(sl_play, SL_PLAYSTATE_PLAYING);
+}
+
+static void audio_pause(int paused)
+{
+    if (sl_play) (*sl_play)->SetPlayState(sl_play, paused ? SL_PLAYSTATE_PAUSED : SL_PLAYSTATE_PLAYING);
+}
 
 static GLuint shader(GLenum type, const char *src)
 {
@@ -256,6 +309,13 @@ static void on_cmd(struct android_app *app, int32_t cmd)
     case APP_CMD_LOST_FOCUS:
         memset(touches, 0, sizeof(touches));
         stick_id = -1; look_id = -1;
+        audio_pause(1);                          /* no hum or chainsaw while she's in the background */
+        break;
+    case APP_CMD_GAINED_FOCUS:
+        audio_pause(0);
+        break;
+    case APP_CMD_PAUSE:
+        audio_pause(1);
         break;
     }
 }
@@ -277,6 +337,7 @@ void android_main(struct android_app *app)
     if (!game_started) {
         game_init();
         game_set_touch_ui(1);
+        audio_open();
         game_started = 1;
         LOG("static game RAM %d / %d bytes", game_ram_used(), RAM_BUDGET);
     }

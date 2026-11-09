@@ -122,7 +122,7 @@ emulator for the sticks.
 **Touch (Android)** - on-screen PS1 pad:
 
 - **D-pad**: move relative to the camera (menus: up/down; tap a menu row to pick it)
-- **Left thumb**: floating analog stick · **R** (○ / □) sprint · **J** (✕) jump · **< >** (L1 / R1) swing camera · **II** (START) pause
+- **Left thumb**: floating analog stick (the demon eye) · **flame** sprint · **wings** jump · **claw arrows** swing camera · **bones** pause
 
 ## Building
 
@@ -150,6 +150,19 @@ make -C platform/headless gaittest && ./platform/headless/gaittest gait.bmp   # 
 ```
 
 ## Assets
+
+**Sound** (`tools/make_sounds.py`, previews in `docs/sfx/`): every sound is synthesised, no
+recordings. Heavy hooves on steel grating, a booming landing, a jump whoosh, the chainsaw idling
+and revving (pitch follows her speed), hellish menu chimes and a pause gong; ambience is a mains
+hum, a throbbing reactor drone that swells near the great tank, steam bursts, distant clanks,
+alarms and the moans of captive shinigami. Android (OpenSL ES), Windows (waveOut) and the
+headless test mix 8-bit PCM in software (`engine/snd_mix.c`); the PS1 build plays the same sounds
+as SPU ADPCM on the SPU's hardware voices (`platform/psx/snd_psx.c`).
+
+**Title and UI** (`tools/make_title_bg.py`, `tools/make_ui.py`): the title screen is a painted
+backdrop (`assets/src/title_bg.png`, 256 colours + PS1 dither) with forged menu plates; the touch
+controls are a runic iron ring with a demon-eye stick, and horned bezels with wing / flame / claw /
+bone icons that burn when pressed (atlas: `docs/ui_atlas.png`).
 
 **Arm chainsaw** (`tools/build_chainsaw.py`, ![chainsaw](docs/chainsaw.png)): 116 polygons plus a
 36-polygon chain, strapped to her right fist. One 256×192 8bpp texture holds everything, with

@@ -41,6 +41,7 @@ void level_init(void)
     frame_t = 0;
 }
 
+void level_reload_textures(void) { uploaded = 0; level_init(); }
 void level_spawn(s32 *x, s32 *z, int *yaw) { *x = LAB_SPAWN_X; *z = LAB_SPAWN_Z; *yaw = LAB_SPAWN_YAW; }
 void level_tank(VECTOR *c) { c->vx = LAB_TANK_X; c->vy = LAB_TANK_Y; c->vz = LAB_TANK_Z; }
 int  level_polys_drawn(void) { return polys_drawn; }
