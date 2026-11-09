@@ -16,7 +16,7 @@
 #include "gpu.h"
 #undef RECT
 
-#define PACKET_WORDS (PRIM_MAX * 14 + 64)
+#define PACKET_WORDS (PRIM_MAX * 11 + 64)     /* average packet ~10 words (GT4 13, FT4 10, F3 5); overflow just drops prims */
 static uint32_t packets[2][PACKET_WORDS];
 static int pk_buf;
 static DRAWENV draw;
