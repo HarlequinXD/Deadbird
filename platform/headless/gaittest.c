@@ -19,7 +19,8 @@
 #define CW 150
 #define CH 236
 static FrameBuf fb;
-static unsigned char sheet[CH * 3][CW * COLS][3];
+#define ROWS 6
+static unsigned char sheet[CH * ROWS][CW * COLS][3];
 static Player pl;
 static Model saw_body, saw_chain;
 
@@ -68,7 +69,7 @@ int main(int argc, char **argv)
     const char *out = argc > 1 ? argv[1] : "gait.bmp";
     TimInfo tim;
     Model m;
-    int row, i, W = CW * COLS, H = CH * 3, y;
+    int row, i, W = CW * COLS, H = CH * ROWS, y;
     FILE *f;
 
     gpu_init();
@@ -106,6 +107,32 @@ int main(int argc, char **argv)
             shot(&m, row, i, row == 2);
         }
         printf("%s: speed %d u/f, phase %d, run %d amp %d\n", row == 2 ? "run, from behind, curving right" : row ? "run" : "walk", (int)pl.speed, pl.phase, pl.runw, pl.amp);
+    }
+
+    /* rows 4-6: the chainsaw combo, side on: 24 frames over slash, backhand and slam */
+    {
+        static const int when[24] = { 2, 4, 6, 8, 9, 11, 14, 16,  2, 4, 6, 8, 9, 11, 14, 16,  3, 5, 8, 10, 12, 15, 19, 28 };
+        int k, t = 0, stage = 0;
+        for (i = 0; i < 2; i++) { player_reset(&pl, 0, 0, 0); }
+        {
+            int a;
+            for (a = 0; a < level_area_count(); a++) if (!strcmp(level_area(a)->name, "Turbine Hall")) break;
+            if (a < level_area_count()) { const LabArea *ar = level_area(a); player_reset(&pl, ar->x0 + 1500, (ar->z0 + ar->z1) / 2, 1024); }
+        }
+        for (i = 0; i < 30; i++) { player_update(&pl, 0, 0, 0); player_pose(&pl, &m); }
+        for (k = 0; k < 24; k++) {
+            if (k % 8 == 0) { stage++; t = 0; }
+            while (t < when[k]) {
+                u32 pad = 0;
+                if (stage == 1 && t == 0 && k == 0) pad = BTN_ATTACK;
+                if ((stage == 2 || stage == 3) && t == 0) pad = BTN_ATTACK;    /* chains at the window */
+                player_update(&pl, pad, 0, 0); player_pose(&pl, &m);
+                if (pl.atk == stage) t = pl.atk_t; else if (stage > 1 && pl.atk == stage - 1) { player_update(&pl, BTN_ATTACK, 0, 0); player_pose(&pl, &m); }
+                else t++;
+            }
+            shot(&m, 3 + k / 8, k % 8, 0);
+        }
+        printf("combo: stage %d t %d\n", pl.atk, pl.atk_t);
     }
 
     f = fopen(out, "wb");

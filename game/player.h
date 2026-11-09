@@ -52,7 +52,7 @@ typedef struct {
     int atk_t, atk_next;       /* frames into the swing; another press is buffered */
     int atk_w, atk_last, atk_last_t;   /* blend weight 0..4096, the clip to blend out of */
     int atk_event;             /* this frame: 1..3 = swing started, 11..13 = swing struck */
-    s32 atk_crouch;            /* lunge stance depth (model units) */
+    s32 atk_leg[7];            /* combo footwork, smoothed: L fwd/out/lift, R fwd/out/lift, pelvis drop */
     u32 pad, prev;
     FKPose pose;
     MATRIX bone_pose[DEMON_NBONES];

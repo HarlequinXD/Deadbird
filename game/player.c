@@ -29,6 +29,37 @@ static const Swing SWINGS[3] = {
     { 40, 9, 80 * SUB, 15, 99 },          /* 3: overhead slam (ends the combo) */
 };
 
+/* full-body footwork for each swing (model units; fwd + = ahead of her, out + = away from her centre,
+   lift + = foot up, pel + = pelvis down / - = up). Swing 1 steps in with the left hoof, swing 2
+   drives the right hoof through, swing 3 loads, hops and comes down in a deep split for the slam. */
+typedef struct { u8 t; s16 lf, lo, lh, rf, ro, rh, pel; } Step;
+static const Step STEPS1[] = {
+    { 0, 60, 0, 0, -50, 0, 0, 20 },   { 3, 90, 0, 60, -80, 0, 0, -10 },  { 7, 250, 10, 40, -170, 0, 0, 70 },
+    { 9, 290, 30, 0, -200, 10, 25, 140 }, { 16, 290, 30, 0, -200, 10, 10, 130 }, { 26, 230, 20, 0, -170, 0, 0, 80 } };
+static const Step STEPS2[] = {
+    { 0, 230, 20, 0, -170, 0, 0, 80 },  { 3, 220, 20, 0, -100, 0, 75, 30 },  { 7, 120, 10, 0, 200, 10, 35, 100 },
+    { 9, 40, 0, 20, 270, 30, 0, 150 },  { 16, 40, 0, 10, 270, 30, 0, 140 },  { 26, 10, 0, 0, 220, 20, 0, 80 } };
+static const Step STEPS3[] = {
+    { 0, 10, 0, 0, 220, 20, 0, 80 },    { 5, 30, 10, 0, 150, 10, 0, 170 },   { 9, 110, 0, 130, 90, 0, 120, -130 },
+    { 12, 200, 20, 80, -110, 20, 70, -60 }, { 15, 270, 60, 0, -190, 40, 0, 240 }, { 24, 270, 60, 0, -190, 40, 0, 225 },
+    { 40, 60, 0, 0, -50, 0, 0, 20 } };
+static const Step *const STEPS[3] = { STEPS1, STEPS2, STEPS3 };
+static const int NSTEPS[3] = { 6, 6, 7 };
+
+static void footwork(int stage, int t, s32 *out)
+{
+    const Step *k = STEPS[stage - 1];
+    int n = NSTEPS[stage - 1], i = 0, j;
+    s32 w;
+    while (i + 1 < n && k[i + 1].t <= t) i++;
+    if (i + 1 >= n) { w = 0; j = i; }
+    else { j = i + 1; w = (t - k[i].t) * 4096 / (k[j].t - k[i].t); w = (3 * (w * w >> 12)) - (2 * ((w * w >> 12) * w >> 12)); }
+    out[0] = k[i].lf + ((k[j].lf - k[i].lf) * w >> 12); out[1] = k[i].lo + ((k[j].lo - k[i].lo) * w >> 12);
+    out[2] = k[i].lh + ((k[j].lh - k[i].lh) * w >> 12); out[3] = k[i].rf + ((k[j].rf - k[i].rf) * w >> 12);
+    out[4] = k[i].ro + ((k[j].ro - k[i].ro) * w >> 12); out[5] = k[i].rh + ((k[j].rh - k[i].rh) * w >> 12);
+    out[6] = k[i].pel + ((k[j].pel - k[i].pel) * w >> 12);
+}
+
 
 static s32 iabs(s32 v) { return v < 0 ? -v : v; }
 static s32 clamp(s32 v, s32 lo, s32 hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -247,11 +278,12 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         if (p->land_t < 99) p->land_t++;
         /* combo blend + how deep the lunge stance sinks (the slam drops lowest) */
         p->atk_w += ((p->atk ? 4096 : 0) - p->atk_w) / (p->atk ? 2 : 5);
-        {
-            s32 want = 0;
-            if (p->atk == 3) want = p->atk_t >= SWINGS[2].strike - 1 && p->atk_t < 32 ? 190 : 60;
-            else if (p->atk) want = 80;
-            p->atk_crouch += (want - p->atk_crouch) / 3;
+        {   /* footwork: the current swing's keys (or the last swing's end while blending out), smoothed */
+            s32 want[7];
+            int st = p->atk ? p->atk : p->atk_last, k;
+            if (st >= 1 && st <= 3) footwork(st, p->atk ? p->atk_t : p->atk_last_t, want);
+            else for (k = 0; k < 7; k++) want[k] = 0;
+            for (k = 0; k < 7; k++) p->atk_leg[k] += (want[k] - p->atk_leg[k]) / 2;
         }
     }
 }
@@ -379,7 +411,13 @@ static void place_feet(Player *p, const Model *m)
         }
         /* idle stance: left foot a touch forward; the chainsaw lunge splits the hooves wide */
         fwd = (sg > 0 ? 60 : -50) * (4096 - amp) >> 12;
-        fwd += (sg > 0 ? 230 : -190) * p->atk_w >> 12;
+        if (p->atk_w > 0) {                          /* combo footwork: step in, plant, push off */
+            const s32 *L = &p->atk_leg[si == 0 ? 0 : 3];
+            fwd = mixi(fwd, L[0], p->atk_w);
+            lift += L[2] * p->atk_w >> 12;
+            pt += (L[2] > 20 ? 160 : 0) * p->atk_w >> 12;   /* toe hangs as the hoof leaves the floor */
+            an[si].vx += sg * (L[1] * p->atk_w >> 12);
+        }
         fwd = fwd * (4096 - air) >> 12;
         /* airborne: tuck on the way up, reach down on the way down */
         off = mixi(off, sg > 0 ? 130 : -100, air);
@@ -420,7 +458,7 @@ static void place_feet(Player *p, const Model *m)
         int h = ph12 & 2047;
         if (h < 760) bob -= (s32)(mixi(26, 44, run) * isin(h * 2048 / 760) >> 12) * amp >> 12;
     }
-    dz = 12 + (60 * run >> 12) * amp / 4096 - bob + (170 * p->landw >> 12) - (20 * air >> 12) + p->atk_crouch;
+    dz = 12 + (60 * run >> 12) * amp / 4096 - bob + (170 * p->landw >> 12) - (20 * air >> 12) + (p->atk_leg[6] * p->atk_w >> 12);
     lat = (-34 * icos((ph12 - mid) & 4095) >> 12) * amp / 4096 * (4096 - run * 6 / 10) / 4096;   /* weight rolls side to side */
     {
         MATRIX R;
