@@ -35,6 +35,9 @@ static CombatTarget player_tgt;           /* Deadbird as a target for the troope
 static int php = 100, hurt_flash, dead_t;  /* her health, red flash when hit, death timer */
 static int pad_style;                     /* button names in prompts: 0 PlayStation, 1 Xbox / keyboard */
 static int fatal_ready = -1;              /* a reeling trooper close enough to finish */
+static u32 keys;                          /* keycards she carries: bit 1 cyan, 2 amber, 3 crimson */
+static const char *msg; static int msg_t, msg_col;   /* a line of text on the HUD (pickups, locked doors) */
+static int key_flash_t, key_flash_col;    /* the HUD's key slot flashes when a door wants a key she lacks */
 /* FATALITY cutscene (vt = cutscene frames in 1/16, slowed in the grind) */
 static struct { int active, vt16, ei, base_yaw, title_t, side; s32 cx, cz, dir_x, dir_z, ex, ey, ez; } cine;
 static Player pl;
@@ -103,6 +106,8 @@ int game_debug_fatality(void) { return cine.active ? (cine.vt16 >> 4) : (fatal_r
 int game_debug_player_hp(void) { return php; }
 
 static void player_hit(CombatTarget *t, const Hit *h);
+static void enemy_sound(int id, int vol, s32 x, s32 z, int pitch);
+static void door_locked(int colour);
 
 static void start_play(void)
 {
@@ -121,6 +126,13 @@ static void start_play(void)
     combat_add(&player_tgt);
     enemy_reset();
     php = 100; hurt_flash = 0; dead_t = 0; fatal_ready = -1;
+    keys = 0; msg = 0; msg_t = 0; key_flash_t = 0;
+    {
+        LevelHooks lh;
+        memset(&lh, 0, sizeof(lh));
+        lh.sound = enemy_sound; lh.locked = door_locked;
+        level_set_hooks(&lh);
+    }
     memset(&cine, 0, sizeof(cine));
     cam_yaw = syaw;
     cam_clip = 2900;
@@ -143,6 +155,19 @@ static void go_title(void)
 }
 
 static int pan_of(s32 x, s32 z);
+static const char *const KEY_NAME[4] = { "", "CYAN", "AMBER", "CRIMSON" };
+static void show_msg(const char *m, int col) { msg = m; msg_t = 150; msg_col = col; }
+static void door_locked(int colour)
+{
+    static char b[32];
+    int n = 0;
+    const char *k = KEY_NAME[colour & 3], *tail = " KEYCARD NEEDED";
+    while (*k && n < 16) b[n++] = *k++;
+    while (*tail && n < 31) b[n++] = *tail++;
+    b[n] = 0;
+    show_msg(b, colour);
+    key_flash_t = 60; key_flash_col = colour;
+}
 static void enemy_sound(int id, int vol, s32 x, s32 z, int pitch)
 {
     s32 dx = (x - pl.x) >> 4, dz = (z - pl.z) >> 4, d = (s32)isqrt((u32)(dx * dx + dz * dz)) << 4;
@@ -457,6 +482,7 @@ static void simulate(u32 pad)
             if (pad & ~pl.prev & BTN_ATTACK) { myaw = best_a; mmag = 4096; }
         } else pl.lock_dist = 0;
     }
+    level_think(pl.x, pl.y, pl.z, keys);               /* doors and lifts move first: she rides them */
     player_update(&pl, pad, myaw, mmag);
     if (was_grounded && !pl.grounded && pl.vy < -600) snd_play(SFX_JUMP, 3000, 0, 3800 + rnd(600));
     was_grounded = pl.grounded;
@@ -489,6 +515,26 @@ static void simulate(u32 pad)
         prev_half = half;
     }                                             /* chain idles, revs when she runs */
     player_pose(&pl, &demon);
+    {   /* pickups: keycards and soul shards */
+        int arg, k = level_pickup(pl.x, pl.y, pl.z, &arg);
+        if (k == 2) {
+            static char b[24];
+            int n = 0;
+            const char *nm = KEY_NAME[arg & 3], *tail = " KEYCARD";
+            while (*nm) b[n++] = *nm++;
+            while (*tail) b[n++] = *tail++;
+            b[n] = 0;
+            keys |= 1u << (arg & 3);
+            show_msg(b, arg & 3);
+            snd_play(SFX_UI_OK, 4096, 0, 3200);
+        } else if (k == 3) {
+            php = php + 25 > 100 ? 100 : php + 25;
+            show_msg("SOUL SHARD", 0);
+            snd_play(SFX_UI_OK, 3600, 0, 5200);
+        }
+        if (msg_t > 0) msg_t--;
+        if (key_flash_t > 0) key_flash_t--;
+    }
     player_tgt.x = pl.x; player_tgt.y = pl.y; player_tgt.z = pl.z;
     enemy_update(&pl, 0);
     saw_combat();
@@ -697,6 +743,18 @@ static void draw_hud(FrameBuf *fb)
         if (w > 0) quad_g(fb, 10, 31, 10 + w, 36, RGB(230, 40, 26), RGB(110, 8, 8), NO_SEMI, 5);
     }
     if (pl.speed > 40) text(fb, "RUN", 96, 12, 1, 120, 4);
+    {   /* keycard slots under the health bar: filled when carried, flashing when a door wants one */
+        static const u32 KC[4] = { 0, RGB(40, 200, 240), RGB(250, 160, 30), RGB(230, 30, 50) };
+        int c;
+        for (c = 1; c <= 3; c++) {
+            int x = 10 + (c - 1) * 16, have = (keys >> c) & 1, flash = key_flash_t && key_flash_col == c && ((key_flash_t >> 3) & 1);
+            quad_g(fb, x, 41, x + 12, 49, RGB(20, 6, 8), RGB(20, 6, 8), NO_SEMI, 6);
+            if (have || flash) quad_g(fb, x + 1, 42, x + 11, 48, KC[c], flash && !have ? RGB(60, 10, 10) : KC[c] >> 1 & 0x7f7f7f, NO_SEMI, 5);
+        }
+    }
+    if (msg && msg_t > 0) {
+        if (msg_t > 20 || (msg_t >> 2) & 1) text_center(fb, msg, 160, 172, 1, msg_col ? 230 : 200, 4);
+    }
     if (fps_shown > 0) {
         char b[12];
         b[0] = 'F'; b[1] = 'P'; b[2] = 'S'; b[3] = ' ';

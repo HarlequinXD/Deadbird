@@ -21,8 +21,8 @@
 #define STEP_HEIGHT 220          /* tallest ledge you can walk up without jumping */
 
 typedef struct { s16 x, y, z; } LabVert;
-typedef struct { u16 v[4]; u8 uv[8]; u8 rgb[12]; u8 page, flags, anim; } LabFace;
-typedef struct { s16 cx, cy, cz; u16 r; u16 v0, nv, f0, nf; u8 area; } LabChunk;
+typedef struct { u16 v[4]; u8 uv[8]; u8 rgb[12]; u8 page, flags, anim, pal; } LabFace;   /* pal: extra CLUT + 1 */
+typedef struct { s16 cx, cy, cz; u16 r; u16 v0, nv, f0, nf; u8 area; u16 sec; } LabChunk;   /* sec: moving sector + 1 */
 typedef struct { s16 x0, z0, x1, z1, h; } LabBox;          /* solid from the floor up to y = -h */
 typedef struct { s16 x, y, z, size; u8 r, g, b, anim, area; } LabSprite;
 typedef struct { s16 x, y, z, r, speed; } LabFan;
@@ -34,8 +34,9 @@ typedef struct { const char *name; s32 x, y, z; int yaw, pitch; } LabView;
    (z - az) * kz) >> 12) and its walls; a wall runs (x0,z0) -> (x1,z1) with the sector on its left
    (inward normal nx,nz, 4.12) and next = neighbour + 1 (0 = solid) */
 typedef struct { s16 h, ax, az, kx, kz; } LabPlane;
-typedef struct { s16 x0, z0, x1, z1; LabPlane f, c; u16 w0, nw; u8 room, kind, lock, pad; s16 ka, kb; } LabSec;
+typedef struct { s16 x0, z0, x1, z1; LabPlane f, c; u16 w0, nw; u8 room, kind, lock, pad; s16 ka, kb, k0; } LabSec;   /* lift: low, high, start floor; door: open height */
 typedef struct { s16 x0, z0, x1, z1, nx, nz; u16 next, sec; } LabWall;
+typedef struct { u8 type, arg; s16 x, z, yaw, ax, az; } LabThing;        /* map things (gen/map.h TH_*) */
 
 void level_init(void);
 void level_reload_textures(void);
@@ -69,6 +70,18 @@ void level_extra_views(const LabView *v, int n);   /* tools: more camera spots a
 int  level_sector_at(s32 x, s32 z, int hint);
 s32  level_sector_floor(int sec, s32 x, s32 z);
 s32  level_sector_ceil(int sec, s32 x, s32 z);
+/* doors, lifts and pickups (sector maps): run once a frame with the player's feet and keys (bit k =
+   key colour k); hooks report sounds and what she ran into */
+typedef struct {
+    void (*sound)(int id, int vol, s32 x, s32 z, int pitch);
+    void (*locked)(int colour);               /* she walked up to a door she has no key for */
+} LevelHooks;
+void level_set_hooks(const LevelHooks *h);
+void level_think(s32 px, s32 py, s32 pz, u32 keys);
+/* a pickup she's touching (taken once): returns its LabThing type or -1, its arg in *arg */
+int  level_pickup(s32 px, s32 py, s32 pz, int *arg);
+int  level_thing_count(void);
+const LabThing *level_thing(int i);
 /* test hook: an endless flat floor with nothing on it */
 void level_debug_flat(int on);
 

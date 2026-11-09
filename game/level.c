@@ -3,6 +3,7 @@
 #include "lab_data.h"
 #include "gte_hw.h"
 #include "vram.h"
+#include "sfx_ids.h"
 
 /* face flags (tools/build_lab.py) */
 #define F_QUAD   1
@@ -26,6 +27,10 @@
 static int uploaded, polys_drawn, frame_t, flat;
 #define MAX_SECS 512
 static s16 sec_dyn[MAX_SECS];                 /* sector maps - door: how far it's open; lift: floor offset */
+static s16 mover_t[MAX_SECS];                 /* door: frames since she left; lift: frames she's stood on it */
+static s8 mover_dir[MAX_SECS];                /* lift: moving up (1) / down (-1) */
+static u8 mover_flag[MAX_SECS];               /* door: the locked warning was given */
+static u8 taken[64];                          /* pickups already taken */
 static int sec_hint = -1;
 int lvl_st_verts, lvl_st_faces, lvl_st_clip, lvl_st_chunks;
 
@@ -41,7 +46,12 @@ void level_init(void)
     frame_t = 0;
     {
         int i;
-        for (i = 0; i < LAB_NSECS && i < MAX_SECS; i++) sec_dyn[i] = lab_secs[i].kind == 1 ? lab_secs[i].ka : 0;
+        for (i = 0; i < LAB_NSECS && i < MAX_SECS; i++) {
+            const LabSec *sc = &lab_secs[i];
+            sec_dyn[i] = sc->kind == 2 ? sc->k0 - sc->ka : 0;            /* doors shut, lifts where the map puts them */
+            mover_t[i] = 0; mover_dir[i] = 0; mover_flag[i] = 0;
+        }
+        memset(taken, 0, sizeof(taken));
     }
 }
 
@@ -415,6 +425,85 @@ int level_clip_segment(const VECTOR *a, const VECTOR *b, s32 m)
 
 void level_update(void) { frame_t++; }
 
+/* ------------------------------------------------------------------ doors, lifts, pickups */
+static LevelHooks hooks;
+void level_set_hooks(const LevelHooks *h) { hooks = *h; }
+int  level_thing_count(void) { gen_lab(); return lab.nthings; }
+const LabThing *level_thing(int i) { return &lab.things[i]; }
+static void lsound(int id, int vol, s32 x, s32 z, int pitch) { if (hooks.sound) hooks.sound(id, vol, x, z, pitch); }
+
+#define DOOR_SPEED 96
+#define LIFT_SPEED 26
+void level_think(s32 px, s32 py, s32 pz, u32 keys)
+{
+    int si, here;
+    if (!LAB_NSECS) return;
+    here = level_sector_at(px, pz, sec_hint);
+    for (si = 0; si < LAB_NSECS && si < MAX_SECS; si++) {
+        const LabSec *s = &lab_secs[si];
+        s32 cx = (s->x0 + s->x1) / 2, cz = (s->z0 + s->z1) / 2;
+        if (s->kind == 1) {
+            int near = px > s->x0 - 2200 && px < s->x1 + 2200 && pz > s->z0 - 2200 && pz < s->z1 + 2200;
+            int close = px > s->x0 - 1100 && px < s->x1 + 1100 && pz > s->z0 - 1100 && pz < s->z1 + 1100;
+            int can = !s->lock || ((keys >> s->lock) & 1);
+            if (near && can) {
+                if (sec_dyn[si] == 0) lsound(SFX_AMB_CLANK, 3000, cx, cz, 2600);
+                sec_dyn[si] = (s16)(sec_dyn[si] + DOOR_SPEED > s->ka ? s->ka : sec_dyn[si] + DOOR_SPEED);
+                mover_t[si] = 0;
+            } else {
+                if (close && !can && !mover_flag[si]) {
+                    mover_flag[si] = 1;
+                    lsound(SFX_ZAP, 3200, cx, cz, 1500);
+                    if (hooks.locked) hooks.locked(s->lock);
+                }
+                if (!close) mover_flag[si] = 0;
+                if (mover_t[si] < 1000) mover_t[si]++;
+                if (mover_t[si] > 180 && sec_dyn[si] > 0 && here != si) {
+                    if (sec_dyn[si] == s->ka) lsound(SFX_AMB_CLANK, 2500, cx, cz, 2200);
+                    sec_dyn[si] = (s16)(sec_dyn[si] - DOOR_SPEED < 0 ? 0 : sec_dyn[si] - DOOR_SPEED);
+                }
+            }
+        } else if (s->kind == 2) {
+            s32 top = s->kb - s->ka, deck = -(s->ka + sec_dyn[si]);
+            int on = here == si && py > deck - 120 && py < deck + 120;
+            if (mover_dir[si]) {
+                s32 v = sec_dyn[si] + mover_dir[si] * LIFT_SPEED;
+                if (v <= 0 || v >= top) { v = v <= 0 ? 0 : top; mover_dir[si] = 0; mover_t[si] = -90; lsound(SFX_AMB_CLANK, 3500, cx, cz, 1800); }
+                sec_dyn[si] = (s16)v;
+                continue;
+            }
+            if (on) {
+                if (++mover_t[si] > 45) { mover_dir[si] = sec_dyn[si] ? -1 : 1; mover_t[si] = 0; lsound(SFX_AMB_STEAM, 2600, cx, cz, 1400); }
+            } else {
+                if (mover_t[si] > 0) mover_t[si] = 0;
+                else if (mover_t[si] < 0) mover_t[si]++;
+                /* call it: she's beside it, standing at the end it isn't at */
+                if (!mover_t[si] && px > s->x0 - 1800 && px < s->x1 + 1800 && pz > s->z0 - 1800 && pz < s->z1 + 1800) {
+                    s32 lo = -s->ka, hi = -s->kb;
+                    if (sec_dyn[si] == top && py > lo - 300 && py < lo + 300) { mover_dir[si] = -1; lsound(SFX_AMB_STEAM, 2600, cx, cz, 1400); }
+                    else if (sec_dyn[si] == 0 && py > hi - 300 && py < hi + 300) { mover_dir[si] = 1; lsound(SFX_AMB_STEAM, 2600, cx, cz, 1400); }
+                }
+            }
+        }
+    }
+}
+
+int level_pickup(s32 px, s32 py, s32 pz, int *arg)
+{
+    int i;
+    for (i = 0; i < lab.nthings && i < 64; i++) {
+        const LabThing *t = &lab.things[i];
+        s32 dx = px - t->x, dz = pz - t->z;
+        if ((t->type != 2 && t->type != 3) || taken[i]) continue;
+        if (dx > 700 || dx < -700 || dz > 700 || dz < -700 || dx * dx + dz * dz > 700 * 700) continue;
+        if (py < level_ground(t->x, t->z, py) - 1500) continue;            /* jumping over it */
+        taken[i] = 1;
+        *arg = t->arg;
+        return t->type;
+    }
+    return -1;
+}
+
 /* ------------------------------------------------------------------ drawing */
 typedef struct { s32 x, y, z; s32 u, v, r, g, b; } CV;     /* view-space vertex for clipping */
 
@@ -520,7 +609,7 @@ static void emit(FrameBuf *fb, const LabFace *f, const s16 *x, const s16 *y, con
     {   /* each 64x64 tile has its own CLUT; animated screens use the current frame's tile */
         int du = (f->flags & F_ANIMUV) ? screen_du : 0, tile = (((f->uv[0] + du) & 255) >> 6) + (f->uv[1] >> 6) * 4;
         p->tpage = get_tpage(TP_4BIT, (f->flags & F_ADD) ? SEMI_ADD : SEMI_HALF, LAB_PAGE_X(f->page), LAB_PAGE_Y(f->page));
-        p->clut = CLUT_ID(CL_LAB(f->page, tile));
+        p->clut = f->pal ? CLUT_ID(CL_EXTRA(f->pal - 1)) : CLUT_ID(CL_LAB(f->page, tile));
     }
     for (k = 0; k < n; k++) {
         p->v[k].x = x[k]; p->v[k].y = y[k]; p->v[k].u = u[k]; p->v[k].v = v[k];
@@ -534,13 +623,14 @@ static void emit(FrameBuf *fb, const LabFace *f, const s16 *x, const s16 *y, con
 static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const LabChunk *ch, int t)
 {
     int i, k;
+    s32 dy = ch->sec ? -sec_dyn[ch->sec - 1] : 0;     /* a door or lift: moved up by how far it's gone */
     if (ch->nv > MAXCV) return;
     lvl_st_chunks++; lvl_st_verts += ch->nv; lvl_st_faces += ch->nf;
     for (i = 0; i < ch->nv; i++) {
         const LabVert *lv = &lab_verts[ch->v0 + i];
 #ifdef PSX_GTE
         u32 sxy;
-        gte_xform(lv->x, lv->y, lv->z, &cvv[i], &sxy);     /* matrix + projection set in level_draw */
+        gte_xform(lv->x, (s16)(lv->y + dy), lv->z, &cvv[i], &sxy);     /* matrix + projection set in level_draw */
         cout_[i] = outcode(&cvv[i]);
         if (!cout_[i]) {
             if (cvv[i].vx > 32767 || cvv[i].vx < -32767 || cvv[i].vy > 32767 || cvv[i].vy < -32767) {
@@ -552,7 +642,7 @@ static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const L
             }
         }
 #else
-        SVECTOR s; s.vx = lv->x; s.vy = lv->y; s.vz = lv->z;
+        SVECTOR s; s.vx = lv->x; s.vy = (s16)(lv->y + dy); s.vz = lv->z;
         mat_apply(view, &s, &cvv[i]);
         cout_[i] = outcode(&cvv[i]);
         if (!cout_[i]) {
@@ -670,9 +760,9 @@ static void billboard(FrameBuf *fb, const MATRIX *view, const PROJ *pr, s32 wx, 
     polys_drawn++;
 }
 
-/* a world-space quad (corners in Z order), textured from page B, optional additive */
-static void world_quad(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const SVECTOR *w, int tile,
-                       int r, int g, int b, int add, int bias)
+/* a world-space quad (corners in Z order), textured from page B, optional additive; clut 0 = the tile's */
+static void world_quad_c(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const SVECTOR *w, int tile,
+                         int r, int g, int b, int add, int bias, u16 clut)
 {
     VECTOR c[4];
     POLY *p;
@@ -690,7 +780,7 @@ static void world_quad(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const S
     fg = fog(z);
     p->code = PF_TEX | PF_QUAD | PF_GOURAUD | (add ? PF_SEMI : 0);
     p->tpage = get_tpage(TP_4BIT, SEMI_ADD, LAB_PAGE_X(1), LAB_PAGE_Y(1));
-    p->clut = CLUT_ID(CL_LAB(1, tile));
+    p->clut = clut ? clut : CLUT_ID(CL_LAB(1, tile));
     for (k = 0; k < 4; k++) {
         p->v[k].x = (s16)(pr->ofx + c[k].vx * pr->h / c[k].vz);
         p->v[k].y = (s16)(pr->ofy + c[k].vy * pr->h / c[k].vz);
@@ -700,6 +790,50 @@ static void world_quad(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const S
     }
     ot_add(fb, (int)(z >> 4) + bias, p);
     polys_drawn++;
+}
+
+static void world_quad(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const SVECTOR *w, int tile,
+                       int r, int g, int b, int add, int bias)
+{
+    world_quad_c(fb, view, pr, w, tile, r, g, b, add, bias, 0);
+}
+
+/* keycards (a spinning card in the key colour) and soul shards (a glowing crystal), with halos */
+static void draw_pickups(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
+{
+    static const u8 KC[4][3] = { { 0, 0, 0 }, { 60, 220, 255 }, { 255, 170, 40 }, { 240, 40, 60 } };
+    int i, k;
+    for (i = 0; i < lab.nthings && i < 64; i++) {
+        const LabThing *th = &lab.things[i];
+        s32 gy, cy;
+        int a = t * 40 + i * 700, ca = icos(a), sa = isin(a);
+        SVECTOR w[4];
+        if ((th->type != 2 && th->type != 3) || taken[i]) continue;
+        gy = level_ground(th->x, th->z, 0x7fff0000);
+        cy = gy - 900 - (isin(t * 50 + i * 900) * 90 >> 12);
+        if (th->type == 2) {
+            const u8 *c = KC[th->arg & 3];
+            static const int cx_[4] = { -1, 1, -1, 1 }, cy_[4] = { -1, -1, 1, 1 };
+            for (k = 0; k < 4; k++) {
+                s32 lx = cx_[k] * 210, ly = cy_[k] * 140;
+                w[k].vx = (s16)(th->x + (lx * ca >> 12)); w[k].vz = (s16)(th->z + (lx * sa >> 12)); w[k].vy = (s16)(cy + ly);
+            }
+            world_quad_c(fb, view, pr, w, 0, 128, 128, 128, 0, -2, CLUT_ID(CL_EXTRA(PAL_KEY(th->arg & 3))));
+            billboard(fb, view, pr, th->x, cy, th->z, 520, 15, c[0] / 2, c[1] / 2, c[2] / 2, 2);
+        } else {
+            /* an octahedron: 4 upper and 4 lower triangles (quads with a repeated corner), additive */
+            static const s16 R = 170, H = 320;
+            for (k = 0; k < 8; k++) {
+                int a0 = a + (k & 3) * 1024, a1 = a0 + 1024, up = k < 4;
+                w[0].vx = th->x; w[0].vz = th->z; w[0].vy = (s16)(cy + (up ? -H : H));
+                w[1].vx = (s16)(th->x + (R * icos(a0) >> 12)); w[1].vz = (s16)(th->z + (R * isin(a0) >> 12)); w[1].vy = (s16)cy;
+                w[2].vx = (s16)(th->x + (R * icos(a1) >> 12)); w[2].vz = (s16)(th->z + (R * isin(a1) >> 12)); w[2].vy = (s16)cy;
+                w[3] = w[2];
+                world_quad(fb, view, pr, w, 5, 70, 60, 120, 1, -2);
+            }
+            billboard(fb, view, pr, th->x, cy, th->z, 600, 15, 70, 40, 110, 2);
+        }
+    }
 }
 
 void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
@@ -719,7 +853,8 @@ void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
         SVECTOR s; VECTOR c;
         s32 r = ch->r;
         if (!(vis & (1u << ch->area))) continue;
-        s.vx = ch->cx; s.vy = ch->cy; s.vz = ch->cz;
+        if (ch->sec && lab_secs[ch->sec - 1].kind == 1 && sec_dyn[ch->sec - 1] >= lab_secs[ch->sec - 1].ka) continue;   /* door fully open */
+        s.vx = ch->cx; s.vy = (s16)(ch->cy - (ch->sec ? sec_dyn[ch->sec - 1] : 0)); s.vz = ch->cz;
         mat_apply(view, &s, &c);
         if (c.vz < -r || c.vz - r > FOG_FAR) continue;
         /* frustum: half-widths 160/h and 120/h of z, padded by the radius */
@@ -776,4 +911,5 @@ void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
         }
         world_quad(fb, view, pr, w, 12, 110, 110, 110, 0, -1);
     }
+    if (lab.nthings) draw_pickups(fb, view, pr, t);
 }

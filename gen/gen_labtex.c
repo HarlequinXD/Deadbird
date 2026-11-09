@@ -746,4 +746,24 @@ void lab_upload_textures(void)
             RECT c; c.x = (s16)CLUT_X(id); c.y = (s16)CLUT_Y(id); c.w = 16; c.h = 1;
             gpu_load_image(&c, lab_tex->clut[id]);
         }
+    /* tinted palettes: keycards (the machine panel in the key colour) and locked doors (the bulkhead
+       washed with it) */
+    static const unsigned char KC[3][3] = { { 60, 230, 255 }, { 255, 175, 40 }, { 235, 40, 55 } };
+    for (int pi = 0; pi < PAL_COUNT; pi++) {
+        int door = pi >= PAL_DOOR_CYAN, kc = door ? pi - PAL_DOOR_CYAN : pi - PAL_KEY_CYAN;
+        const unsigned short *src = lab_tex->clut[door ? LT_BULKHEAD : LT_MACHINE_PANEL];
+        unsigned short out[16];
+        for (int i = 0; i < 16; i++) {
+            int w = src[i], r = (w & 31) * 8, g = ((w >> 5) & 31) * 8, b = ((w >> 10) & 31) * 8;
+            float L = (0.3f * r + 0.59f * g + 0.11f * b) / 255.f, k = door ? 0.6f : 1.0f, o[3];
+            for (int q = 0; q < 3; q++) {
+                float base = q == 0 ? r : q == 1 ? g : b, tint = KC[kc][q] * gclamp(L * 1.5f, 0, 1.2f);
+                o[q] = gclamp(base * (1 - k) + tint * k, 0, 255);
+            }
+            out[i] = (unsigned short)(w ? ((int)o[0] >> 3) | (((int)o[1] >> 3) << 5) | (((int)o[2] >> 3) << 10) | (w & 0x8000) : 0);
+            if (w && !(out[i] & 0x7fff)) out[i] |= 1 << 10;            /* keep opaque black opaque */
+        }
+        RECT c; c.x = (s16)CLUT_X(CL_EXTRA(pi)); c.y = (s16)CLUT_Y(CL_EXTRA(pi)); c.w = 16; c.h = 1;
+        gpu_load_image(&c, out);
+    }
 }

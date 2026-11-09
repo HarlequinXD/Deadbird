@@ -99,9 +99,14 @@ void enemy_reset(void)
         { 14000, -6000, 3072 },          /* turbine hall */
         { 20500, 1500, 2048 },           /* reactor core */
     };
-    int i;
+    int i, from_map = 0;
     n_enemies = 0;
     memset(lasers, 0, sizeof(lasers));
+    for (i = 0; i < level_thing_count(); i++) {          /* sector maps place their own troopers */
+        const LabThing *t = level_thing(i);
+        if (t->type == 1) { place(t->x, t->z, t->yaw); from_map = 1; }
+    }
+    if (from_map || level_thing_count()) return;
     for (i = 0; i < (int)(sizeof(spots) / sizeof(spots[0])); i++) place(spots[i][0], spots[i][1], spots[i][2]);
 }
 

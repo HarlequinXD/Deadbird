@@ -14,6 +14,7 @@
 #include <string.h>
 #include "gen_lab.h"
 #include "map.h"
+#include "vram.h"
 #include "gmath.h"
 #include "lab_data.h"
 
@@ -33,7 +34,7 @@ static int iround(float x) { return (int)gfloor(x + 0.5f); }
 static int iceil(float x) { int i = (int)x; return (float)i < x ? i + 1 : i; }
 
 /* ------------------------------------------------------------------ build state */
-typedef struct { V3 p[4]; int n, tile, flags, anim, emit, area; unsigned char uv[4][2]; int er, eg, eb; float rgb[4][3]; V3 nrm; float base; } GF;   /* base: floor y under a wall face */
+typedef struct { V3 p[4]; int n, tile, flags, anim, emit, area; unsigned char uv[4][2]; int er, eg, eb; float rgb[4][3]; V3 nrm; float base; int dyn, pal; } GF;   /* base: floor y under a wall face */
 typedef struct { float x0, y0, z0, x1, y1, z1; } Occ;
 typedef struct { float x0, z0, x1, z1, h; } Col;
 typedef struct { V3 p, c; float r; } Light;
@@ -55,14 +56,14 @@ static LabRing rings[2]; static int nrings;
 static LabPod pods[8]; static int npods;
 static Col ceils[32]; static int nceils;
 static Area areas[32]; static int nareas;
-static int CUR;
+static int CUR, CURDYN, CURPAL;          /* new faces: area, moving sector + 1, extra palette + 1 */
 
 static GF *newface(void)
 {
     if (nfaces == capfaces) { capfaces = capfaces ? capfaces * 2 : 4096; faces = (GF *)realloc(faces, sizeof(GF) * (size_t)capfaces); }
     GF *f = &faces[nfaces++];
     memset(f, 0, sizeof(*f));
-    f->area = CUR;
+    f->area = CUR; f->dyn = CURDYN; f->pal = CURPAL;
     return f;
 }
 static void occl(float x0, float y0, float z0, float x1, float y1, float z1) { Occ o = { x0, y0, z0, x1, y1, z1 }; occ[nocc++] = o; }
@@ -674,11 +675,12 @@ static void bake(void)
 /* ------------------------------------------------------------------ export */
 LabData lab;
 
-typedef struct { int area, cx, cz, fi; } Key;
+typedef struct { int area, dyn, cx, cz, fi; } Key;
 static int cmp_key(const void *a, const void *b)
 {
     const Key *p = (const Key *)a, *q = (const Key *)b;
     if (p->area != q->area) return p->area - q->area;
+    if (p->dyn != q->dyn) return p->dyn - q->dyn;
     if (p->cx != q->cx) return p->cx - q->cx;
     if (p->cz != q->cz) return p->cz - q->cz;
     return p->fi - q->fi;
@@ -691,7 +693,7 @@ static void export_mesh(void)
         V3 c = v3(0, 0, 0);
         for (int k = 0; k < faces[i].n; k++) c = add(c, faces[i].p[k]);
         c = mul(c, 1.f / faces[i].n);
-        keys[i].area = faces[i].area; keys[i].cx = (int)gfloor(c.x / 3072); keys[i].cz = (int)gfloor(c.z / 3072); keys[i].fi = i;
+        keys[i].area = faces[i].area; keys[i].dyn = faces[i].dyn; keys[i].cx = (int)gfloor(c.x / 3072); keys[i].cz = (int)gfloor(c.z / 3072); keys[i].fi = i;
     }
     qsort(keys, (size_t)nfaces, sizeof(Key), cmp_key);
     lab.verts = (LabVert *)malloc(sizeof(LabVert) * (size_t)nfaces * 4);
@@ -700,7 +702,7 @@ static void export_mesh(void)
     lab.nverts = lab.nfaces = lab.nchunks = 0;
     for (int s = 0; s < nfaces;) {
         int e = s;
-        while (e < nfaces && keys[e].area == keys[s].area && keys[e].cx == keys[s].cx && keys[e].cz == keys[s].cz) e++;
+        while (e < nfaces && keys[e].area == keys[s].area && keys[e].dyn == keys[s].dyn && keys[e].cx == keys[s].cx && keys[e].cz == keys[s].cz) e++;
         for (int ps = s; ps < e; ps += 300) {
             int pe = ps + 300 < e ? ps + 300 : e, v0 = lab.nverts, f0 = lab.nfaces;
             for (int k = ps; k < pe; k++) {
@@ -715,7 +717,7 @@ static void export_mesh(void)
                     o->uv[c * 2] = f->uv[cc][0]; o->uv[c * 2 + 1] = f->uv[cc][1];
                     for (int q = 0; q < 3; q++) o->rgb[c * 3 + q] = (u8)f->rgb[cc][q];
                 }
-                o->page = (u8)(f->tile / 16); o->flags = (u8)f->flags; o->anim = (u8)f->anim;
+                o->page = (u8)(f->tile / 16); o->flags = (u8)f->flags; o->anim = (u8)f->anim; o->pal = (u8)f->pal;
             }
             float mn[3] = { 1e9f, 1e9f, 1e9f }, mx[3] = { -1e9f, -1e9f, -1e9f };
             for (int vi = v0; vi < lab.nverts; vi++) {
@@ -725,7 +727,7 @@ static void export_mesh(void)
             LabChunk *ch = &lab.chunks[lab.nchunks++];
             ch->cx = (s16)((mn[0] + mx[0]) / 2); ch->cy = (s16)((mn[1] + mx[1]) / 2); ch->cz = (s16)((mn[2] + mx[2]) / 2);
             ch->r = (u16)((int)(len(v3(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2])) / 2) + 1);
-            ch->v0 = (u16)v0; ch->nv = (u16)(lab.nverts - v0); ch->f0 = (u16)f0; ch->nf = (u16)(lab.nfaces - f0); ch->area = (u8)keys[s].area;
+            ch->v0 = (u16)v0; ch->nv = (u16)(lab.nverts - v0); ch->f0 = (u16)f0; ch->nf = (u16)(lab.nfaces - f0); ch->area = (u8)keys[s].area; ch->sec = (u16)keys[s].dyn;
         }
         s = e;
     }
@@ -1334,6 +1336,37 @@ static void build_walls(int si)
     }
 }
 
+/* moving sectors are drawn from their own chunks, built at rest (door shut, lift at its low floor);
+   the game shifts them up by how far they've moved */
+static void build_mover(int si)
+{
+    const MapSector *s = &MAP->secs[si];
+    float lo = s->kind == SK_DOOR ? s->floor : s->ka;
+    float hi = s->kind == SK_DOOR ? s->floor + s->ka : s->ka;
+    if (s->kind == SK_LIFT) lo = s->ka - (s->kb - s->ka) - 256;       /* a skirt as deep as the travel */
+    CURDYN = si + 1;
+    CURPAL = s->kind == SK_DOOR && s->lock ? 1 + PAL_DOOR(s->lock) : 0;
+    for (int i = 0; i < s->np; i++) {
+        const MapWall *w = &MAP->walls[s->p0 + i];
+        if (!w->next) continue;                                        /* the jambs hide the slab's edges */
+        const MapPt *pa = &MAP->pts[s->p0 + i], *pb = &MAP->pts[s->p0 + (i + 1) % s->np];
+        float dx = (float)(pb->x - pa->x), dz = (float)(pb->z - pa->z), L = gsqrt(dx * dx + dz * dz);
+        V3 a = v3(pa->x, 0, pa->z), b = v3(pb->x, 0, pb->z), out = v3(dz / L, 0, -dx / L);
+        unsigned spec = s->kind == SK_DOOR ? w->mid : (w->low != MAP_NONE ? w->low : w->mid);
+        wall_part(spec, b, a, lo, lo, hi, hi, lo, lo, s->kind == SK_LIFT, 0, out);   /* seen from outside: b is on the right */
+    }
+    if (s->kind == SK_DOOR) {                                          /* the slab's underside */
+        CURPAL = 0;
+        for (int i = 1; i + 1 < s->np; i++) {
+            const MapPt *p0 = &MAP->pts[s->p0], *p1 = &MAP->pts[s->p0 + i], *p2 = &MAP->pts[s->p0 + i + 1];
+            V3 q[3] = { v3(p0->x, -lo, p0->z), v3(p1->x, -lo, p1->z), v3(p2->x, -lo, p2->z) };
+            float uv[3][2] = { { 0, 0 }, { 63, 0 }, { 63, 63 } };
+            emit_face(q, uv, 3, LT_DARK_METAL, 0, v3(0, 1, 0));
+        }
+    } else build_flat(s, 0);                                           /* the lift's deck */
+    CURDYN = CURPAL = 0;
+}
+
 static float tri_area_xz(const MapPt *a, const MapPt *b, const MapPt *c) { return ((b->x - a->x) * (float)(c->z - a->z) - (b->z - a->z) * (float)(c->x - a->x)) / 2; }
 
 static int map_inside(const MapSector *s, float x, float z)
@@ -1370,8 +1403,9 @@ static void gen_map_geometry(void)
     for (int si = 0; si < MAP->nsecs; si++) {
         const MapSector *s = &MAP->secs[si];
         CUR = s->room;
-        if (s->ceil > s->floor || s->kind == SK_DOOR) { build_flat(s, 0); build_flat(s, 1); }
+        if (s->ceil > s->floor || s->kind == SK_DOOR) { if (s->kind != SK_LIFT) build_flat(s, 0); build_flat(s, 1); }
         build_walls(si);
+        if (s->kind != SK_ROOM) build_mover(si);
     }
     CUR = 0;
     {   /* props, lights and halos: the map's placement script */
@@ -1446,10 +1480,10 @@ static void gen_map_geometry(void)
             LabPlane *q = c ? &o->c : &o->f;
             q->h = (s16)iround(c ? (float)s->ceil : (float)s->floor);
             if (s->kind == SK_DOOR && c) q->h = s->floor;            /* closed; the game opens it */
-            if (s->kind == SK_LIFT && !c) q->h = s->floor;
+            if (s->kind == SK_LIFT && !c) q->h = s->ka;                /* + how far it has risen */
             if (P.k != 0) { q->h = (s16)iround(P.h); q->ax = (s16)P.ax; q->az = (s16)P.az; q->kx = (s16)iround(P.k * P.nx * 4096); q->kz = (s16)iround(P.k * P.nz * 4096); }
         }
-        o->w0 = s->p0; o->nw = s->np; o->room = s->room; o->kind = s->kind; o->lock = s->lock; o->ka = s->ka; o->kb = s->kb;
+        o->w0 = s->p0; o->nw = s->np; o->room = s->room; o->kind = s->kind; o->lock = s->lock; o->ka = s->ka; o->kb = s->kb; o->k0 = s->floor;
         for (int i = 0; i < s->np; i++) {
             const MapPt *pa = &MAP->pts[s->p0 + i], *pb = &MAP->pts[s->p0 + (i + 1) % s->np];
             LabWall *w = &lab.walls[s->p0 + i];
@@ -1462,6 +1496,13 @@ static void gen_map_geometry(void)
             if (pa->z < o->z0) o->z0 = pa->z;
             if (pa->z > o->z1) o->z1 = pa->z;
         }
+    }
+    lab.nthings = MAP->nthings;
+    lab.things = (LabThing *)malloc(sizeof(LabThing) * (size_t)(MAP->nthings + 1));
+    for (int i = 0; i < MAP->nthings; i++) {
+        const MapThing *t = &MAP->things[i];
+        LabThing *o = &lab.things[i];
+        o->type = t->type; o->arg = t->arg; o->x = t->x; o->z = t->z; o->yaw = t->yaw; o->ax = t->ax; o->az = t->az;
     }
     lab.has_spawn = 0;
     for (int i = 0; i < MAP->nthings; i++)

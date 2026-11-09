@@ -35,6 +35,10 @@
 #define CL_FONT     84
 #define CL_UI       85                 /* up to 16 UI cells */
 #define CL_TITLE    101                /* 20 title tiles */
+#define CL_EXTRA(n) (121 + (n))        /* tinted copies of lab tiles' CLUTs: */
+enum { PAL_KEY_CYAN, PAL_KEY_AMBER, PAL_KEY_CRIMSON, PAL_DOOR_CYAN, PAL_DOOR_AMBER, PAL_DOOR_CRIMSON, PAL_COUNT };
+#define PAL_KEY(c)  (PAL_KEY_CYAN + (c) - 1)     /* key colour 1..3: the machine-panel tile tinted */
+#define PAL_DOOR(c) (PAL_DOOR_CYAN + (c) - 1)    /* the bulkhead tile tinted */
 
 /* character page layout (texels within the page at CHR_PAGE_X/Y) */
 #define CHR_DEMON_U    0

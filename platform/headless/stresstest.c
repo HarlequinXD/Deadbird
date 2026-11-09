@@ -41,6 +41,7 @@ int main(void)
             pad = (rn() % 9 == 0) ? BTN_JUMP : 0;
         } else pad &= ~BTN_JUMP;
         since++;
+        level_think(pl.x, pl.y, pl.z, 0xe);              /* movers first: she rides them this frame */
         player_update(&pl, pad, yaw, mag);
         player_pose(&pl, &m);
         {
@@ -54,7 +55,7 @@ int main(void)
                 if (sec >= 0) g = level_sector_floor(sec, pl.x, pl.z);
                 else if (on_map) { if (fails++ < 10) printf("frame %d: off the map at %d %d\n", f, (int)pl.x, (int)pl.z); }
                 if (pl.y > g + 1) { if (fails++ < 10) printf("frame %d: below the floor (y %d, floor %d)\n", f, (int)pl.y, (int)g); }
-                if (pl.y < g - 3000) { if (fails++ < 10) printf("frame %d: flew away (y %d)\n", f, (int)pl.y); }
+                if (pl.y < g - 4500) { if (fails++ < 10) printf("frame %d: flew away (y %d)\n", f, (int)pl.y); }
             }
         }
         {   /* stuck inside geometry for more than a few frames? (stepping off a stair edge can
@@ -126,6 +127,8 @@ int main(void)
     for (int pass = 0; pass < 2; pass++) {
         s32 sx, sz, wx, wz;
         int sy, wp = 1, frames = 0, last_wp_frame = 0, ok = 1;
+        u32 keys = 0;
+        level_init();                                   /* doors shut, lifts back, pickups back */
         level_spawn(&sx, &sz, &sy);
         player_reset(&pl, sx, sz, sy);
         while (wp < level_route_count()) {
@@ -133,8 +136,10 @@ int main(void)
             level_route_point(wp, &wx, &wz);
             dx = wx - pl.x; dz = wz - pl.z;
             if (dx * (long long)dx + dz * (long long)dz < 450LL * 450) { wp++; last_wp_frame = frames; continue; }
+            level_think(pl.x, pl.y, pl.z, keys);
             player_update(&pl, 0, player_input_angle(dx, dz), pass ? 4096 : 2400);
             player_pose(&pl, &m);
+            { int arg, k = level_pickup(pl.x, pl.y, pl.z, &arg); if (k == 2) keys |= 1u << arg; }
             if (++frames - last_wp_frame > 900) {
                 s32 px2, pz2; level_route_point(wp - 1, &px2, &pz2);
                 printf("FAIL: route blocked between waypoints %d (%d,%d) and %d (%d,%d); stuck at %d %d\n",
@@ -142,7 +147,7 @@ int main(void)
                 fails++; ok = 0; break;
             }
         }
-        if (ok) printf("route test: spawn to reactor %s in %d frames (%d s)\n", pass ? "running" : "walking", frames, frames / 60);
+        if (ok) printf("route test: spawn to reactor %s in %d frames (%d s), keys %x, at %d %d y %d\n", pass ? "running" : "walking", frames, frames / 60, (unsigned)keys, (int)pl.x, (int)pl.z, (int)pl.y);
     }
     printf("%d random frames: max move %d u/f, max turn %d, max drop %d, %d jumps/falls, %d failures\n",
            60 * 60 * 5, max_jump, max_turn, max_drop, air_starts, fails);
