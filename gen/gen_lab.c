@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "gen_lab.h"
+#include "map.h"
 #include "gmath.h"
 #include "lab_data.h"
 
@@ -32,7 +33,7 @@ static int iround(float x) { return (int)gfloor(x + 0.5f); }
 static int iceil(float x) { int i = (int)x; return (float)i < x ? i + 1 : i; }
 
 /* ------------------------------------------------------------------ build state */
-typedef struct { V3 p[4]; int n, tile, flags, anim, emit, area; unsigned char uv[4][2]; int er, eg, eb; float rgb[4][3]; V3 nrm; } GF;
+typedef struct { V3 p[4]; int n, tile, flags, anim, emit, area; unsigned char uv[4][2]; int er, eg, eb; float rgb[4][3]; V3 nrm; float base; } GF;   /* base: floor y under a wall face */
 typedef struct { float x0, y0, z0, x1, y1, z1; } Occ;
 typedef struct { float x0, z0, x1, z1, h; } Col;
 typedef struct { V3 p, c; float r; } Light;
@@ -44,6 +45,8 @@ enum { SS, SN, SW, SE };            /* wall sides */
 
 static GF *faces; static int nfaces, capfaces;
 static Occ occ[1024]; static int nocc;
+typedef struct { float x0, z0, x1, z1, ytop, ybot; } WSeg;          /* a wall's solid span (sector maps) */
+static WSeg *wsegs; static int nwsegs, capwsegs;
 static Col cols[1024]; static int ncols;
 static Light lights[256]; static int nlights;
 static LabSprite sprites[16]; static int nsprites;
@@ -555,6 +558,7 @@ static int f_core(int i, int j, int nu, int nv)
 }
 
 /* ------------------------------------------------------------------ lighting bake */
+static int *wnear, nwnear;
 static int shadowed(V3 P, V3 L, const int *near, int nn)
 {
     V3 D = sub(L, P);
@@ -570,6 +574,15 @@ static int shadowed(V3 P, V3 L, const int *near, int nn)
         }
         if (tmax >= tmin && tmax > 0 && tmin < 0.98f) return 1;
     }
+    for (int k = 0; k < nwnear; k++) {
+        const WSeg *w = &wsegs[wnear[k]];
+        float ex = w->x1 - w->x0, ez = w->z1 - w->z0, den = D.x * ez - D.z * ex;
+        if (gabs(den) < 1e-6f) continue;
+        float t = ((w->x0 - P.x) * ez - (w->z0 - P.z) * ex) / den, s_ = ((w->x0 - P.x) * D.z - (w->z0 - P.z) * D.x) / den;
+        if (t <= 0.002f || t >= 0.98f || s_ < 0 || s_ > 1) continue;
+        float y = P.y + D.y * t;
+        if (y >= w->ytop && y <= w->ybot) return 1;
+    }
     return 0;
 }
 
@@ -582,6 +595,14 @@ static float floor_ao(V3 p)
         float dx = gmax(gmax(c->x0 - p.x, p.x - c->x1), 0), dz = gmax(gmax(c->z0 - p.z, p.z - c->z1), 0);
         best = gmin(best, gsqrt(dx * dx + dz * dz));
     }
+    for (int i = 0; i < nwsegs; i++) {
+        const WSeg *w = &wsegs[i];
+        if (!(w->ytop < p.y - 20 && w->ybot >= p.y - 40)) continue;
+        float ex = w->x1 - w->x0, ez = w->z1 - w->z0, L2 = ex * ex + ez * ez;
+        float t = L2 > 0 ? gclamp(((p.x - w->x0) * ex + (p.z - w->z0) * ez) / L2, 0, 1) : 0;
+        float dx = w->x0 + ex * t - p.x, dz = w->z0 + ez * t - p.z;
+        best = gmin(best, gsqrt(dx * dx + dz * dz));
+    }
     return 0.45f + 0.55f * gclamp(best / 500, 0, 1);
 }
 
@@ -590,6 +611,7 @@ static void bake(void)
     static const float AMB[3] = { 0.22f, 0.23f, 0.29f };
     static int near[1024];
     float *aoa = (float *)malloc(sizeof(float) * (size_t)nfaces * 4);
+    wnear = (int *)malloc(sizeof(int) * (size_t)(nwsegs + 1));
     for (int fi = 0; fi < nfaces; fi++) {
         GF *f = &faces[fi];
         V3 n = cross(sub(f->p[2], f->p[0]), sub(f->p[1], f->p[0]));
@@ -599,7 +621,7 @@ static void bake(void)
             float ao = 1;
             V3 p = f->p[c];
             if (f->nrm.y < -0.8f) ao = floor_ao(p);
-            if (gabs(f->nrm.y) < 0.3f) ao *= 0.55f + 0.45f * gclamp(-p.y / 600, 0, 1);
+            if (gabs(f->nrm.y) < 0.3f) ao *= 0.55f + 0.45f * gclamp((f->base - p.y) / 600, 0, 1);
             for (int k = 0; k < 3; k++) f->rgb[c][k] = AMB[k] * ao;
             aoa[fi * 4 + c] = ao;
         }
@@ -612,6 +634,13 @@ static void bake(void)
             if (gmin(o->x0, o->x1) <= L->p.x + L->r && gmax(o->x0, o->x1) >= L->p.x - L->r &&
                 gmin(o->y0, o->y1) <= L->p.y + L->r && gmax(o->y0, o->y1) >= L->p.y - L->r &&
                 gmin(o->z0, o->z1) <= L->p.z + L->r && gmax(o->z0, o->z1) >= L->p.z - L->r) near[nn++] = k;
+        }
+        nwnear = 0;
+        for (int k = 0; k < nwsegs; k++) {
+            const WSeg *w = &wsegs[k];
+            if (gmin(w->x0, w->x1) <= L->p.x + L->r && gmax(w->x0, w->x1) >= L->p.x - L->r &&
+                gmin(w->z0, w->z1) <= L->p.z + L->r && gmax(w->z0, w->z1) >= L->p.z - L->r &&
+                w->ytop <= L->p.y + L->r && w->ybot >= L->p.y - L->r) wnear[nwnear++] = k;
         }
         for (int fi = 0; fi < nfaces; fi++) {
             GF *f = &faces[fi];
@@ -628,6 +657,7 @@ static void bake(void)
         }
     }
     free(aoa);
+    free(wnear); wnear = 0;
     for (int fi = 0; fi < nfaces; fi++) {
         GF *f = &faces[fi];
         for (int c = 0; c < f->n; c++)
@@ -705,9 +735,6 @@ static void export_mesh(void)
 /* ------------------------------------------------------------------ the plant's contents
    Most of the props are a compact placement script (s16 words: an opcode and its arguments) run
    by place_props(); the few parametric pieces (the great tank, the cells, the reactor) are code. */
-enum { OP_END, OP_CUR, OP_BOX, OP_BOXF, OP_STAIRS, OP_RAILX, OP_RAILZ, OP_CRATE, OP_CAN, OP_CEIL, OP_LIGHT, OP_SPRITE,
-       OP_CONSOLE, OP_MACHINE, OP_CYL, OP_QUAD, OP_POD, OP_PILLAR, OP_RACK, OP_FAN, OP_SPECIAL };
-enum { ND_NONE, ND_PX, ND_NX, ND_PY, ND_NY, ND_PZ, ND_NZ };
 static V3 nd_of(int c) { static const signed char D[7][3] = { { 0, 0, 0 }, { 1, 0, 0 }, { -1, 0, 0 }, { 0, 1, 0 }, { 0, -1, 0 }, { 0, 0, 1 }, { 0, 0, -1 } }; return v3(D[c][0], D[c][1], D[c][2]); }
 static float facing_of(int c) { return c == 0 ? 0 : c == 1 ? GPI / 2 : c == 2 ? GPI : -GPI / 2; }
 
@@ -759,7 +786,7 @@ static const short PROPS[] = {
     OP_CONSOLE, 4500, -12000, 1, LT_SCR_GRAPH, 0,
     OP_CEIL, 2, 75, 78, 85, 7500, 4000,
     OP_CUR, 3,
-    OP_SPECIAL, 0,
+    OP_SPECIAL, 0, -2000, 3000, 0,
     OP_POD, -8300, -1500, 1, 3,
     OP_POD, -8300, 7500, 1, 4,
     OP_POD, 4300, -1500, 3, 3,
@@ -773,7 +800,7 @@ static const short PROPS[] = {
     OP_PILLAR, 500, -3400, 6500,
     OP_CEIL, 3, 80, 84, 92, 8500, 4700,
     OP_CUR, 4,
-    OP_SPECIAL, 1,
+    OP_SPECIAL, 1, 0, 0, 0,
     OP_CAN, -27600, 2600,
     OP_CAN, -27600, 3300,
     OP_CRATE, -27500, 4300, 700, 1200,
@@ -869,7 +896,7 @@ static const short PROPS[] = {
     OP_CONSOLE, 21700, -13200, 1, LT_SCR_GRAPH, -1040,
     OP_CEIL, 8, 72, 72, 78, 9000, 5000,
     OP_CUR, 9,
-    OP_SPECIAL, 2,
+    OP_SPECIAL, 2, 21500, 8500, 0,
     OP_LIGHT, 16000, -8500, 2000, 70, 70, 76, 10000,
     OP_LIGHT, 27000, -8500, 2000, 70, 70, 76, 10000,
     OP_LIGHT, 16000, -8500, 14000, 70, 70, 76, 10000,
@@ -878,9 +905,9 @@ static const short PROPS[] = {
 
 };
 
-static void special_tank(void)
+static void special_tank(float TX0, float TZ0)
 {
-    { const float TX0 = -2000, TZ0 = 3000, TR = 1300;
+    { const float TR = 1300;
       static const int E[3] = { 140, 150, 150 };
       cylinder(v3(TX0, 0, TZ0), TR + 300, 0, -600, 12, LT_MACHINE_BASE, 0, 0, 0, 'y', LT_HAZARD, 1);
       cylinder(v3(TX0, -600, TZ0), TR, 0, -3200, 12, LT_GLASS, F_ADD, 2, 0, 'y', -1, 2);
@@ -903,34 +930,41 @@ static void special_tank(void)
       sprite((int)TX0, -3850, (int)TZ0, 1100, 70, 210, 240, 2, CUR); }
 }
 
-static void special_cells(void)
+/* a barred holding cell, 1.8 m wide and 1.6 m deep, centred at (cx, cz), open side facing `facing`
+   (its back against a wall), with a captive shinigami inside and a red lamp */
+static void special_cell(float cx, float cz, float facing)
 {
-    { static const float CX[4] = { -26300, -24200, -19000, -16700 };
-      for (int ci = 0; ci < 4; ci++) for (int side = -1; side <= 1; side += 2) {
-          float cx = CX[ci], zw = side > 0 ? 8000.f : -2000.f, zf = zw - side * 1600, x0 = cx - 900, x1 = cx + 900;
-          quad(v3(x0, -2600, zf), v3(1800, 0, 0), v3(0, 2600, 0), LT_CAGE_BARS, F_DOUBLE, 0, 0, NOND);
-          quad(v3(x0, -2600, zf), v3(0, 0, zw - zf), v3(0, 2600, 0), LT_CAGE_BARS, F_DOUBLE, 0, 0, NOND);
-          quad(v3(x1, -2600, zf), v3(0, 0, zw - zf), v3(0, 2600, 0), LT_CAGE_BARS, F_DOUBLE, 0, 0, NOND);
-          grid(v3(x0, -2600, zf), v3(1800, 0, 0), v3(0, 0, zw - zf), 900, LT_DARK_METAL, 0, v3(0, 1, 0));
-          grid(v3(x0, -2600, zf), v3(1800, 0, 0), v3(0, 0, zw - zf), 900, LT_BEAM, 0, v3(0, -1, 0));
-          coll(x0, gmin(zf, zw), x1, gmax(zf, zw), 2600);
-          captive(cx, -60, (zf + zw) / 2, 0.85f, side < 0 ? 0 : GPI);
-          light(v3(cx, -2300, (zf + zw) / 2), 1.0f, 0.15f, 0.12f, 2800);
-      } }
+    V3 f = v3(gsin(facing), 0, gcos(facing)), r = v3(gcos(facing), 0, -gsin(facing)), c = v3(cx, -2600, cz);
+    V3 fl = add(add(c, mul(f, 800)), mul(r, -900)), bl = add(add(c, mul(f, -800)), mul(r, -900));
+    quad(fl, mul(r, 1800), v3(0, 2600, 0), LT_CAGE_BARS, F_DOUBLE, 0, 0, NOND);
+    quad(bl, mul(f, 1600), v3(0, 2600, 0), LT_CAGE_BARS, F_DOUBLE, 0, 0, NOND);
+    quad(add(bl, mul(r, 1800)), mul(f, 1600), v3(0, 2600, 0), LT_CAGE_BARS, F_DOUBLE, 0, 0, NOND);
+    grid(bl, mul(r, 1800), mul(f, 1600), 900, LT_DARK_METAL, 0, v3(0, 1, 0));
+    grid(bl, mul(r, 1800), mul(f, 1600), 900, LT_BEAM, 0, v3(0, -1, 0));
+    float ex = gabs(f.x) * 800 + gabs(r.x) * 900, ez = gabs(f.z) * 800 + gabs(r.z) * 900;
+    coll(cx - ex, cz - ez, cx + ex, cz + ez, 2600);
+    captive(cx, -60, cz, 0.85f, facing);
+    light(v3(cx, -2300, cz), 1.0f, 0.15f, 0.12f, 2800);
 }
 
-static void special_core(void)
+static void special_cells(void)
 {
-    { const float RX = 21500, RZ = 8500;
+    static const float CX[4] = { -26300, -24200, -19000, -16700 };
+    for (int ci = 0; ci < 4; ci++) { special_cell(CX[ci], -1200, 0); special_cell(CX[ci], 7200, GPI); }
+}
+
+static void special_core(float RX, float RZ)
+{
+    {
       static const int E[3] = { 170, 170, 170 };
       BOX(RX - 2200, -300, RZ - 2200, RX + 2200, 0, RZ + 2200, LT_HAZARD, LT_PLATE_SIDE, 1100);
       cylinder(v3(RX, -300, RZ), 1300, 0, -5200, 12, LT_COIL, 0, 0, 0, 'y', -1, 4);
       for (int k = 0; k < 3; k++) cylinder(v3(RX, -1300.f - 1300 * k, RZ), 1370, 0, -320, 12, LT_ENERGY, F_EMIT | F_PULSE, 6 + k % 2, E, 'y', -1, 1);
       cylinder(v3(RX, -5500, RZ), 1700, 0, -700, 12, LT_DARK_METAL, 0, 0, 0, 'y', LT_DARK_METAL, 1);
       CYL(v3(RX, -6200, RZ), 600, 0, -2800, 8, LT_PIPE);
-      cylinder(v3(RX + 1650, -6000, RZ), 320, 0, 29000 - RX - 1650, 8, LT_PIPE, 0, 0, 0, 'x', -1, 1);
-      cylinder(v3(14000, -6000, RZ), 320, 0, RX - 1650 - 14000, 8, LT_PIPE, 0, 0, 0, 'x', -1, 1);
-      cylinder(v3(RX, -6000, RZ + 1650), 320, 0, 16000 - RZ - 1650, 8, LT_PIPE, 0, 0, 0, 'z', -1, 1);
+      cylinder(v3(RX + 1650, -6000, RZ), 320, 0, 5850, 8, LT_PIPE, 0, 0, 0, 'x', -1, 1);
+      cylinder(v3(RX - 7500, -6000, RZ), 320, 0, 5850, 8, LT_PIPE, 0, 0, 0, 'x', -1, 1);
+      cylinder(v3(RX, -6000, RZ + 1650), 320, 0, 5850, 8, LT_PIPE, 0, 0, 0, 'z', -1, 1);
       cyl_collide(RX, RZ, 2200, 300);
       coll(RX - 1400, RZ - 1400, RX + 1400, RZ + 1400, 9000);
       occl(RX - 1000, -5500, RZ - 1000, RX + 1000, 0, RZ + 1000);
@@ -939,9 +973,8 @@ static void special_core(void)
       for (int k = 0; k < 6; k++) { float a = k * GPI / 3 + GPI / 6; console(RX + gsin(a) * 5200, RZ + gcos(a) * 5200, a + GPI, k % 2 ? LT_SCR_GRAPH : LT_SCR_VITALS, 0); } }
 }
 
-static void place_props(void)
+static void place_props_from(const short *p)
 {
-    const short *p = PROPS;
     for (;;) {
         int op = *p++;
 #define A(i) ((float)p[i])
@@ -985,10 +1018,427 @@ static void place_props(void)
         case OP_FAN:
             fans[nfans].x = p[0]; fans[nfans].y = p[1]; fans[nfans].z = p[2]; fans[nfans].r = p[3]; fans[nfans++].speed = p[4];
             p += 5; break;
-        case OP_SPECIAL: if (p[0] == 0) special_tank(); else if (p[0] == 1) special_cells(); else special_core(); p += 1; break;
+        case OP_SPECIAL:
+            if (p[0] == SPECIAL_TANK) special_tank(A(1), A(2));
+            else if (p[0] == SPECIAL_CELLS) special_cells();
+            else if (p[0] == SPECIAL_CORE) special_core(A(1), A(2));
+            else special_cell(A(1), A(2), facing_of(p[3]));
+            p += 4; break;
         }
 #undef A
     }
+}
+
+/* ------------------------------------------------------------------ sector maps (gen/map.h)
+   A Build-style map: every sector's floor and ceiling is cut on the world's 2 m tile grid (1 m
+   pieces on floors for the PS1's affine texturing), every wall into 2 m columns and rows, each
+   cell with its own tile. Portals get a lower wall up to the next floor and an upper wall down
+   from the next ceiling. Then the same bake and export as the plant. */
+static const MapDef *MAP, *map_sel;
+void gen_level_select(const MapDef *m) { map_sel = m; }
+const MapDef *gen_level_map(void) { return map_sel; }
+
+typedef struct { float h, k, ax, az, nx, nz; } Plane;          /* up-positive height = h + k * dist from hinge */
+static Plane sec_plane(const MapSector *s, int ceil)
+{
+    Plane P;
+    int w = ceil ? s->cslope : s->fslope;
+    memset(&P, 0, sizeof(P));
+    P.h = ceil ? s->ceil : s->floor;
+    if (s->kind == SK_DOOR && ceil) P.h = (float)(s->floor + s->ka);    /* doors are built open */
+    if (s->kind == SK_LIFT && !ceil) P.h = s->ka;                        /* the lift shaft's floor */
+    if (w < 0) return P;
+    const MapPt *a = &MAP->pts[s->p0 + w], *b = &MAP->pts[s->p0 + (w + 1) % s->np];
+    float dx = (float)(b->x - a->x), dz = (float)(b->z - a->z), L = gsqrt(dx * dx + dz * dz), maxd = 0;
+    P.ax = a->x; P.az = a->z; P.nx = -dz / L; P.nz = dx / L;
+    for (int i = 0; i < s->np; i++) {
+        const MapPt *p = &MAP->pts[s->p0 + i];
+        maxd = gmax(maxd, (p->x - P.ax) * P.nx + (p->z - P.az) * P.nz);
+    }
+    P.k = maxd > 0 ? ((ceil ? s->cslope_h : s->fslope_h) - P.h) / maxd : 0;
+    return P;
+}
+static float ph(const Plane *P, float x, float z) { return P->h + P->k * ((x - P->ax) * P->nx + (z - P->az) * P->nz); }
+static int pmod(int a, int m) { return m <= 0 ? 0 : ((a % m) + m) % m; }
+static int ffloor_div(float v, float d) { return (int)gfloor(v / d); }
+
+static int flat_tile(unsigned off, int cx, int cz)
+{
+    const u8 *b = MAP->spec + off, *r = b + 2;
+    int t = b[0];
+    for (int i = 0; i < b[1]; i++, r += 5) if (pmod(cx, r[1]) == r[3] && pmod(cz, r[2]) == r[4]) t = r[0];
+    int nc = *r++;
+    for (int i = 0; i < nc; i++, r += 3) if ((s8)r[0] == cx && (s8)r[1] == cz) t = r[2];
+    return t;
+}
+
+/* one face: 3 or 4 corners (4 = Z order: 0 1 / 2 3), local tile UVs 0..63, turned to face nd */
+static GF *emit_face(V3 *p, float (*uv)[2], int n, int tile, int flags, V3 nd)
+{
+    GF *f = newface();
+    int tx = (tile & 15) % 4 * 64, ty = (tile & 15) / 4 * 64, ord[4] = { 0, 1, 2, 3 };
+    if (dot(cross(sub(p[2], p[0]), sub(p[1], p[0])), nd) < 0) {
+        if (n == 3) { ord[1] = 2; ord[2] = 1; }
+        else { ord[0] = 1; ord[1] = 0; ord[2] = 3; ord[3] = 2; }
+    }
+    for (int c = 0; c < 4; c++) {
+        int k = ord[c < n ? c : n - 1];
+        f->p[c] = p[k];
+        f->uv[c][0] = (u8)(tx + iround(gclamp(uv[k][0], 0, 63)));
+        f->uv[c][1] = (u8)(ty + iround(gclamp(uv[k][1], 0, 63)));
+    }
+    if (LT_ANIMATED(tile)) flags |= F_ANIMUV;
+    f->n = n; f->tile = tile; f->flags = (flags & ~F_QUAD) | (n == 4 ? F_QUAD : 0);
+    if (tile == LT_CEILING_LIGHT || tile == LT_FLOOR_LIGHT) { f->flags |= F_EMIT; f->emit = 1; f->er = 150; f->eg = 160; f->eb = 170; }
+    return f;
+}
+
+/* polygon (x,z) clipped to a rectangle (Sutherland-Hodgman; a concave input may leave zero-width seams) */
+static int clip_rect(float (*in)[2], int n, float x0, float z0, float x1, float z1, float (*out)[2])
+{
+    float buf[2][64][2];
+    float (*src)[2] = in;
+    int m = n;
+    for (int e = 0; e < 4; e++) {
+        float (*dst)[2] = buf[e & 1];
+        int k = 0;
+        for (int i = 0; i < m && k < 62; i++) {
+            float *a = src[i], *b = src[(i + 1) % m];
+            float da = e == 0 ? a[0] - x0 : e == 1 ? x1 - a[0] : e == 2 ? a[1] - z0 : z1 - a[1];
+            float db = e == 0 ? b[0] - x0 : e == 1 ? x1 - b[0] : e == 2 ? b[1] - z0 : z1 - b[1];
+            if (da >= 0) { dst[k][0] = a[0]; dst[k][1] = a[1]; k++; }
+            if ((da >= 0) != (db >= 0)) { float t = da / (da - db); dst[k][0] = a[0] + (b[0] - a[0]) * t; dst[k][1] = a[1] + (b[1] - a[1]) * t; k++; }
+        }
+        src = dst; m = k;
+        if (m < 3) return 0;
+    }
+    for (int i = 0; i < m; i++) { out[i][0] = src[i][0]; out[i][1] = src[i][1]; }
+    return m;
+}
+static float area2d(float (*p)[2], int n)
+{
+    float a = 0;
+    for (int i = 0; i < n; i++) a += p[i][0] * p[(i + 1) % n][1] - p[(i + 1) % n][0] * p[i][1];
+    return a / 2;
+}
+/* ear clipping of a counter-clockwise polygon; returns the number of triangles */
+static int earclip(float (*p)[2], int n, int (*tri)[3])
+{
+    int idx[64], m = 0, nt = 0;
+    for (int i = 0; i < n; i++) {               /* drop repeats and straight-through points */
+        float *a = p[(i + n - 1) % n], *b = p[i], *c = p[(i + 1) % n];
+        float cr = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+        if (gabs(cr) > 1e-3f && (gabs(b[0] - c[0]) + gabs(b[1] - c[1]) > 0.5f)) idx[m++] = i;
+    }
+    int guard = 0;
+    while (m > 3 && guard++ < 400) {
+        int found = 0;
+        for (int i = 0; i < m && !found; i++) {
+            float *a = p[idx[(i + m - 1) % m]], *b = p[idx[i]], *c = p[idx[(i + 1) % m]];
+            float cr = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+            if (cr <= 0) continue;
+            int ok = 1;
+            for (int j = 0; j < m && ok; j++) {
+                float *q = p[idx[j]];
+                if (q == a || q == b || q == c) continue;
+                float d0 = (b[0] - a[0]) * (q[1] - a[1]) - (b[1] - a[1]) * (q[0] - a[0]);
+                float d1 = (c[0] - b[0]) * (q[1] - b[1]) - (c[1] - b[1]) * (q[0] - b[0]);
+                float d2 = (a[0] - c[0]) * (q[1] - c[1]) - (a[1] - c[1]) * (q[0] - c[0]);
+                if (d0 > 0 && d1 > 0 && d2 > 0) ok = 0;
+            }
+            if (!ok) continue;
+            tri[nt][0] = idx[(i + m - 1) % m]; tri[nt][1] = idx[i]; tri[nt][2] = idx[(i + 1) % m]; nt++;
+            for (int j = i; j < m - 1; j++) idx[j] = idx[j + 1];
+            m--; found = 1;
+        }
+        if (!found) break;
+    }
+    if (m == 3) { tri[nt][0] = idx[0]; tri[nt][1] = idx[1]; tri[nt][2] = idx[2]; nt++; }
+    return nt;
+}
+
+static void build_flat(const MapSector *s, int ceil)
+{
+    Plane P = sec_plane(s, ceil);
+    float poly[64][2], piece[64][2], mnx = 1e9f, mxx = -1e9f, mnz = 1e9f, mxz = -1e9f;
+    int n = s->np < 60 ? s->np : 60;
+    for (int i = 0; i < n; i++) {
+        poly[i][0] = MAP->pts[s->p0 + i].x; poly[i][1] = MAP->pts[s->p0 + i].z;
+        mnx = gmin(mnx, poly[i][0]); mxx = gmax(mxx, poly[i][0]); mnz = gmin(mnz, poly[i][1]); mxz = gmax(mxz, poly[i][1]);
+    }
+    const float T = MAP_TILE, sub = ceil ? MAP_TILE : MAP_TILE / 2;
+    V3 nd = v3(0, ceil ? 1.f : -1.f, 0);
+    int flags = ceil ? 0 : F_FLOOR;
+    for (int cz = ffloor_div(mnz, T); cz * T < mxz; cz++)
+        for (int cx = ffloor_div(mnx, T); cx * T < mxx; cx++) {
+            int tile = flat_tile(ceil ? s->ctex : s->ftex, cx, cz);
+            for (float sz = cz * T; sz < (cz + 1) * T - 1; sz += sub)
+                for (float sx = cx * T; sx < (cx + 1) * T - 1; sx += sub) {
+                    int m = clip_rect(poly, n, sx, sz, sx + sub, sz + sub, piece);
+                    if (m < 3) continue;
+                    float a = area2d(piece, m);
+                    if (a < 2000) continue;
+#define FUV(x, z, o) (o[0] = ((x) - cx * T) / T * 63, o[1] = ceil ? ((z) - cz * T) / T * 63 : ((cz + 1) * T - (z)) / T * 63)
+                    if (gabs(a - sub * sub) < 1) {
+                        V3 q[4]; float uv[4][2];
+                        float xs[4] = { sx, sx + sub, sx, sx + sub }, zs[4] = { sz, sz, sz + sub, sz + sub };
+                        for (int c = 0; c < 4; c++) { q[c] = v3(xs[c], -ph(&P, xs[c], zs[c]), zs[c]); FUV(xs[c], zs[c], uv[c]); }
+                        GF *f = emit_face(q, uv, 4, tile, flags, nd);
+                        f->base = q[0].y;
+                    } else {
+                        int tri[64][3], nt = earclip(piece, m, tri);
+                        for (int t = 0; t < nt; t++) {
+                            V3 q[3]; float uv[3][2];
+                            for (int c = 0; c < 3; c++) {
+                                float *v = piece[tri[t][c]];
+                                q[c] = v3(v[0], -ph(&P, v[0], v[1]), v[1]); FUV(v[0], v[1], uv[c]);
+                            }
+                            GF *f = emit_face(q, uv, 3, tile, flags, nd);
+                            f->base = q[0].y;
+                        }
+                    }
+#undef FUV
+                }
+        }
+}
+
+static void wseg(float x0, float z0, float x1, float z1, float lo, float hi)
+{
+    if (hi - lo < 1) return;
+    if (nwsegs == capwsegs) { capwsegs = capwsegs ? capwsegs * 2 : 512; wsegs = (WSeg *)realloc(wsegs, sizeof(WSeg) * (size_t)capwsegs); }
+    WSeg *w = &wsegs[nwsegs++];
+    w->x0 = x0; w->z0 = z0; w->x1 = x1; w->z1 = z1; w->ytop = -hi; w->ybot = -lo;
+}
+
+/* one part of a wall: between the lines bottom (Bb at b .. Ba at a) and top, tiles from a wall spec.
+   t runs from b (the viewer's left, facing the wall) to a. anchor_top: rows hang from the top (upper
+   walls); otherwise they stand on the bottom, with an optional pinned top row. */
+static void wall_part(unsigned spec, V3 a, V3 b, float Ba, float Bb, float Ta, float Tb, float Fa, float Fb, int anchor_top, int wflags, V3 nd)
+{
+    if (spec == MAP_NONE) return;
+    const u8 *sp = MAP->spec + spec;
+    int nrows = sp[0], top = sp[1];
+    const u8 *rows[16]; int rl[16];
+    const u8 *q = sp + 2;
+    for (int r = 0; r < nrows && r < 16; r++) { rl[r] = q[0]; rows[r] = q + 1; q += 1 + q[0]; }
+    int nov = *q++;
+    const u8 *ov = q;
+    const float T = MAP_TILE, SUBW = 1024;
+    float L = len(sub(a, b));
+    if (L < 1 || (Ta - Ba < 1 && Tb - Bb < 1)) return;
+    float hb = gmin(Ba, Bb), ht = gmax(Ta, Tb);
+    /* bands: [h0, h1], texture anchor height (bottom of the tile if !atop, else top), row index */
+    float band[24][3]; int btile_row[24], batop[24], nb = 0;
+    if (anchor_top) {
+        for (int r = 0; nb < 24; r++) {
+            float h1 = ht - r * T, h0 = gmax(hb, h1 - T);
+            if (h1 - h0 < 1) break;
+            band[nb][0] = h0; band[nb][1] = h1; band[nb][2] = h1; btile_row[nb] = r; batop[nb] = 1; nb++;
+            if (h0 <= hb) break;
+        }
+    } else {
+        float lim = ht;
+        if (top != 255 && ht - hb > 1) lim = gmax(hb, ht - T);
+        for (int r = 0; nb < 23; r++) {
+            float h0 = hb + r * T, h1 = gmin(lim, h0 + T);
+            if (h1 - h0 < 1) break;
+            band[nb][0] = h0; band[nb][1] = h1; band[nb][2] = h0; btile_row[nb] = r; batop[nb] = 0; nb++;
+        }
+        if (top != 255 && ht - lim > 1) { band[nb][0] = lim; band[nb][1] = ht; band[nb][2] = ht; btile_row[nb] = -1; batop[nb] = 1; nb++; }
+    }
+    /* columns along t from b */
+    float c0 = 0;
+    if (wflags & WF_ALIGN_END) c0 = L - T * gfloor(L / T + 0.999f);
+    else if (wflags & WF_ALIGN_MID) c0 = -(T * gfloor(L / T + 0.999f) - L) / 2;
+    int col = 0;
+    for (float cs = c0; cs < L - 1; cs += T, col++) {
+        float t0 = gmax(0, cs), t1 = gmin(L, cs + T);
+        if (t1 - t0 < 1) continue;
+        for (int bi = 0; bi < nb; bi++) {
+            int r = btile_row[bi], tile;
+            if (r < 0) tile = top;
+            else if (!nrows) tile = LT_DARK_METAL;
+            else { int rr = r < nrows ? r : nrows - 1; tile = rows[rr][col % rl[rr]]; }
+            for (int k = 0; k < nov; k++) if (ov[k * 3] == col && ov[k * 3 + 1] == (r < 0 ? nb - 1 : r)) tile = ov[k * 3 + 2];
+            float h0 = band[bi][0], h1 = band[bi][1], anc = band[bi][2];
+            int nu = iceil((t1 - t0) / SUBW - 1e-3f), nv = iceil((h1 - h0) / SUBW - 1e-3f);
+            for (int j = 0; j < nv; j++)
+                for (int i = 0; i < nu; i++) {
+                    float u0 = t0 + (t1 - t0) * i / nu, u1 = t0 + (t1 - t0) * (i + 1) / nu;
+                    float v0 = h0 + (h1 - h0) * j / nv, v1 = h0 + (h1 - h0) * (j + 1) / nv;
+                    float tt[2] = { u0, u1 }, hh[4];
+                    for (int e = 0; e < 2; e++) {
+                        float w = tt[e] / L, B = Bb + (Ba - Bb) * w, Tt = Tb + (Ta - Tb) * w;
+                        hh[e * 2] = gclamp(v1, B, Tt); hh[e * 2 + 1] = gclamp(v0, B, Tt);
+                    }
+                    if (hh[0] - hh[1] < 1 && hh[2] - hh[3] < 1) continue;
+                    V3 p[4]; float uv[4][2];
+                    for (int c = 0; c < 4; c++) {
+                        int e = c & 1;                      /* 0 left (u0), 1 right (u1) */
+                        float tpos = tt[e], h = c < 2 ? hh[e * 2] : hh[e * 2 + 1];
+                        V3 g = add(b, mul(sub(a, b), tpos / L));
+                        p[c] = v3(g.x, -h, g.z);
+                        uv[c][0] = (tpos - cs) / T * 63;
+                        uv[c][1] = batop[bi] ? (anc - h) / T * 63 : 63 - (h - anc) / T * 63;
+                    }
+                    GF *f = emit_face(p, uv, 4, tile, 0, nd);
+                    f->base = -(Fb + (Fa - Fb) * ((u0 + u1) / 2 / L));
+                }
+        }
+    }
+}
+
+static void build_walls(int si)
+{
+    const MapSector *s = &MAP->secs[si];
+    Plane F = sec_plane(s, 0), C = sec_plane(s, 1);
+    for (int i = 0; i < s->np; i++) {
+        const MapPt *pa = &MAP->pts[s->p0 + i], *pb = &MAP->pts[s->p0 + (i + 1) % s->np];
+        const MapWall *w = &MAP->walls[s->p0 + i];
+        float dx = (float)(pb->x - pa->x), dz = (float)(pb->z - pa->z), L = gsqrt(dx * dx + dz * dz);
+        V3 a = v3(pa->x, 0, pa->z), b = v3(pb->x, 0, pb->z), nd = v3(-dz / L, 0, dx / L);
+        float fa = ph(&F, a.x, a.z), fb = ph(&F, b.x, b.z), ca = ph(&C, a.x, a.z), cb = ph(&C, b.x, b.z);
+        int sh = !(w->flags & WF_NOSHADOW);
+        if (ca - fa < 1 && cb - fb < 1) continue;                   /* a solid block: its neighbours draw it */
+        if (!w->next) {
+            wall_part(w->mid, a, b, fa, fb, ca, cb, fa, fb, 0, w->flags, nd);
+            if (sh) wseg(a.x, a.z, b.x, b.z, gmin(fa, fb), gmax(ca, cb));
+            continue;
+        }
+        const MapSector *o = &MAP->secs[w->next - 1];
+        Plane OF = sec_plane(o, 0), OC = sec_plane(o, 1);
+        float ofa = ph(&OF, a.x, a.z), ofb = ph(&OF, b.x, b.z), oca = ph(&OC, a.x, a.z), ocb = ph(&OC, b.x, b.z);
+        if (oca - ofa < 1 && ocb - ofb < 1) {                       /* neighbour is solid: full wall */
+            wall_part(w->mid, a, b, fa, fb, ca, cb, fa, fb, 0, w->flags, nd);
+            if (sh) wseg(a.x, a.z, b.x, b.z, gmin(fa, fb), gmax(ca, cb));
+            continue;
+        }
+        if (ofa > fa + 1 || ofb > fb + 1) {
+            float ta = gmin(gmax(ofa, fa), ca), tb = gmin(gmax(ofb, fb), cb);
+            wall_part(w->low != MAP_NONE ? w->low : w->mid, a, b, fa, fb, ta, tb, fa, fb, 0, w->flags & ~0, nd);
+            if (sh) wseg(a.x, a.z, b.x, b.z, gmin(fa, fb), gmax(ta, tb));
+        }
+        if (oca < ca - 1 || ocb < cb - 1) {
+            float ba = gmax(gmin(oca, ca), fa), bb = gmax(gmin(ocb, cb), fb);
+            wall_part(w->up != MAP_NONE ? w->up : w->mid, a, b, ba, bb, ca, cb, fa, fb, 1, w->flags, nd);
+            if (sh) wseg(a.x, a.z, b.x, b.z, gmin(ba, bb), gmax(ca, cb));
+        }
+        if (w->flags & (WF_GLASS | WF_BARS)) {                       /* a pane across the opening */
+            float lo_a = gmax(fa, ofa), lo_b = gmax(fb, ofb), hi_a = gmin(ca, oca), hi_b = gmin(cb, ocb);
+            V3 p[4] = { v3(b.x, -hi_b, b.z), v3(a.x, -hi_a, a.z), v3(b.x, -lo_b, b.z), v3(a.x, -lo_a, a.z) };
+            float uv[4][2] = { { 0, 0 }, { 63, 0 }, { 0, 63 }, { 63, 63 } };
+            int glass = w->flags & WF_GLASS;
+            GF *f = emit_face(p, uv, 4, glass ? LT_GLASS : LT_CAGE_BARS, F_DOUBLE | (glass ? F_ADD : 0), nd);
+            f->anim = glass ? 2 : 0;
+        }
+    }
+}
+
+static float tri_area_xz(const MapPt *a, const MapPt *b, const MapPt *c) { return ((b->x - a->x) * (float)(c->z - a->z) - (b->z - a->z) * (float)(c->x - a->x)) / 2; }
+
+static int map_inside(const MapSector *s, float x, float z)
+{
+    int c = 0;
+    for (int i = 0, j = s->np - 1; i < s->np; j = i++) {
+        const MapPt *pi = &MAP->pts[s->p0 + i], *pj = &MAP->pts[s->p0 + j];
+        if ((pi->z > z) != (pj->z > z) && x < pi->x + (z - pi->z) * (float)(pj->x - pi->x) / (float)(pj->z - pi->z)) c = !c;
+    }
+    return c;
+}
+
+static void gen_map_geometry(void)
+{
+    MAP = map_sel;
+    nfaces = nocc = ncols = nlights = nsprites = nfans = nrings = npods = nceils = nareas = nwsegs = 0;
+    /* rooms are the areas: bounds and links from the sectors */
+    for (int r = 0; r < MAP->nrooms && r < 32; r++) {
+        Area *a = &areas[nareas++];
+        memset(a, 0, sizeof(*a));
+        a->name = MAP->rooms[r]; a->x0 = a->z0 = 1e9f; a->x1 = a->z1 = -1e9f;
+    }
+    for (int si = 0; si < MAP->nsecs; si++) {
+        const MapSector *s = &MAP->secs[si];
+        Area *a = &areas[s->room];
+        for (int i = 0; i < s->np; i++) {
+            const MapPt *p = &MAP->pts[s->p0 + i];
+            a->x0 = gmin(a->x0, p->x); a->x1 = gmax(a->x1, p->x); a->z0 = gmin(a->z0, p->z); a->z1 = gmax(a->z1, p->z);
+            const MapWall *w = &MAP->walls[s->p0 + i];
+            if (w->next) { int o = MAP->secs[w->next - 1].room; if (o != s->room) a->links |= 1u << o; }
+        }
+        a->H = gmax(a->H, (float)(s->ceil - s->floor));
+    }
+    for (int si = 0; si < MAP->nsecs; si++) {
+        const MapSector *s = &MAP->secs[si];
+        CUR = s->room;
+        if (s->ceil > s->floor || s->kind == SK_DOOR) { build_flat(s, 0); build_flat(s, 1); }
+        build_walls(si);
+    }
+    CUR = 0;
+    {   /* props, lights and halos: the map's placement script */
+        const short *save = 0; (void)save;
+        place_props_from(MAP->props);
+    }
+    bake();
+    export_mesh();
+
+    lab.nboxes = ncols; lab.boxes = (LabBox *)malloc(sizeof(LabBox) * (size_t)(ncols + 1));
+    for (int i = 0; i < ncols; i++) {
+        LabBox *b = &lab.boxes[i];
+        b->x0 = (s16)(int)cols[i].x0; b->z0 = (s16)(int)cols[i].z0; b->x1 = (s16)(int)cols[i].x1; b->z1 = (s16)(int)cols[i].z1;
+        b->h = (s16)(int)gmin(cols[i].h, 32000);
+    }
+    memcpy(lab.sprites, sprites, sizeof(sprites)); lab.nsprites = nsprites;
+    memcpy(lab.fans, fans, sizeof(fans)); lab.nfans = nfans;
+    memcpy(lab.rings, rings, sizeof(rings)); lab.nrings = nrings;
+    memcpy(lab.pods, pods, sizeof(pods)); lab.npods = npods;
+    lab.nceil = 0;
+    lab.nareas = nareas;
+    for (int i = 0; i < nareas; i++) {
+        unsigned seen = 1u << i, frontier = seen;
+        for (int s = 0; s < 2; s++) {
+            unsigned nxt = 0;
+            for (int a = 0; a < nareas; a++) if (frontier & (1u << a)) nxt |= areas[a].links;
+            for (int a = 0; a < nareas; a++) if (areas[a].links & frontier) nxt |= 1u << a;
+            seen |= nxt; frontier = nxt;
+        }
+        LabArea *o = &lab.areas[i];
+        o->x0 = (s16)areas[i].x0; o->z0 = (s16)areas[i].z0; o->x1 = (s16)areas[i].x1; o->z1 = (s16)areas[i].z1; o->pvs = seen; o->name = areas[i].name;
+    }
+    /* a camera view per room: from inside its biggest sector, near the corner furthest from the centre, looking across */
+    lab.nviews = 0;
+    for (int r = 0; r < nareas && lab.nviews < 16; r++) {
+        int best = -1; float ba = 0;
+        for (int si = 0; si < MAP->nsecs; si++) {
+            const MapSector *s = &MAP->secs[si];
+            if (s->room != r || s->ceil <= s->floor) continue;
+            float A = 0;
+            for (int i = 1; i + 1 < s->np; i++) A += tri_area_xz(&MAP->pts[s->p0], &MAP->pts[s->p0 + i], &MAP->pts[s->p0 + i + 1]);
+            if (gabs(A) > ba) { ba = gabs(A); best = si; }
+        }
+        if (best < 0) continue;
+        const MapSector *s = &MAP->secs[best];
+        float cx = 0, cz = 0;
+        for (int i = 0; i < s->np; i++) { cx += MAP->pts[s->p0 + i].x; cz += MAP->pts[s->p0 + i].z; }
+        cx /= s->np; cz /= s->np;
+        float vx = cx, vz = cz, fd = 0;
+        for (int i = 0; i < s->np; i++) {
+            const MapPt *p = &MAP->pts[s->p0 + i];
+            float x = cx + (p->x - cx) * 0.8f, z = cz + (p->z - cz) * 0.8f, d = (x - cx) * (x - cx) + (z - cz) * (z - cz);
+            if (d > fd && map_inside(s, x, z)) { fd = d; vx = x; vz = z; }
+        }
+        Plane F = sec_plane(s, 0);
+        LabView *v = &lab.views[lab.nviews++];
+        v->name = areas[r].name; v->x = (s32)vx; v->z = (s32)vz;
+        v->y = (s32)-(ph(&F, vx, vz) + gmin((float)(s->ceil - s->floor) - 600, 3200));
+        v->yaw = iround(gatan2(cx - vx, cz - vz) / (2 * GPI) * 4096) & 4095; v->pitch = 170;
+    }
+    lab.nroute = 0;
+    for (int i = 0; i < MAP->nthings && lab.nroute < 48; i++)
+        if (MAP->things[i].type == TH_START || MAP->things[i].type == TH_WAY) {
+            lab.route[lab.nroute][0] = MAP->things[i].x; lab.route[lab.nroute][1] = MAP->things[i].z; lab.nroute++;
+        }
+    free(faces); faces = 0; nfaces = capfaces = 0;
+    free(wsegs); wsegs = 0; nwsegs = capwsegs = 0;
 }
 
 #define SPAWN_X -19000
@@ -997,6 +1447,7 @@ static const int ROUTE_HALLS_N = 9;
 
 void gen_lab_geometry(void)
 {
+    if (map_sel) { gen_map_geometry(); return; }
     nfaces = nocc = ncols = nlights = nsprites = nfans = nrings = npods = nceils = nareas = 0;
     int DOCK = area("Loading Dock", -26000, -30000, -12000, -20000, 6500, 0);
     int CHECK = area("Security Checkpoint", -6000, -28000, 2000, -22000, 4500, 0);
@@ -1025,7 +1476,7 @@ void gen_lab_geometry(void)
     build_shell(TURB, f_turb, 0); build_shell(CORE, f_core, 0);
     for (int k = 0; k < 10; k++) { build_shell(H[k], 0, 0); dress_hall(H[k]); }
 
-    place_props();
+    place_props_from(PROPS);
 
     bake();
     export_mesh();

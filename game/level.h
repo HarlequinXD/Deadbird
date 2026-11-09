@@ -57,6 +57,7 @@ int  level_route_count(void);
 void level_route_point(int i, s32 *x, s32 *z);
 int  level_view_count(void);
 const LabView *level_view(int i);
+void level_extra_views(const LabView *v, int n);   /* tools: more camera spots after the rooms' */
 /* test hook: an endless flat floor with nothing on it */
 void level_debug_flat(int on);
 

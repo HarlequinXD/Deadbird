@@ -1,0 +1,81 @@
+# Test map: two rooms joined by a door and a window, a raised platform with stairs, a ramp
+# with a sloped ceiling, and a pillar. Used by the headless tests; not part of the game.
+
+room Hall
+room Annex
+
+sector hall room Hall floor 0 ceil 5
+    pts -1.75,-6  8,-6  8,0  8,2  8,4  8,6  -8,6  -8,-2  -4,-2  -3.25,-2  -2.5,-2  -1.75,-2
+    ftex FLOOR_PLATE
+    frule FLOOR_GRATE 3,3 0,0
+    ctex CEILING_PANEL
+    crule CEILING_LIGHT 2,2 0,0
+    walls BASE_PLAIN BASE_PIPES / MID_PANEL MID_POSTER_POWER / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM
+    wall 0 cell 3,1 WALL_GRAPH
+
+# a raised platform in the hall's south-west corner, reached by three steps
+sector plat room Hall floor 0.8 ceil 5
+    pts -8,-6  -4,-6  -4,-2  -8,-2
+    ftex FLOOR_GRATE
+    walls BASE_HAZARD / MID_PANEL / top TOP_BEAM
+    lows PLATE_SIDE
+sector step1 room Hall floor 0.6 ceil 5
+    pts -4,-6  -3.25,-6  -3.25,-2  -4,-2
+    ftex STAIR_TREAD
+    walls BASE_HAZARD / MID_PANEL / top TOP_BEAM
+    lows PLATE_SIDE
+sector step2 room Hall floor 0.4 ceil 5
+    pts -3.25,-6  -2.5,-6  -2.5,-2  -3.25,-2
+    ftex STAIR_TREAD
+    walls BASE_HAZARD / MID_PANEL / top TOP_BEAM
+    lows PLATE_SIDE
+sector step3 room Hall floor 0.2 ceil 5
+    pts -2.5,-6  -1.75,-6  -1.75,-2  -2.5,-2
+    ftex STAIR_TREAD
+    walls BASE_HAZARD / MID_PANEL / top TOP_BEAM
+    lows PLATE_SIDE
+
+# the door to the annex (east wall, between z 0 and 2) and a window (z 4..6), both 1 m deep
+sector door room Hall floor 0 door 4
+    pts 8,0  9,0  9,2  8,2
+    ftex FLOOR_HAZARD
+    walls DOOR_JAMB_R
+    ups DOOR_LINTEL
+
+sector window room Hall floor 1 ceil 3
+    pts 8,4  9,4  9,6  8,6
+    ftex DARK_METAL
+    walls DARK_METAL
+    lows PLATE_SIDE
+    ups TOP_BEAM
+    wall 1 glass
+
+sector annex room Annex floor 0 ceil 4
+    pts 9,-4  17,-4  17,8  9,8  9,6  9,4  9,2  9,0
+    ftex FLOOR_LAB
+    ctex CEILING_PANEL
+    walls LAB_PANEL / LAB_POSTER LAB_PANEL / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM
+
+# a ramp up the annex's north side, sloped floor and ceiling
+sector ramp room Annex floor 0 fslope 0 2 ceil 4 cslope 0 6
+    pts 9,8  17,8  17,12  9,12
+    ftex STAIR_TREAD
+    walls LAB_PANEL / top TOP_BEAM
+    lows PLATE_SIDE
+
+light 0,0,4 0.9 0.9 1.0 9
+light -6,-4,4 0.6 0.3 0.2 5
+light 13,2,3.5 0.4 0.8 0.9 8
+sprite 13,2,3.6 0.3 120 200 230 0
+
+thing start 0,-3 yaw 0
+thing trooper 13,0 yaw 180
+thing key cyan -6,-4
+
+prop crate 4,-4 0.7 0.7
+prop console 5,5 s graph
+prop pillar 0,2 5

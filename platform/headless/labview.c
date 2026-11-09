@@ -5,6 +5,8 @@
 #include "gte.h"
 #include "gpu.h"
 #include "level.h"
+#include "map.h"
+#include <stdlib.h>
 
 static FrameBuf fb;
 
@@ -36,7 +38,24 @@ int main(int argc, char **argv)
     const char *out = argc > 1 ? argv[1] : ".";
     unsigned i;
     gpu_init();
+    if (getenv("MAP") && !strcmp(getenv("MAP"), "test")) gen_level_select(&map_test);   /* MAP=test: the sector test map */
     level_init();
+    {   /* VIEWS="x,y,z,yaw,pitch;...": extra camera spots in metres / degrees (y up), drawn after the room views */
+        static LabView extra[16];
+        static char names[16][16];
+        int ne = 0;
+        const char *v = getenv("VIEWS");
+        while (v && *v && ne < 16) {
+            float x, y, z, yaw, pitch;
+            if (sscanf(v, "%f,%f,%f,%f,%f", &x, &y, &z, &yaw, &pitch) != 5) break;
+            sprintf(names[ne], "view %d", ne + 1);
+            extra[ne].name = names[ne]; extra[ne].x = (s32)(x * 1024); extra[ne].y = (s32)(-y * 1024); extra[ne].z = (s32)(z * 1024);
+            extra[ne].yaw = (int)(yaw * 4096 / 360) & 4095; extra[ne].pitch = (int)(pitch * 4096 / 360);
+            ne++;
+            v = strchr(v, ';'); if (v) v++;
+        }
+        level_extra_views(extra, ne);
+    }
     for (i = 0; i < (unsigned)level_view_count(); i++) {
         const LabView *sp = level_view((int)i);
         char nm[64];

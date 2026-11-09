@@ -49,10 +49,12 @@ int  level_data_bytes(void)
 }
 int  level_area_count(void) { gen_lab(); return LAB_NAREAS; }   /* (tools may ask before level_init) */
 const LabArea *level_area(int i) { return &lab_areas[i]; }
-int  level_view_count(void) { gen_lab(); return LAB_NVIEWS; }
+static const LabView *xviews; static int nxviews;
+void level_extra_views(const LabView *v, int n) { xviews = v; nxviews = n; }
+int  level_view_count(void) { gen_lab(); return LAB_NVIEWS + nxviews; }
 int  level_route_count(void) { gen_lab(); return LAB_NROUTE; }
 void level_route_point(int i, s32 *x, s32 *z) { *x = lab_route[i][0]; *z = lab_route[i][1]; }
-const LabView *level_view(int i) { return &lab_views[i]; }
+const LabView *level_view(int i) { return i < LAB_NVIEWS ? &lab_views[i] : &xviews[i - LAB_NVIEWS]; }
 int  level_area_at(s32 x, s32 z)
 {
     int i;
