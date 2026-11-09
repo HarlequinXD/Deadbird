@@ -34,7 +34,16 @@ void game_set_analog(int lx, int ly, int rx, int ry);
 /* controller rumble wanted this frame, 0..255 (hard landings) */
 int  game_rumble(void);
 /* flow states returned by game_phase() */
-enum { GS_TITLE, GS_CONTROLS, GS_PLAY, GS_PAUSE, GS_END };
+enum { GS_TITLE, GS_CONTROLS, GS_PLAY, GS_PAUSE, GS_END, GS_EDITOR };
+/* the level editor (not on the PS1) wants raw pointer input instead of the touch pad: while this
+   is 1, send touches / the mouse through game_pointer (x, y in 320x240 screen pixels; id: finger,
+   0 for the mouse; ev 0 down 1 move 2 up 3 hover; kind 0 touch 1 left button 2 right button),
+   the wheel through game_wheel and typed text through game_char (8 backspace, 13 enter, 27 esc,
+   26 ctrl-Z, 25 ctrl-Y, 19 ctrl-S) */
+int  game_wants_pointer(void);
+void game_pointer(int id, int ev, int x, int y, int kind);
+void game_wheel(int steps);
+void game_char(int ch);
 /* look finger dragged horizontally by dx screen pixels: swings the camera */
 void game_cam_drag(int dx);
 /* a finger went down at a screen point (menus) */

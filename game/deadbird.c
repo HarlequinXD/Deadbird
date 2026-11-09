@@ -23,6 +23,9 @@
 #include "demon_mesh.h"
 #include "chainsaw_mesh.h"
 #include "assets.h"
+#ifndef GEN_BAKED
+#include "editor.h"
+#endif
 
 
 static FrameBuf frames[2];
@@ -51,7 +54,9 @@ static int gs, gs_t, frame_count, shake, rumble;
 static s32 cam_yaw, cam_dist, cam_h, cam_side, cam_clip = 2900;
 static u32 prev_pad, cur_pad;
 static int stick_on, stick_ox, stick_oy, stick_x, stick_y;   /* floating touch stick (screen px) */
-static int an_lx, an_ly, an_rx;                               /* gamepad sticks, -4096..4096 */
+static int an_lx, an_ly, an_rx, an_ry;                       /* gamepad sticks, -4096..4096 */
+static int playtest;                      /* playing a level from the editor: back to it after */
+static int custom_map;                    /* the level built is the editor's, not level 1 */
 #define STICK_R 34
 static int debug_side_cam;
 static int touch_ui;
@@ -91,7 +96,18 @@ void game_touch_tap(int x, int y) { if (gs == GS_TITLE) title_tap(x, y); }
 void game_set_touch_ui(int on) { touch_ui = on; }
 void game_set_pad_style(int style) { pad_style = style; }
 int  game_rumble(void) { return rumble; }
-void game_set_analog(int lx, int ly, int rx, int ry) { an_lx = lx; an_ly = ly; an_rx = rx; (void)ry; }
+void game_set_analog(int lx, int ly, int rx, int ry) { an_lx = lx; an_ly = ly; an_rx = rx; an_ry = ry; }
+#ifndef GEN_BAKED
+int  game_wants_pointer(void) { return gs == GS_EDITOR; }
+void game_pointer(int id, int ev, int x, int y, int kind) { if (gs == GS_EDITOR) editor_pointer(id, ev, x, y, kind); }
+void game_wheel(int steps) { if (gs == GS_EDITOR) editor_wheel(steps); }
+void game_char(int ch) { if (gs == GS_EDITOR) editor_char(ch); }
+#else
+int  game_wants_pointer(void) { return 0; }
+void game_pointer(int id, int ev, int x, int y, int kind) { (void)id; (void)ev; (void)x; (void)y; (void)kind; }
+void game_wheel(int steps) { (void)steps; }
+void game_char(int ch) { (void)ch; }
+#endif
 static int fps_shown;
 void game_show_fps(int fps) { fps_shown = fps; }
 void game_display_area(int *x, int *y) { *x = disp_x; *y = disp_y; }
@@ -183,6 +199,10 @@ static void go_title(void)
 {
     s32 sx, sz;
     int syaw;
+#ifndef GEN_BAKED
+    if (custom_map) { level_load_map(0); custom_map = 0; }   /* level 1 back after the editor's play test */
+    playtest = 0;
+#endif
     level_init();
     fx_reset();
     level_spawn(&sx, &sz, &syaw);
@@ -303,7 +323,7 @@ static int pan_of(s32 x, s32 z)
 /* loops and ambience, once per 60 Hz tick */
 static void audio_update(void)
 {
-    int play = gs == GS_PLAY, menu = gs == GS_TITLE || gs == GS_CONTROLS;
+    int play = gs == GS_PLAY, menu = gs == GS_TITLE || gs == GS_CONTROLS || gs == GS_EDITOR;
     VECTOR tank;
     s32 dx, dz, d;
     int rv;
@@ -689,6 +709,15 @@ static void simulate(u32 pad)
     combat_update();
 }
 
+static void back_to_editor(void)
+{
+#ifndef GEN_BAKED
+    fx_reset();
+    gs = GS_EDITOR; gs_t = 0;
+    editor_resume();
+#endif
+}
+
 static void flow(u32 pad, u32 press)
 {
     gs_t++;
@@ -697,8 +726,26 @@ static void flow(u32 pad, u32 press)
         int c = title_update(pad, press);
         if (c == MENU_PLAY) start_play();
         else if (c == MENU_CONTROLS) { gs = GS_CONTROLS; gs_t = 0; }
+#ifndef GEN_BAKED
+        else if (c == MENU_EDITOR) { editor_open(pad_style, touch_ui); gs = GS_EDITOR; gs_t = 0; }
+#endif
         break;
     }
+#ifndef GEN_BAKED
+    case GS_EDITOR: {
+        int r;
+        editor_style(pad_style, touch_ui);
+        r = editor_update(pad, press, an_lx, an_ly, an_rx, an_ry);
+        if (r == ED_EXIT) { snd_play(SFX_UI_MOVE, 3000, 0, 3600); go_title(); }
+        else if (r == ED_PLAYTEST) {
+            level_load_map(editor_playtest_map());
+            custom_map = 1; playtest = 1;
+            snd_play(SFX_UI_OK, 3600, 0, 3400);
+            start_play();
+        }
+        break;
+    }
+#endif
     case GS_CONTROLS:
         if (gs_t > 10 && (press & (PAD_CROSS | PAD_START | PAD_CIRCLE | PAD_SQUARE | PAD_TRIANGLE))) {
             gs = GS_TITLE; gs_t = 0; title_reset(); snd_play(SFX_UI_MOVE, 3000, 0, 3600);
@@ -712,12 +759,13 @@ static void flow(u32 pad, u32 press)
     case GS_END:
         fx_update();
         if (gs_t > 90 && (press & (PAD_CROSS | PAD_START | PAD_CIRCLE | PAD_SQUARE | PAD_TRIANGLE | BTN_JUMP))) {
-            snd_play(SFX_UI_OK, 3600, 0, 3400); go_title();
+            snd_play(SFX_UI_OK, 3600, 0, 3400);
+            if (playtest) back_to_editor(); else go_title();
         }
         break;
     case GS_PAUSE:
         if (press & PAD_START) { gs = GS_PLAY; gs_t = 0; snd_play(SFX_PAUSE, 2600, 0, 5200); }
-        if (press & (PAD_SELECT | BTN_JUMP)) { snd_play(SFX_UI_OK, 3600, 0, 3400); go_title(); }
+        if (press & (PAD_SELECT | BTN_JUMP)) { snd_play(SFX_UI_OK, 3600, 0, 3400); if (playtest) back_to_editor(); else go_title(); }
         break;
     }
 }
@@ -985,6 +1033,10 @@ void game_frame(u32 pad)
     gpu_set_draw_env(0, by, SCREEN_W, SCREEN_H, 0, by, 1);
     if (gs == GS_TITLE) {
         title_draw(fb, frame_count);
+#ifndef GEN_BAKED
+    } else if (gs == GS_EDITOR) {
+        editor_draw(fb, frame_count);
+#endif
     } else if (gs == GS_CONTROLS) {
         ui_title_bg(fb, 60, OT_LEN - 1);
         embers_draw(fb, frame_count, 30);
@@ -1024,7 +1076,7 @@ void game_frame(u32 pad)
         score_line(b, "SECRETS   ", end_secrets, " / ", end_secrets_n, 1);
         text(fb, b, 96, 140, 1, 220, 2);
         if (gs_t > 90 && ((frame_count >> 4) & 1)) text_center(fb, "PRESS ANY BUTTON", 160, 188, 1, 160, 2);
-    } else if (gs != GS_TITLE && gs != GS_CONTROLS) {
+    } else if (gs != GS_TITLE && gs != GS_CONTROLS && gs != GS_EDITOR) {
         draw_hud(fb);
         if (hurt_flash > 0) quad_g(fb, 0, 0, 320, 240, RGB(hurt_flash * 9, 0, 0), RGB(hurt_flash * 5, 0, 0), SEMI_ADD, 3);
         if (dead_t) {
@@ -1042,7 +1094,7 @@ void game_frame(u32 pad)
             ui_plate(fb, 160, 118, 200, 1, frame_count, 8);
             ui_plate(fb, 160, 156, 200, 0, frame_count, 8);
             text_center(fb, touch_ui ? "BONES  RESUME" : "START  RESUME", 161, 129, 1, 255, 2);
-            text_center(fb, touch_ui ? "WINGS  QUIT TO TITLE" : "A  QUIT TO TITLE", 161, 167, 1, 170, 2);
+            text_center(fb, playtest ? (touch_ui ? "WINGS  BACK TO EDITOR" : "A  BACK TO EDITOR") : touch_ui ? "WINGS  QUIT TO TITLE" : "A  QUIT TO TITLE", 161, 167, 1, 170, 2);
         }
         if (touch_ui) draw_touch(fb);
     }

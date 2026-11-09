@@ -720,6 +720,7 @@ static void build_flat(const MapSector *s, int ceil)
     }
     const float T = MAP_TILE, sub = ceil ? MAP_TILE : MAP_TILE / 2;
     V3 nd = v3(0, ceil ? 1.f : -1.f, 0);
+    int gtri[64][3], ngt = -1;                      /* the whole sector's triangles, when a cell needs them */
     int flags = ceil ? 0 : F_FLOOR;
     for (int cz = ffloor_div(mnz, T); cz * T < mxz; cz++)
         for (int cx = ffloor_div(mnx, T); cx * T < mxx; cx++) {
@@ -739,6 +740,33 @@ static void build_flat(const MapSector *s, int ceil)
                         f->base = q[0].y;
                     } else {
                         int tri[64][3], nt = earclip(piece, m, tri);
+                        float got = 0;
+                        for (int t = 0; t < nt; t++) {
+                            float *A = piece[tri[t][0]], *B = piece[tri[t][1]], *C = piece[tri[t][2]];
+                            got += ((B[0] - A[0]) * (C[1] - A[1]) - (B[1] - A[1]) * (C[0] - A[0])) / 2;
+                        }
+                        if (gabs(got - a) > a * 0.01f + 50) {
+                            /* a concave sector clipped to this cell left a piece with a zero-width seam
+                               that won't triangulate (it left holes): fill the cell from the sector's
+                               own triangles instead, each clipped to it (convex, so exact) */
+                            if (ngt < 0) ngt = earclip(poly, n, gtri);
+                            for (int g = 0; g < ngt; g++) {
+                                float tp[3][2], cp[64][2];
+                                for (int c = 0; c < 3; c++) { tp[c][0] = poly[gtri[g][c]][0]; tp[c][1] = poly[gtri[g][c]][1]; }
+                                int cm = clip_rect(tp, 3, sx, sz, sx + sub, sz + sub, cp);
+                                if (cm < 3 || gabs(area2d(cp, cm)) < 1000) continue;
+                                for (int q = 1; q + 1 < cm; q++) {
+                                    V3 qv[3]; float uv[3][2]; int ix[3] = { 0, q, q + 1 };
+                                    for (int c = 0; c < 3; c++) {
+                                        float *v = cp[ix[c]];
+                                        qv[c] = v3(v[0], -ph(&P, v[0], v[1]), v[1]); FUV(v[0], v[1], uv[c]);
+                                    }
+                                    GF *f = emit_face(qv, uv, 3, tile, flags, nd);
+                                    f->base = qv[0].y;
+                                }
+                            }
+                            continue;
+                        }
                         for (int t = 0; t < nt; t++) {
                             V3 q[3]; float uv[3][2];
                             for (int c = 0; c < 3; c++) {
@@ -1106,6 +1134,18 @@ static void gen_map_geometry(void)
 void gen_lab_geometry(void)
 {
     if (!map_sel) map_sel = &map_e1;                 /* the game's level */
+    gen_map_geometry();
+}
+
+/* rebuild the level from another map (the editor's play-test): free the last one's mesh and tables */
+void gen_lab_rebuild(const MapDef *m)
+{
+    free(lab.verts); free(lab.faces); free(lab.chunks); free(lab.boxes);
+    free(lab.secs); free(lab.walls); free(lab.things);
+    lab.verts = 0; lab.faces = 0; lab.chunks = 0; lab.boxes = 0; lab.secs = 0; lab.walls = 0; lab.things = 0;
+    lab.nverts = lab.nfaces = lab.nchunks = lab.nboxes = lab.nsecs = lab.nwalls = lab.nthings = 0;
+    map_sel = m ? m : &map_e1;
+    if (!lab_tex) gen_lab_textures(0);
     gen_map_geometry();
 }
 

@@ -7,9 +7,15 @@
 #include "snd.h"
 
 static int sel, confirm_t = -1, fade_in, choice = -1, tap_item = -1;
+#ifdef GEN_BAKED
 static const char *MENU[MENU_COUNT] = { "PLAY", "CONTROLS" };
 #define MENU_Y0 150
 #define MENU_DY 38
+#else
+static const char *MENU[MENU_COUNT] = { "PLAY", "EDITOR", "CONTROLS" };
+#define MENU_Y0 124
+#define MENU_DY 36
+#endif
 #define PLATE_W 150
 #define MENU_X  110             /* left of centre: the backdrop's Deadbird stands on the right */
 

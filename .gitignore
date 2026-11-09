@@ -17,3 +17,6 @@ platform/psx/build/
 tools/out/
 platform/headless/combattest
 platform/headless/rolltest
+platform/headless/edtest
+platform/headless/edittest
+platform/headless/levels/

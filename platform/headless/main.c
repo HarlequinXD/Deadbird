@@ -90,7 +90,7 @@ int main(int argc, char **argv)
     t0 = clock();
     run(0, 240);
     write_bmp(out, "01_title");
-    run(PAD_DOWN, 1); run(0, 1); run(PAD_CROSS, 1); run(0, 40);
+    run(PAD_UP, 1); run(0, 1); run(PAD_CROSS, 1); run(0, 40);          /* CONTROLS is the last item */
     write_bmp(out, "02_controls");
     run(PAD_CROSS, 1); run(0, 10);
     run(PAD_CROSS, 1); run(0, 40);                                      /* PLAY (menu resets to the top) */

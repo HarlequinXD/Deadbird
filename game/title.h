@@ -4,7 +4,11 @@
 
 #include "gpu.h"
 
-enum { MENU_PLAY, MENU_CONTROLS, MENU_COUNT };
+#ifdef GEN_BAKED
+enum { MENU_PLAY, MENU_CONTROLS, MENU_COUNT, MENU_EDITOR = 99 };
+#else
+enum { MENU_PLAY, MENU_EDITOR, MENU_CONTROLS, MENU_COUNT };   /* the level editor isn't on the PS1 */
+#endif
 
 void title_init(void);
 void title_reset(void);

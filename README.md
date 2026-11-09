@@ -7,8 +7,11 @@ controller support), using a fast software model of the PS1's graphics chip.
 
 ## The game
 
-- **Title**: hell sky, embers, DEADBIRD logo and menu (PLAY / CONTROLS) over the live level,
-  with Deadbird roaming on autopilot.
+- **Title**: hell sky, embers, DEADBIRD logo and menu (PLAY / EDITOR / CONTROLS) over the live
+  level, with Deadbird roaming on autopilot.
+- **Level editor** (EDITOR on the title; Windows and Android, not the PS1): an in-game editor for
+  the same sector maps level 1 is made of, at the PS1's 320x240 and built for a gamepad first.
+  See *Level editor* below.
 - **Movement ported from Slayer from Hell** (`game/player.c`): Quake-style ground physics with
   friction, acceleration toward the stick direction, a stop speed, limited air control, gravity
   and jump. Floating analog stick on the left of the touch screen: half push walks, push past 70%
@@ -55,7 +58,8 @@ controller support), using a fast software model of the PS1's graphics chip.
   world grid). Doors (locked to a keycard colour or not) slide up, lifts carry her between two
   heights; windows are thin sectors with glass or bars. `stairs` builds a flight of step sectors,
   `lightgrid` a field of lights, and props, lights, troopers and pickups are lines in the same
-  file. Collision is per wall (a step taller than 22 cm or a gap too low blocks), the floor comes
+  file (a door is a sector whose ceiling rises like Doom's: its face rides up with it into the wall
+above). Collision is per wall (a step taller than 22 cm or a gap too low blocks), the floor comes
   from the sector under her, and drawing floods from the camera's sector through the portals on
   screen (stopping at shut doors), like Build. `maps/test.map` is a small test map.
 - **Textures with the detail painted in** (`gen/gen_labtex.c`, painted at start-up):
@@ -125,7 +129,9 @@ engine/            portable PS1 engine (C99, fixed point, no malloc)
   gpu.h            primitives, ordering table, VRAM/GPU API
   gpu_soft.c       software PS1 GPU (Android/PC only; PS1 uses the real GPU)
   model.[ch]       rigid hierarchical models (one GTE matrix per body part)
-game/              Deadbird itself (platform independent): flow, player movement + keyframed animation, level, HUD, fx, title
+game/              Deadbird itself (platform independent): flow, player movement + keyframed animation, level, HUD, fx, title;
+                   the level editor: edmap.[ch] (the .map format in memory: parse, write, check,
+                   compile, edit), editor.c (2D map, panels, level list), ed3d.c (3D view), edui.c
 gen/               procedural assets: the sector-map builder + lighting bake (gen_lab.c), compiled
                    maps (map_*.c), level textures, sounds, 4-bit palettes, the image / mesh codec
 maps/              the levels as text sector maps (e1.map = level 1, test.map for the tests)
@@ -162,6 +168,59 @@ way at speed makes her plant her hooves and turn round. Rolling dodges laser bol
 - **D-pad**: move relative to the camera (menus: up/down; tap a menu row to pick it)
 - **Left thumb**: floating analog stick (the demon eye; push far to run) · **right half**: swipe to turn the camera
 - **Chainsaw** button: attack, tap again during a swing for the 3-hit combo (slash, backhand, overhead slam) · **wings** jump · **bones** (top right) pause
+
+## Level editor
+
+EDITOR on the title opens the level list: **NEW LEVEL**, **COPY OF LEVEL 1** (the Extraction Plant
+as an editable copy - the real level 1 is never changed) and your saved levels (EDIT / PLAY /
+DELETE). Levels are saved as `.map` files - the same format as `maps/e1.map`, so a level made in
+the game can be dropped into `maps/` and built into the game with `tools/make_map.py`, and the
+tools read it exactly as the editor does (`platform/headless/edtest` checks that level 1 compiles
+byte for byte the same both ways). Where they're saved: next to `Deadbird.exe` in `levels\` on
+Windows; `Android/data/<package>/files/levels` on Android (reachable over USB).
+
+**2D map** - the map fills the screen; the top bar has the tool, the level's name and MENU / 3D /
+UNDO / zoom buttons; the bottom bar shows what each button does right now (tap them on a touch
+screen). The box top left says what's under the cursor.
+
+| | Gamepad | Keyboard / mouse |
+|---|---|---|
+| move the cursor (snaps to the grid) | d-pad / left stick | arrows / the mouse |
+| pan / zoom | right stick / L2 R2 | right drag / wheel, PGUP PGDN |
+| use the tool | ✕ (A) | SPACE / click |
+| cancel / back | ○ (B) | ESC |
+| tools and things to place | △ (Y) | TAB |
+| inspect and edit what's under the cursor | □ (X) | I |
+| previous / next tool | L1 / R1 | Q / E |
+| 3D view | SELECT (VIEW) | V |
+| menu: save, play test, undo / redo, rename, grid, check | START (MENU) | M (CTRL+Z / Y, CTRL+S) |
+
+Tools: **DRAW** (corner by corner; inside a room a convex shape is cut out of it as a new sector,
+Build-style - a platform, a pit, a pillar), **RECTANGLE**, **EXTRUDE** (a new sector out from a
+wall), **CUT** (split a sector along a line), **ADD CORNER**, **MOVE** (things, props, lights,
+corners, walls or whole sectors - shared corners move together), **DELETE**, **JOIN** (two
+sectors into one), **STAIRS** (a rectangle becomes steps climbing toward the side the cursor is
+nearest, up to the next floor), **PLACE** (start, troopers, keycards, shards, secret shards, the
+exit, lights, glows and every prop) and **TURN**. Walls that meet get their corners shared
+automatically, and an edit that would break the map (crossing walls, overlaps) is undone with
+the reason shown.
+
+**Inspect** (□) opens a PS1-options-style panel - up / down picks a row, left / right changes it,
+✕ opens it: a sector's name, room, kind (room / door / lift), floor and ceiling, door opening
+height and keycard lock, lift heights, floor and ceiling slopes (pick the hinge wall, then the
+height), floor and ceiling tiles and patterns, and its **wall / step / upper tile rows** (a rows
+editor: rows bottom-up, tiles repeat along the wall, a pinned top row); a wall's own rows, glass,
+bars, tile alignment and shadow; a thing's type, facing, key colour, secret flag and a trooper's
+patrol point; a light's colour, height and radius; every prop's sizes, tiles and facing.
+
+**3D view** (SELECT) - fly through the level as the game draws it and **paint single 2 m tiles**:
+left stick / d-pad fly, right stick look (right drag with the mouse), L2 / R2 down / up, ✕ paint
+the tile under the crosshair (or the mouse), □ pick up the tile you're looking at, L1 / R1 change
+the tile, △ all textures, ○ back to the map. It paints walls (wall, step and upper parts, door
+faces), floors and ceilings, one tile at a time (`wall I cell` / `fcell` lines in the file).
+
+**PLAY TEST** (START menu) checks the map, builds it and drops you in; pause → ✕ goes back to the
+editor. A gamepad works on Android too (Bluetooth / USB), and on Windows an Xbox controller.
 
 ## Building
 

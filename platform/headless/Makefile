@@ -3,7 +3,7 @@ ROOT := ../..
 CC ?= cc
 CFLAGS ?= -O2 -std=c99 -Wall -Wextra -Wno-unused-parameter
 GEN := $(wildcard $(ROOT)/gen/*.c)
-SRC := main.c $(wildcard $(ROOT)/engine/*.c) $(wildcard $(ROOT)/game/*.c) $(GEN)
+SRC := main.c plat_files.c $(wildcard $(ROOT)/engine/*.c) $(wildcard $(ROOT)/game/*.c) $(GEN)
 INC := -I$(ROOT)/engine -I$(ROOT)/game -I$(ROOT)/gen -I$(ROOT)/assets
 
 deadbird_headless: $(SRC) $(wildcard $(ROOT)/engine/*.h) $(wildcard $(ROOT)/game/*.h) $(wildcard $(ROOT)/assets/*.h)
@@ -26,7 +26,7 @@ stresstest: $(STRESS_SRC) $(wildcard $(ROOT)/game/*.h)
 	$(CC) $(CFLAGS) $(INC) $(STRESS_SRC) -o $@
 
 # fly-through screenshots of the level (no player)
-LABVIEW_SRC := labview.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/game/level.c $(GEN)
+LABVIEW_SRC := labview.c $(ROOT)/game/edmap.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/game/level.c $(GEN)
 labview: $(LABVIEW_SRC) $(wildcard $(ROOT)/gen/*.h)
 	$(CC) $(CFLAGS) $(INC) $(LABVIEW_SRC) -o $@
 
@@ -44,3 +44,13 @@ combattest: $(COMBAT_SRC) $(wildcard $(ROOT)/game/*.h)
 VIS_SRC := vistest.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/game/level.c $(GEN)
 vistest: $(VIS_SRC) $(wildcard $(ROOT)/game/*.h) $(wildcard $(ROOT)/gen/*.h)
 	$(CC) $(CFLAGS) $(INC) $(VIS_SRC) -o $@
+
+# the editor's map code (game/edmap.c) must compile maps exactly like tools/make_map.py
+EDTEST_SRC := edtest.c $(ROOT)/game/edmap.c $(ROOT)/gen/map_src.c $(ROOT)/gen/map_e1.c $(ROOT)/gen/map_test.c
+edtest: $(EDTEST_SRC) $(ROOT)/game/edmap.h $(ROOT)/gen/map.h
+	$(CC) $(CFLAGS) $(INC) $(EDTEST_SRC) -o $@
+
+# the level editor driven by a scripted pad: screenshots, a saved level, a play test
+EDIT_SRC := edittest.c plat_files.c $(wildcard $(ROOT)/engine/*.c) $(wildcard $(ROOT)/game/*.c) $(GEN)
+edittest: $(EDIT_SRC) $(wildcard $(ROOT)/game/*.h) $(wildcard $(ROOT)/gen/*.h)
+	$(CC) $(CFLAGS) $(INC) $(EDIT_SRC) -o $@

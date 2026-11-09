@@ -11,10 +11,23 @@
 
 int _fltused = 0x9875;                       /* tells the linker floating point is in use */
 
-#pragma function(strlen, strcmp, memset, memcpy, sqrt)
+#pragma function(strlen, strcmp, memset, memcpy, memcmp, sqrt)
 void *memset(void *d, int c, size_t n) { __stosb((unsigned char *)d, (unsigned char)c, n); return d; }
 void *memcpy(void *d, const void *s, size_t n) { __movsb((unsigned char *)d, (const unsigned char *)s, n); return d; }
 double sqrt(double x) { return _mm_cvtsd_f64(_mm_sqrt_sd(_mm_set_sd(x), _mm_set_sd(x))); }
+void *memmove(void *d, const void *s, size_t n)
+{
+    unsigned char *o = (unsigned char *)d; const unsigned char *i = (const unsigned char *)s;
+    if (o < i) while (n--) *o++ = *i++;
+    else { o += n; i += n; while (n--) *--o = *--i; }
+    return d;
+}
+int memcmp(const void *a, const void *b, size_t n)
+{
+    const unsigned char *x = (const unsigned char *)a, *y = (const unsigned char *)b;
+    for (; n; n--, x++, y++) if (*x != *y) return *x - *y;
+    return 0;
+}
 size_t strlen(const char *s) { const char *p = s; while (*p) p++; return (size_t)(p - s); }
 int strcmp(const char *a, const char *b) { while (*a && *a == *b) a++, b++; return (unsigned char)*a - (unsigned char)*b; }
 

@@ -5,6 +5,8 @@
 #ifndef GEN_LAB_H
 #define GEN_LAB_H
 
+#include "map.h"
+
 #define LAB_NPAGES 5
 
 /* texture tiles: page = id / 16, tile = id % 16 */
@@ -39,6 +41,7 @@ extern LabTex *lab_tex;
 void gen_lab_textures(float *preview_rgb);     /* fills lab_tex; preview: LAB_NPAGES x 256x256 RGB or 0 */
 void gen_lab_geometry(void);                   /* fills the LabData that game/lab_data.h exposes */
 void gen_lab(void);                            /* both, once */
+void gen_lab_rebuild(const MapDef *m);         /* the geometry again from another map (0 = level 1) */
 void lab_upload_textures(void);                /* pages + CLUTs into VRAM (game/vram.h); skips unused tiles */
 
 #endif

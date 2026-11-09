@@ -11,11 +11,16 @@
 #include <GLES2/gl2.h>
 #include <time.h>
 #include <string.h>
+#include <stdio.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <android/keycodes.h>
 #include <SLES/OpenSLES.h>
 #include <SLES/OpenSLES_Android.h>
 #include "deadbird.h"
 #include "gpu.h"
 #include "snd.h"
+#include "editor.h"
 
 #define LOG(...) __android_log_print(ANDROID_LOG_INFO, "Deadbird", __VA_ARGS__)
 #define TEX_W 512
@@ -243,9 +248,90 @@ static void touch_set(int id, float px, float py, int down)
     to_frame(px, py, &touches[i].x, &touches[i].y);
 }
 
+/* a Bluetooth / USB gamepad: buttons as PS1 pad bits, sticks as analog */
+static u32 gp_bits;
+static int gp_lx, gp_ly, gp_rx, gp_ry, gp_on;
+static u32 key_bit(int32_t k)
+{
+    switch (k) {
+    case AKEYCODE_DPAD_UP: return PAD_UP;
+    case AKEYCODE_DPAD_DOWN: return PAD_DOWN;
+    case AKEYCODE_DPAD_LEFT: return PAD_LEFT;
+    case AKEYCODE_DPAD_RIGHT: return PAD_RIGHT;
+    case AKEYCODE_BUTTON_A: return PAD_CROSS;
+    case AKEYCODE_BUTTON_B: return PAD_CIRCLE;
+    case AKEYCODE_BUTTON_X: return PAD_SQUARE;
+    case AKEYCODE_BUTTON_Y: return PAD_TRIANGLE;
+    case AKEYCODE_BUTTON_L1: return PAD_L1;
+    case AKEYCODE_BUTTON_R1: return PAD_R1;
+    case AKEYCODE_BUTTON_L2: return PAD_L2;
+    case AKEYCODE_BUTTON_R2: return PAD_R2;
+    case AKEYCODE_BUTTON_START: return PAD_START;
+    case AKEYCODE_BUTTON_SELECT: return PAD_SELECT;
+    }
+    return 0;
+}
+static int axis(AInputEvent *ev, int a, float dead)
+{
+    float v = AMotionEvent_getAxisValue(ev, a, 0);
+    if (v > -dead && v < dead) return 0;
+    v = v > 0 ? (v - dead) / (1 - dead) : (v + dead) / (1 - dead);
+    if (v > 1) v = 1;
+    if (v < -1) v = -1;
+    return (int)(v * 4096);
+}
+
+/* touches straight to the level editor (it draws its own buttons) */
+static void pointer_all(AInputEvent *ev, int ev_kind, int only)
+{
+    size_t i, n = AMotionEvent_getPointerCount(ev);
+    for (i = 0; i < n; i++) {
+        int x, y;
+        if (only >= 0 && (int)i != only) continue;
+        to_frame(AMotionEvent_getX(ev, i), AMotionEvent_getY(ev, i), &x, &y);
+        game_pointer(AMotionEvent_getPointerId(ev, i), ev_kind, x, y, 0);
+    }
+}
+
 static int32_t on_input(struct android_app *app, AInputEvent *ev)
 {
     (void)app;
+    if (AInputEvent_getType(ev) == AINPUT_EVENT_TYPE_KEY) {
+        int32_t k = AKeyEvent_getKeyCode(ev), act = AKeyEvent_getAction(ev);
+        u32 b = key_bit(k);
+        if (k == AKEYCODE_BACK && game_wants_pointer()) b = PAD_CIRCLE;      /* the phone's back: cancel / back */
+        if (!b) return 0;
+        if (act == AKEY_EVENT_ACTION_DOWN) gp_bits |= b; else if (act == AKEY_EVENT_ACTION_UP) gp_bits &= ~b;
+        return 1;
+    }
+    if (AInputEvent_getType(ev) == AINPUT_EVENT_TYPE_MOTION &&
+        (AInputEvent_getSource(ev) & AINPUT_SOURCE_JOYSTICK) == AINPUT_SOURCE_JOYSTICK) {
+        float hx = AMotionEvent_getAxisValue(ev, AMOTION_EVENT_AXIS_HAT_X, 0), hy = AMotionEvent_getAxisValue(ev, AMOTION_EVENT_AXIS_HAT_Y, 0);
+        gp_lx = axis(ev, AMOTION_EVENT_AXIS_X, 0.24f); gp_ly = -axis(ev, AMOTION_EVENT_AXIS_Y, 0.24f);
+        gp_rx = axis(ev, AMOTION_EVENT_AXIS_Z, 0.26f); gp_ry = -axis(ev, AMOTION_EVENT_AXIS_RZ, 0.26f);
+        gp_bits &= ~(PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT | PAD_L2 | PAD_R2);
+        if (hx < -0.5f) gp_bits |= PAD_LEFT;
+        if (hx > 0.5f) gp_bits |= PAD_RIGHT;
+        if (hy < -0.5f) gp_bits |= PAD_UP;
+        if (hy > 0.5f) gp_bits |= PAD_DOWN;
+        if (AMotionEvent_getAxisValue(ev, AMOTION_EVENT_AXIS_LTRIGGER, 0) > 0.3f || AMotionEvent_getAxisValue(ev, AMOTION_EVENT_AXIS_BRAKE, 0) > 0.3f) gp_bits |= PAD_L2;
+        if (AMotionEvent_getAxisValue(ev, AMOTION_EVENT_AXIS_RTRIGGER, 0) > 0.3f || AMotionEvent_getAxisValue(ev, AMOTION_EVENT_AXIS_GAS, 0) > 0.3f) gp_bits |= PAD_R2;
+        gp_on = 1;
+        return 1;
+    }
+    if (AInputEvent_getType(ev) == AINPUT_EVENT_TYPE_MOTION && game_wants_pointer()) {
+        int32_t a = AMotionEvent_getAction(ev);
+        int act = a & AMOTION_EVENT_ACTION_MASK;
+        int idx = (a & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
+        memset(touches, 0, sizeof(touches));
+        stick_id = -1; look_id = -1;
+        switch (act) {
+        case AMOTION_EVENT_ACTION_DOWN: case AMOTION_EVENT_ACTION_POINTER_DOWN: pointer_all(ev, EP_DOWN, idx); break;
+        case AMOTION_EVENT_ACTION_MOVE: pointer_all(ev, EP_MOVE, -1); break;
+        case AMOTION_EVENT_ACTION_UP: case AMOTION_EVENT_ACTION_POINTER_UP: case AMOTION_EVENT_ACTION_CANCEL: pointer_all(ev, EP_UP, act == AMOTION_EVENT_ACTION_CANCEL ? -1 : idx); break;
+        }
+        return 1;
+    }
     if (AInputEvent_getType(ev) == AINPUT_EVENT_TYPE_MOTION) {
         int32_t a = AMotionEvent_getAction(ev);
         int act = a & AMOTION_EVENT_ACTION_MASK;
@@ -290,8 +376,9 @@ static int32_t on_input(struct android_app *app, AInputEvent *ev)
 
 static u32 read_pad(void)
 {
-    u32 bits = 0;
+    u32 bits = gp_bits;
     int i;
+    if (gp_on) game_set_analog(gp_lx, gp_ly, gp_rx, gp_ry);
     for (i = 0; i < MAX_TOUCH; i++)
         if (touches[i].down) bits |= touch_hit(touches[i].x, touches[i].y);
     return bits;
@@ -320,6 +407,57 @@ static void on_cmd(struct android_app *app, int32_t cmd)
     }
 }
 
+/* ---------------------------------------------------------------- level files (the editor): the app's
+   external files folder, reachable over USB at Android/data/<package>/files/levels */
+static char lvl_dir[512], lvl_where[64];
+static void lvl_init(struct android_app *app)
+{
+    const char *base = app->activity->externalDataPath ? app->activity->externalDataPath : app->activity->internalDataPath;
+    const char *a;
+    int i;
+    snprintf(lvl_dir, sizeof(lvl_dir), "%s/levels", base ? base : ".");
+    a = strstr(lvl_dir, "Android/");
+    snprintf(lvl_where, sizeof(lvl_where), "%s", a ? a : "THE APP'S FILES");
+    for (i = 0; lvl_where[i]; i++) if (lvl_where[i] >= 'a' && lvl_where[i] <= 'z') lvl_where[i] -= 32;
+}
+const char *plat_file_where(void) { return lvl_where; }
+int plat_file_save(const char *name, const char *data, int len)
+{
+    char p[600]; FILE *f;
+    mkdir(lvl_dir, 0775);
+    snprintf(p, sizeof(p), "%s/%s", lvl_dir, name);
+    f = fopen(p, "wb");
+    if (!f) return 0;
+    fwrite(data, 1, (size_t)len, f);
+    fclose(f);
+    return 1;
+}
+int plat_file_load(const char *name, char *buf, int cap)
+{
+    char p[600]; FILE *f; size_t n;
+    snprintf(p, sizeof(p), "%s/%s", lvl_dir, name);
+    f = fopen(p, "rb");
+    if (!f) return -1;
+    n = fread(buf, 1, (size_t)cap, f);
+    fclose(f);
+    return (int)n;
+}
+int plat_file_list(char (*names)[32], int max)
+{
+    DIR *d = opendir(lvl_dir);
+    struct dirent *e;
+    int n = 0, i, j;
+    if (!d) return 0;
+    while ((e = readdir(d)) && n < max) {
+        size_t l = strlen(e->d_name);
+        if (l > 4 && l < 31 && !strcmp(e->d_name + l - 4, ".map")) { strcpy(names[n], e->d_name); n++; }
+    }
+    closedir(d);
+    for (i = 1; i < n; i++) for (j = i; j > 0 && strcmp(names[j - 1], names[j]) > 0; j--) { char t[32]; strcpy(t, names[j]); strcpy(names[j], names[j - 1]); strcpy(names[j - 1], t); }
+    return n;
+}
+int plat_file_delete(const char *name) { char p[600]; snprintf(p, sizeof(p), "%s/%s", lvl_dir, name); return remove(p) == 0; }
+
 static double now_s(void)
 {
     struct timespec ts;
@@ -334,6 +472,7 @@ void android_main(struct android_app *app)
     app->onInputEvent = on_input;
     G.dpy = EGL_NO_DISPLAY; G.ctx = EGL_NO_CONTEXT; G.surf = EGL_NO_SURFACE;
 
+    lvl_init(app);
     if (!game_started) {
         game_init();
         game_set_touch_ui(1);

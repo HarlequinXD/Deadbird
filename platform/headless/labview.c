@@ -1,5 +1,6 @@
 /* Renders the level from fixed camera spots (no player): a tour of the plant, for docs and
    for checking the lighting bake. Also prints the per-view polygon count. */
+#include "edmap.h"
 #include <stdio.h>
 #include <string.h>
 #include "gte.h"
@@ -40,6 +41,18 @@ int main(int argc, char **argv)
     gpu_init();
     if (getenv("MAP") && !strcmp(getenv("MAP"), "test")) gen_level_select(&map_test);
     if (getenv("MAP") && !strcmp(getenv("MAP"), "e1")) gen_level_select(&map_e1);   /* MAP=test: the sector test map */
+    if (getenv("MAPFILE")) {   /* MAPFILE=path.map: any map, through the editor's compiler (game/edmap.c) */
+        static EmMap m; static char src[1 << 19];
+        FILE *f = fopen(getenv("MAPFILE"), "rb");
+        size_t n = f ? fread(src, 1, sizeof(src) - 1, f) : 0;
+        const MapDef *d;
+        if (f) fclose(f);
+        src[n] = 0;
+        if (!em_parse(&m, src)) { printf("%s\n", em_error); return 1; }
+        d = em_compile(&m, 0);
+        if (!d) { printf("%s\n", em_error); return 1; }
+        gen_level_select(d);
+    }
     level_init();
     {   /* VIEWS="x,y,z,yaw,pitch;...": extra camera spots in metres / degrees (y up), drawn after the room views */
         static LabView extra[16];
@@ -56,6 +69,29 @@ int main(int argc, char **argv)
             v = strchr(v, ';'); if (v) v++;
         }
         level_extra_views(extra, ne);
+    }
+    if (getenv("DOORTEST")) {   /* the dock's door opening, seen from the dock: frames as it rises */
+        int f, k = 0;
+        static const int AT[5] = { 0, 10, 20, 30, 60 };
+        for (f = 0; f <= 60; f++) {
+            if (f == AT[k]) {
+                char nm[32];
+                MATRIX view, rx, ry; SVECTOR t; VECTOR tv; PROJ pr; RECT r = { 0, 0, SCREEN_W, SCREEN_H };
+                mat_rot_x(&rx, 40); mat_rot_y(&ry, 0); mat_mul(&rx, &ry, &view);
+                t.vx = 0; t.vy = 1700; t.vz = 23000;
+                view.t[0] = view.t[1] = view.t[2] = 0;
+                mat_apply(&view, &t, &tv);
+                view.t[0] = tv.vx; view.t[1] = tv.vy; view.t[2] = tv.vz;
+                pr.h = 250; pr.ofx = SCREEN_W / 2; pr.ofy = SCREEN_H / 2; pr.near_z = 120;
+                gpu_fill(&r, 3, 4, 7); ot_clear(&fb); gpu_set_draw_env(0, 0, SCREEN_W, SCREEN_H, 0, 0, 1);
+                level_draw(&fb, &view, &pr, 100); gpu_draw_ot(&fb);
+                sprintf(nm, "door_%02d", f); save(out, nm);
+                k++;
+            }
+            level_think(0, 0, -19300, 0);
+            level_update();
+        }
+        return 0;
     }
     for (i = 0; i < (unsigned)level_view_count(); i++) {
         const LabView *sp = level_view((int)i);

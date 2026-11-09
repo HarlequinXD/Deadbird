@@ -16,6 +16,11 @@
  *     WASD / arrows move, SHIFT sprint, SPACE jump, F / J / CTRL / left click chainsaw,
  *     Q / E camera, ENTER / ESC pause,
  *     F11 or ALT+ENTER fullscreen
+ *   Level editor (from the title's EDITOR): the mouse moves its cursor and clicks the tool, right
+ *     drag pans (looks, in 3D), the wheel zooms; arrows move the cursor, SPACE / ENTER use the
+ *     tool, ESC / BACKSPACE cancel, TAB tools, I inspect, Q / E switch tool, PGUP / PGDN zoom
+ *     (fly up / down in 3D), V 3D view, M menu, CTRL+Z / CTRL+Y undo / redo, CTRL+S save, WASD
+ *     fly in 3D. Levels are .map files in the "levels" folder next to Deadbird.exe.
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -28,6 +33,7 @@
 /* the engine names its VRAM rectangle RECT like libgpu does; keep it apart from Win32's RECT */
 #define RECT PSX_RECT
 #include "gpu.h"
+#include "editor.h"
 #undef RECT
 
 /* ------------------------------------------------------------------ XInput (xinput9_1_0.dll, ships with Windows) */
@@ -85,6 +91,15 @@ static int fullscreen;
 static WINDOWPLACEMENT prev_place;
 static BYTE keys[256];
 static int running = 1;
+static int view_x, view_y, view_w = SCREEN_W, view_h = SCREEN_H;   /* where the picture is in the window */
+
+/* a window point -> the 320x240 screen */
+static void to_screen(LPARAM lp, int *x, int *y)
+{
+    int wx = (int)(short)LOWORD(lp), wy = (int)(short)HIWORD(lp);
+    *x = view_w > 0 ? (wx - view_x) * SCREEN_W / view_w : 0;
+    *y = view_h > 0 ? (wy - view_y) * SCREEN_H / view_h : 0;
+}
 
 static void toggle_fullscreen(void)
 {
@@ -128,6 +143,7 @@ static void present(HDC dc)
     if (w <= 0 || h <= 0) return;
     if (w * 3 > h * 4) { vh = h; vw = h * 4 / 3; } else { vw = w; vh = w * 3 / 4; }
     vx = (w - vw) / 2; vy = (h - vh) / 2;
+    view_x = vx; view_y = vy; view_w = vw; view_h = vh;
     /* black bars */
     if (vx > 0) { PatBlt(dc, 0, 0, vx, h, BLACKNESS); PatBlt(dc, vx + vw, 0, w - vx - vw, h, BLACKNESS); }
     if (vy > 0) { PatBlt(dc, 0, 0, w, vy, BLACKNESS); PatBlt(dc, 0, vy + vh, w, h - vy - vh, BLACKNESS); }
@@ -151,6 +167,28 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_KILLFOCUS:
         memset(keys, 0, sizeof(keys));
         break;
+    /* the level editor's mouse and typing */
+    case WM_MOUSEMOVE: {
+        int x, y; to_screen(lp, &x, &y);
+        if (wp & MK_RBUTTON) game_pointer(0, 1, x, y, 2);
+        else if (wp & MK_LBUTTON) game_pointer(0, 1, x, y, 1);
+        else game_pointer(0, 3, x, y, 1);
+        return 0;
+    }
+    case WM_LBUTTONDOWN: case WM_RBUTTONDOWN: {
+        int x, y; to_screen(lp, &x, &y);
+        SetCapture(h);
+        game_pointer(0, 0, x, y, msg == WM_LBUTTONDOWN ? 1 : 2);
+        return 0;
+    }
+    case WM_LBUTTONUP: case WM_RBUTTONUP: {
+        int x, y; to_screen(lp, &x, &y);
+        ReleaseCapture();
+        game_pointer(0, 2, x, y, msg == WM_LBUTTONUP ? 1 : 2);
+        return 0;
+    }
+    case WM_MOUSEWHEEL: game_wheel((short)HIWORD(wp) > 0 ? 1 : -1); return 0;
+    case WM_CHAR: if (game_wants_pointer()) game_char((int)wp); return 0;
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC dc = BeginPaint(h, &ps);
@@ -168,6 +206,30 @@ static u32 read_input(void)
 {
     u32 pad = 0;
     int lx = 0, ly = 0, rx = 0, ry = 0;
+    int editor = game_wants_pointer();
+    if (editor) {   /* the level editor's keys (letters are also typed into its name box) */
+        int ctrl = keys[VK_CONTROL] != 0;
+        if (keys[VK_UP]) pad |= PAD_UP;
+        if (keys[VK_DOWN]) pad |= PAD_DOWN;
+        if (keys[VK_LEFT]) pad |= PAD_LEFT;
+        if (keys[VK_RIGHT]) pad |= PAD_RIGHT;
+        if (!ctrl) {
+            if (keys['W']) ly += 4096;
+            if (keys['S']) ly -= 4096;
+            if (keys['A']) lx -= 4096;
+            if (keys['D']) lx += 4096;
+            if (keys[VK_SPACE] || keys[VK_RETURN]) pad |= PAD_CROSS;
+            if (keys[VK_ESCAPE] || keys[VK_BACK]) pad |= PAD_CIRCLE;
+            if (keys[VK_TAB]) pad |= PAD_TRIANGLE;
+            if (keys['I']) pad |= PAD_SQUARE;
+            if (keys['Q']) pad |= PAD_L1;
+            if (keys['E']) pad |= PAD_R1;
+            if (keys[VK_NEXT] || keys[VK_OEM_MINUS] || keys[VK_SUBTRACT]) pad |= PAD_L2;
+            if (keys[VK_PRIOR] || keys[VK_OEM_PLUS] || keys[VK_ADD]) pad |= PAD_R2;
+            if (keys['V'] || keys[VK_F1]) pad |= PAD_SELECT;
+            if (keys['M'] || keys[VK_F10]) pad |= PAD_START;
+        }
+    } else {
     /* keyboard */
     if (keys['W'] || keys[VK_UP]) pad |= PAD_UP;
     if (keys['S'] || keys[VK_DOWN]) pad |= PAD_DOWN;
@@ -183,6 +245,7 @@ static u32 read_input(void)
     if (keys['E']) pad |= PAD_R1;
     if (keys[VK_RETURN] || keys[VK_ESCAPE]) pad |= PAD_START;
     if (keys[VK_BACK]) pad |= PAD_SELECT;
+    }
 
     /* Xbox controller: use the first connected slot; look for one once a second if none */
     if (x_get) {
@@ -213,7 +276,7 @@ static u32 read_input(void)
                 stick(st.pad.lx, st.pad.ly, 7849, &lx, &ly);
                 stick(st.pad.rx, st.pad.ry, 8689, &rx, &ry);
                 /* menus: the left stick also works as a d-pad */
-                if (game_phase() != GS_PLAY) {
+                if (game_phase() != GS_PLAY && !editor) {
                     if (ly > 2400) pad |= PAD_UP;
                     if (ly < -2400) pad |= PAD_DOWN;
                     if (lx > 2400) pad |= PAD_RIGHT;
@@ -229,9 +292,67 @@ static u32 read_input(void)
             }
         }
     }
+    if (lx > 4096) lx = 4096;
+    if (lx < -4096) lx = -4096;
+    if (ly > 4096) ly = 4096;
+    if (ly < -4096) ly = -4096;
     game_set_analog(lx, ly, rx, ry);
     return pad;
 }
+
+/* ------------------------------------------------------------------ level files (the editor): the
+   "levels" folder next to Deadbird.exe */
+static char lvl_dir[MAX_PATH];
+static void lvl_init(void)
+{
+    int n = (int)GetModuleFileNameA(NULL, lvl_dir, MAX_PATH - 16), i;
+    for (i = n - 1; i >= 0 && lvl_dir[i] != '\\' && lvl_dir[i] != '/'; i--) {}
+    lvl_dir[i + 1] = 0;
+    lstrcatA(lvl_dir, "levels");
+}
+static void lvl_path(char *o, const char *name)
+{
+    lstrcpynA(o, lvl_dir, MAX_PATH - 40);
+    lstrcatA(o, "\\");
+    lstrcatA(o, name);
+}
+const char *plat_file_where(void) { return "LEVELS NEXT TO DEADBIRD.EXE"; }
+int plat_file_save(const char *name, const char *data, int len)
+{
+    char p[MAX_PATH]; HANDLE f; DWORD w = 0;
+    CreateDirectoryA(lvl_dir, NULL);
+    lvl_path(p, name);
+    f = CreateFileA(p, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (f == INVALID_HANDLE_VALUE) return 0;
+    WriteFile(f, data, (DWORD)len, &w, NULL);
+    CloseHandle(f);
+    return (int)w == len;
+}
+int plat_file_load(const char *name, char *buf, int cap)
+{
+    char p[MAX_PATH]; HANDLE f; DWORD r = 0;
+    lvl_path(p, name);
+    f = CreateFileA(p, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (f == INVALID_HANDLE_VALUE) return -1;
+    if (!ReadFile(f, buf, (DWORD)cap, &r, NULL)) r = 0;
+    CloseHandle(f);
+    return (int)r;
+}
+int plat_file_list(char (*names)[32], int max)
+{
+    char p[MAX_PATH]; WIN32_FIND_DATAA fd; HANDLE h; int n = 0, i, j;
+    lvl_path(p, "*.map");
+    h = FindFirstFileA(p, &fd);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+    do {
+        if (lstrlenA(fd.cFileName) < 31 && n < max) { lstrcpynA(names[n], fd.cFileName, 32); n++; }
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+    for (i = 1; i < n; i++)
+        for (j = i; j > 0 && lstrcmpiA(names[j - 1], names[j]) > 0; j--) { char t[32]; lstrcpynA(t, names[j], 32); lstrcpynA(names[j], names[j - 1], 32); lstrcpynA(names[j - 1], t, 32); }
+    return n;
+}
+int plat_file_delete(const char *name) { char p[MAX_PATH]; lvl_path(p, name); return DeleteFileA(p) != 0; }
 
 /* ------------------------------------------------------------------ sound (waveOut, no extra DLLs) */
 #define AUD_BUFS   8
@@ -300,6 +421,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
     bmi.bmiHeader.biCompression = BI_RGB;
 
     xinput_load();
+    lvl_init();
     game_init();
     game_set_touch_ui(0);
     game_set_pad_style(1);

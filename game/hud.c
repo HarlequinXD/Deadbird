@@ -40,6 +40,16 @@ void text(FrameBuf *fb, const char *s, int x, int y, int scale, int bright, int 
     }
 }
 
+/* coloured text (the editor); characters the font lacks are skipped, '_' draws as '-', ',' as '.' */
+void text_rgb(FrameBuf *fb, const char *s, int x, int y, u32 rgb, int ot)
+{
+    for (; *s; s++, x += 7) {
+        char c = *s == '_' ? '-' : *s == ',' ? '.' : *s;
+        int g = glyph(c);
+        if (g >= 0 && c != ' ') put_char(fb, g, x, y, 1, (int)(rgb >> 16) & 255, (int)(rgb >> 8) & 255, (int)rgb & 255, ot);
+    }
+}
+
 void text_center(FrameBuf *fb, const char *s, int cx, int y, int scale, int bright, int ot)
 {
     text(fb, s, cx - text_width(s, scale) / 2, y, scale, bright, ot);

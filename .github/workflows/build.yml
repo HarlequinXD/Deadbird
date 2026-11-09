@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build headless engine
-        run: make -C platform/headless deadbird_headless gaittest stresstest labview combattest vistest CFLAGS="-O2 -std=c99 -Wall -Wextra -Wno-unused-parameter -Werror"
+        run: make -C platform/headless deadbird_headless gaittest stresstest labview combattest vistest edtest edittest CFLAGS="-O2 -std=c99 -Wall -Wextra -Wno-unused-parameter -Werror"
       - name: Play the test level headless (scripted input)
         run: |
           mkdir -p frames
@@ -23,6 +23,9 @@ jobs:
           ./platform/headless/combattest
           ./platform/headless/labview frames
           ./platform/headless/vistest frames
+          (cd platform/headless && ./edtest)
+          ./platform/headless/edittest frames
+          DOORTEST=1 ./platform/headless/labview frames
       - uses: actions/upload-artifact@v4
         with:
           name: test-frames

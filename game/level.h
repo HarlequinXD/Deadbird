@@ -17,6 +17,7 @@
 
 #include "gte.h"
 #include "gpu.h"
+#include "map.h"
 
 #define STEP_HEIGHT 220          /* tallest ledge you can walk up without jumping */
 
@@ -40,6 +41,7 @@ typedef struct { u8 type, arg; s16 x, z, yaw, ax, az; } LabThing;        /* map 
 
 void level_init(void);
 void level_reload_textures(void);
+void level_load_map(const MapDef *m);      /* rebuild from another sector map (0 = level 1); not on PS1 */
 enum { LEVEL_HIT_NONE, LEVEL_HIT_WALL, LEVEL_HIT_PROP, LEVEL_HIT_FLOOR };
 int  level_hit_segment(const VECTOR *a, const VECTOR *b, VECTOR *at, VECTOR *nrm);   /* re-upload the texture pages (after the title borrowed them) */
 /* highest walkable ground at (x,z) for something currently at height cur_y */
@@ -52,6 +54,7 @@ void level_spawn(s32 *x, s32 *z, int *yaw);
 void level_tank(VECTOR *centre);
 void level_update(void);
 void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t);
+void level_set_ot_bias(int b);            /* added to every OT index the level uses (the editor's 3D view) */
 /* polygons drawn last frame (for the budget readout) */
 int  level_polys_drawn(void);
 int  level_data_bytes(void);

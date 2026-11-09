@@ -28,14 +28,15 @@
 #define GUARD_Y  1
 #define MAXCV    1400
 
-static int uploaded, polys_drawn, frame_t, flat, all_rooms;
+static int uploaded, polys_drawn, frame_t, flat, all_rooms, ot_bias;
+void level_set_ot_bias(int b) { ot_bias = b; }      /* the editor keeps its panels in front of the level */
 void level_debug_all_rooms(int on) { all_rooms = on; }
 #define MAX_SECS 512
 static s16 sec_dyn[MAX_SECS];                 /* sector maps - door: how far it's open; lift: floor offset */
 static s16 mover_t[MAX_SECS];                 /* door: frames since she left; lift: frames she's stood on it */
 static s8 mover_dir[MAX_SECS];                /* lift: moving up (1) / down (-1) */
 static u8 mover_flag[MAX_SECS];               /* door: the locked warning was given */
-static u8 taken[64];                          /* pickups already taken */
+static u8 taken[256];                         /* pickups already taken */
 static int sec_hint = -1;
 int lvl_st_verts, lvl_st_faces, lvl_st_clip, lvl_st_chunks;
 
@@ -67,6 +68,16 @@ void level_init(void)
 }
 
 void level_reload_textures(void) { uploaded = 0; level_init(); }
+#ifndef GEN_BAKED
+/* a different map (the editor's play-test; 0 = level 1): rebuilt, textures kept */
+void level_load_map(const MapDef *m)
+{
+    gen_lab_rebuild(m);
+    sec_hint = -1;
+    uploaded = 0;
+    level_init();
+}
+#endif
 void level_spawn(s32 *x, s32 *z, int *yaw)
 {
     gen_lab();
@@ -553,7 +564,7 @@ void level_think(s32 px, s32 py, s32 pz, u32 keys)
 int level_secrets(int *found)
 {
     int i, n = 0, f = 0;
-    for (i = 0; i < lab.nthings && i < 64; i++)
+    for (i = 0; i < lab.nthings && i < 256; i++)
         if (lab.things[i].type == 3 && lab.things[i].arg) { n++; f += taken[i]; }
     *found = f;
     return n;
@@ -562,7 +573,7 @@ int level_secrets(int *found)
 int level_pickup(s32 px, s32 py, s32 pz, int *arg)
 {
     int i;
-    for (i = 0; i < lab.nthings && i < 64; i++) {
+    for (i = 0; i < lab.nthings && i < 256; i++) {
         const LabThing *t = &lab.things[i];
         s32 dx = px - t->x, dz = pz - t->z;
         if ((t->type != 2 && t->type != 3) || taken[i]) continue;
@@ -687,21 +698,30 @@ static void emit(FrameBuf *fb, const LabFace *f, const s16 *x, const s16 *y, con
         p->v[k].r = (u8)(r[k] > 255 ? 255 : r[k]); p->v[k].g = (u8)(g[k] > 255 ? 255 : g[k]); p->v[k].b = (u8)(b[k] > 255 ? 255 : b[k]);
     }
     otz = (int)(z >> 4) + ((f->flags & F_FLOOR) ? 8 : 0);
-    ot_add(fb, otz, p);
+    ot_add(fb, otz + ot_bias, p);
     polys_drawn++;
 }
 
+static s16 vclamp[MAXCV];      /* door faces: how far a corner was pulled down to the doorway's top */
 static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const LabChunk *ch, int t)
 {
-    int i, k;
+    int i, k, door = 0;
     s32 dy = ch->sec ? -sec_dyn[ch->sec - 1] : 0;     /* a door or lift: moved up by how far it's gone */
+    s32 ytop = 0;
     if (ch->nv > MAXCV) return;
+    /* a door works like Doom's: its sector's ceiling rises, the face rides up on it with its texture
+       and is cut off at the top of the doorway (where the wall above starts) instead of sliding up
+       through that wall */
+    if (ch->sec && lab_secs[ch->sec - 1].kind == 1) { door = 1; ytop = -(lab_secs[ch->sec - 1].k0 + lab_secs[ch->sec - 1].ka); }
     lvl_st_chunks++; lvl_st_verts += ch->nv; lvl_st_faces += ch->nf;
     for (i = 0; i < ch->nv; i++) {
         const LabVert *lv = &lab_verts[ch->v0 + i];
+        s32 yy = lv->y + dy;
+        vclamp[i] = 0;
+        if (door && yy < ytop) { vclamp[i] = (s16)(ytop - yy); yy = ytop; }
 #ifdef PSX_GTE
         u32 sxy;
-        gte_xform(lv->x, (s16)(lv->y + dy), lv->z, &cvv[i], &sxy);     /* matrix + projection set in level_draw */
+        gte_xform(lv->x, (s16)yy, lv->z, &cvv[i], &sxy);     /* matrix + projection set in level_draw */
         cout_[i] = outcode(&cvv[i]);
         if (!cout_[i]) {
             if (cvv[i].vx > 32767 || cvv[i].vx < -32767 || cvv[i].vy > 32767 || cvv[i].vy < -32767) {
@@ -713,7 +733,7 @@ static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const L
             }
         }
 #else
-        SVECTOR s; s.vx = lv->x; s.vy = (s16)(lv->y + dy); s.vz = lv->z;
+        SVECTOR s; s.vx = lv->x; s.vy = (s16)yy; s.vz = lv->z;
         mat_apply(view, &s, &cvv[i]);
         cout_[i] = outcode(&cvv[i]);
         if (!cout_[i]) {
@@ -736,6 +756,11 @@ static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const L
         }
         if (oa) continue;                              /* all corners outside one plane */
         if (zmax < NEAR_Z) continue;
+        if (door) {                                    /* wholly above the doorway: gone into the wall */
+            int up = 1;
+            for (k = 0; k < n; k++) if (!vclamp[f->v[k]]) up = 0;
+            if (up) continue;
+        }
         pm = pulse_now[f->anim > 7 ? 7 : f->anim];
         if (!oo) {
             s16 x[4], y[4];
@@ -752,7 +777,7 @@ static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const L
             {
                 u8 u[4], v[4];
                 int du = (f->flags & F_ANIMUV) ? screen_du : 0;
-                for (k = 0; k < n; k++) { u[k] = (u8)(f->uv[k * 2] + du); v[k] = f->uv[k * 2 + 1]; }
+                for (k = 0; k < n; k++) { u[k] = (u8)(f->uv[k * 2] + du); v[k] = (u8)(f->uv[k * 2 + 1] + (vclamp[f->v[k]] * 63 >> 11)); }
                 emit(fb, f, x, y, u, v, r, g, b, n, za);
             }
         } else {
@@ -764,7 +789,7 @@ static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const L
             for (k = 0; k < n; k++) {
                 int c = ord[k], vi = f->v[c];
                 in[k].x = cvv[vi].vx; in[k].y = cvv[vi].vy; in[k].z = cvv[vi].vz;
-                in[k].u = f->uv[c * 2] << 8; in[k].v = f->uv[c * 2 + 1] << 8;
+                in[k].u = f->uv[c * 2] << 8; in[k].v = (f->uv[c * 2 + 1] << 8) + (vclamp[vi] * 63 >> 3);
                 in[k].r = f->rgb[c * 3] << 4; in[k].g = f->rgb[c * 3 + 1] << 4; in[k].b = f->rgb[c * 3 + 2] << 4;
             }
             lvl_st_clip++;
@@ -827,7 +852,7 @@ static void billboard(FrameBuf *fb, const MATRIX *view, const PROJ *pr, s32 wx, 
         p->v[k].v = (u8)(tv + ((k & 2) ? 63 : 0));
         p->v[k].r = (u8)(r * fg >> 12); p->v[k].g = (u8)(g * fg >> 12); p->v[k].b = (u8)(b * fg >> 12);
     }
-    ot_add(fb, (int)(c.vz >> 4) + bias, p);
+    ot_add(fb, (int)(c.vz >> 4) + bias + ot_bias, p);
     polys_drawn++;
 }
 
@@ -859,7 +884,7 @@ static void world_quad_c(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const
         p->v[k].v = (u8)(tv + ((k & 2) ? 63 : 0));
         p->v[k].r = (u8)(r * fg >> 12); p->v[k].g = (u8)(g * fg >> 12); p->v[k].b = (u8)(b * fg >> 12);
     }
-    ot_add(fb, (int)(z >> 4) + bias, p);
+    ot_add(fb, (int)(z >> 4) + bias + ot_bias, p);
     polys_drawn++;
 }
 
@@ -874,7 +899,7 @@ static void draw_pickups(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t
 {
     static const u8 KC[4][3] = { { 0, 0, 0 }, { 60, 220, 255 }, { 255, 170, 40 }, { 240, 40, 60 } };
     int i, k;
-    for (i = 0; i < lab.nthings && i < 64; i++) {
+    for (i = 0; i < lab.nthings && i < 256; i++) {
         const LabThing *th = &lab.things[i];
         s32 gy, cy;
         int a = t * 40 + i * 700, ca = icos(a), sa = isin(a);
