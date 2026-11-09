@@ -172,27 +172,28 @@ roll = oneshot("roll", [
     (44, pose(PRX=-8, TRX=-8, HRX=3, LSD=74, LSS=8, LEL=20, RSD=72, RSS=18, REL=38)),
 ])
 
-# --- FATALITY (cutscene frames 0..160, see deadbird.c cine_frame): she steps in and grabs his
-# shoulder with her free hand, coils the saw back with her whole trunk, drives it into his side,
+# --- FATALITY (cutscene frames 0..160, see deadbird.c cine_frame). The saw is strapped to the
+# R-channel arm; the L-channel arm is her free hand. She steps in and grabs his
+# shoulder with her free hand (low and close, it pulls him onto the saw), coils the saw back with her whole trunk, drives it into his side,
 # leans her weight into it while it grinds (a shudder is added in code), heaves it through and out
 # the far side, follows through, then stands over him, shoulders heaving, and flicks the blood off.
 fatal = atk("fatal", [
     (0,   dict(TRX=-6, HRX=-2)),
-    (6,   dict(PY=40, TRY=8, PRY=4, TRX=-8, HRY=-6, LSD=66, LSS=40, LEL=30, RSD=74, RSS=10, REL=50, RFR=-10)),
-    (12,  dict(PY=60, TRY=26, PRY=12, TRX=-10, HRY=-16, HRX=-4, LSD=48, LSS=82, LEL=22, RSD=78, RSS=-24, REL=92, RFR=-30)),
-    (20,  dict(PY=90, TRY=44, PRY=24, TRX=-6, PRX=2, HRY=-26, HRX=-6, LSD=44, LSS=86, LEL=40, RSD=74, RSS=-46, REL=104, RFR=-40)),
-    (26,  dict(PY=96, TRY=48, PRY=26, TRX=-4, PRX=3, HRY=-28, HRX=-8, LSD=44, LSS=84, LEL=46, RSD=72, RSS=-50, REL=106, RFR=-42)),
-    (30,  dict(PY=110, TRY=10, PRY=4, TRX=-16, PRX=-6, HRY=-10, HRX=-12, LSD=50, LSS=70, LEL=70, RSD=82, RSS=50, REL=40, RFR=-60)),
-    (33,  dict(PY=140, TRY=-14, PRY=-10, TRX=-22, PRX=-10, HRY=4, HRX=-16, LSD=52, LSS=64, LEL=84, RSD=86, RSS=80, REL=18, RFR=-62)),
-    (56,  dict(PY=150, TRY=-20, PRY=-14, TRX=-26, PRX=-12, HRY=6, HRX=-18, TRZ=-4, LSD=54, LSS=62, LEL=88, RSD=86, RSS=84, REL=16, RFR=-62)),
-    (79,  dict(PY=160, TRY=-26, PRY=-18, TRX=-28, PRX=-13, HRY=8, HRX=-20, TRZ=-6, LSD=52, LSS=60, LEL=90, RSD=88, RSS=88, REL=14, RFR=-62)),
-    (84,  dict(PY=130, TRY=-58, PRY=-32, TRX=-16, PRX=-8, HRY=18, HRX=-8, TRZ=6, LSD=72, LSS=-24, LEL=30, RSD=90, RSS=104, REL=4, RFR=-56)),
-    (92,  dict(PY=100, TRY=-66, PRY=-36, TRX=-12, PRX=-6, HRY=24, HRX=-4, TRZ=8, LSD=76, LSS=-30, LEL=24, RSD=88, RSS=96, REL=8, RFR=-56)),
-    (106, dict(PY=60, TRY=-36, PRY=-18, TRX=-14, PRX=-5, HRY=10, HRX=-10, TRZ=4, LSD=74, LSS=-6, LEL=26, RSD=80, RSS=50, REL=30, RFR=-30)),
-    (120, dict(PY=50, TRY=-14, PRY=-6, TRX=-12, HRY=-4, HRX=-12, LSD=72, LSS=6, LEL=28, RSD=76, RSS=34, REL=40, RFR=-10)),
-    (130, dict(PY=40, TRY=-8, TRX=-10, HRY=-8, HRX=-6, LSD=72, LSS=4, LEL=26, RSD=74, RSS=46, REL=62, RFR=-10)),
-    (134, dict(PY=44, TRY=-12, TRX=-11, HRY=-6, HRX=-8, LSD=72, LSS=4, LEL=26, RSD=78, RSS=4, REL=24, RFR=10)),
-    (140, dict(PY=30, TRY=-4, TRX=-8, HRY=-2, HRX=-4, LSD=73, LSS=6, LEL=24, RSD=74, RSS=16, REL=34, RFR=0)),
+    (6,   dict(PY=40, TRY=-8, PRY=-4, TRX=-8, HRY=6, LSD=72, LSS=30, LEL=34, RSD=74, RSS=10, REL=50, RFR=-10)),
+    (12,  dict(PY=60, TRY=-26, PRY=-12, TRX=-10, HRY=16, HRX=-4, LSD=68, LSS=52, LEL=36, RSD=78, RSS=-24, REL=92, RFR=-30)),
+    (20,  dict(PY=90, TRY=-44, PRY=-24, TRX=-6, PRX=2, HRY=26, HRX=-6, LSD=66, LSS=58, LEL=48, RSD=74, RSS=-46, REL=104, RFR=-40)),
+    (26,  dict(PY=96, TRY=-48, PRY=-26, TRX=-4, PRX=3, HRY=28, HRX=-8, LSD=66, LSS=56, LEL=56, RSD=72, RSS=-50, REL=106, RFR=-42)),
+    (30,  dict(PY=110, TRY=-10, PRY=-4, TRX=-16, PRX=-6, HRY=10, HRX=-12, LSD=66, LSS=52, LEL=76, RSD=82, RSS=50, REL=40, RFR=-60)),
+    (33,  dict(PY=140, TRY=14, PRY=10, TRX=-22, PRX=-10, HRY=-4, HRX=-16, LSD=66, LSS=48, LEL=88, RSD=86, RSS=80, REL=18, RFR=-62)),
+    (56,  dict(PY=150, TRY=20, PRY=14, TRX=-26, PRX=-12, HRY=-6, HRX=-18, TRZ=4, LSD=66, LSS=46, LEL=92, RSD=86, RSS=84, REL=16, RFR=-62)),
+    (79,  dict(PY=160, TRY=26, PRY=18, TRX=-28, PRX=-13, HRY=-8, HRX=-20, TRZ=6, LSD=66, LSS=44, LEL=94, RSD=88, RSS=88, REL=14, RFR=-62)),
+    (84,  dict(PY=130, TRY=58, PRY=32, TRX=-16, PRX=-8, HRY=-18, HRX=-8, TRZ=-6, LSD=72, LSS=-24, LEL=30, RSD=90, RSS=104, REL=4, RFR=-56)),
+    (92,  dict(PY=100, TRY=66, PRY=36, TRX=-12, PRX=-6, HRY=-24, HRX=-4, TRZ=-8, LSD=76, LSS=-30, LEL=24, RSD=88, RSS=96, REL=8, RFR=-56)),
+    (106, dict(PY=60, TRY=36, PRY=18, TRX=-14, PRX=-5, HRY=-10, HRX=-10, TRZ=-4, LSD=74, LSS=-6, LEL=26, RSD=80, RSS=50, REL=30, RFR=-30)),
+    (120, dict(PY=50, TRY=14, PRY=6, TRX=-12, HRY=4, HRX=-12, LSD=72, LSS=6, LEL=28, RSD=76, RSS=34, REL=40, RFR=-10)),
+    (130, dict(PY=40, TRY=8, TRX=-10, HRY=8, HRX=-6, LSD=72, LSS=4, LEL=26, RSD=74, RSS=46, REL=62, RFR=-10)),
+    (134, dict(PY=44, TRY=12, TRX=-11, HRY=6, HRX=-8, LSD=72, LSS=4, LEL=26, RSD=78, RSS=4, REL=24, RFR=10)),
+    (140, dict(PY=30, TRY=4, TRX=-8, HRY=2, HRX=-4, LSD=73, LSS=6, LEL=24, RSD=74, RSS=16, REL=34, RFR=0)),
     (160, dict(TRX=-4, HRX=-2)),
 ])
 

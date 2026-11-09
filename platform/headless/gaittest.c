@@ -102,6 +102,17 @@ int main(int argc, char **argv)
         printf("%s: speed %d u/f, phase %d, run %d amp %d\n", row == 2 ? "run, from behind, curving right" : row ? "run" : "walk", (int)pl.speed, pl.phase, pl.runw, pl.amp);
     }
 
+    if (getenv("FATAL")) {   /* FATAL=1: rows 4-5 = her fatality clip, frames 0..150, seen from the front-left */
+        static const int F[16] = { 0, 6, 12, 20, 26, 30, 33, 56, 80, 84, 92, 106, 120, 130, 134, 150 };
+        int k;
+        player_reset(&pl, 0, 0, 0);
+        fixcam = getenv("SIDE") ? 1024 + 2048 : 2048 + 600;
+        for (k = 0; k < 16; k++) {
+            int f, f0 = k ? F[k - 1] : 0;
+            for (f = f0; f <= F[k]; f++) { player_script(&pl, 4, f, 4096); player_pose(&pl, &m); }
+            shot(&m, 3 + k / 8, k % 8, 0);
+        }
+    } else
     /* MOVES=1: rows 4-6 show the sprint, the dodge roll and the turn-round instead of the combo */
     if (getenv("MOVES")) {
         int a, k;
