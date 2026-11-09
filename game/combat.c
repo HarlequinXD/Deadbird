@@ -36,85 +36,124 @@ void attack_begin(Attack *at, int team, int move, int damage, int knockback, int
 
 void attack_end(Attack *at) { at->live = 0; at->have_prev = 0; }
 
-static s32 clampi(s32 v, s32 lo, s32 hi) { return v < lo ? lo : (v > hi ? hi : v); }
+static s32 iabs32(s32 v) { return v < 0 ? -v : v; }
 
-/* closest approach (squared, in 1/16 units to stay in 32 bits) of segment p->q to a vertical axis
-   (cx, y0..y1, cz); writes the closest point on the segment */
-static s32 seg_axis_dist2(const VECTOR *p, const VECTOR *q, s32 cx, s32 cz, s32 y0, s32 y1, VECTOR *on)
+/*
+ * Raycasts. The blade is a row of RAYS points from the clamp to the nose; every frame each point
+ * casts a ray from where it was last frame to where it is now (the path the chain actually cut
+ * through the air), and one more ray runs along the bar itself. A target is hit where the first
+ * ray enters its cylinder; the level where the first ray meets a wall, prop or the floor.
+ */
+#define RAYS 6
+#define EDGE 36                /* half the bar's thickness: the rays are this much fatter */
+
+/* ray p -> p + d (t 0..4096) against a standing cylinder; returns t of entry or -1 */
+static s32 ray_cylinder(const VECTOR *p, const VECTOR *q, s32 cx, s32 cz, s32 r, s32 top, s32 bottom, VECTOR *hit, VECTOR *nrm)
 {
-    s32 dx = q->vx - p->vx, dz = q->vz - p->vz, l2, t, ex, ez, y;
-    s32 sdx = dx >> 4, sdz = dz >> 4;
-    l2 = sdx * sdx + sdz * sdz;
-    t = l2 > 0 ? (s32)((((long long)((cx - p->vx) >> 4) * sdx + (long long)((cz - p->vz) >> 4) * sdz) << 12) / l2) : 0;
-    t = clampi(t, 0, 4096);
-    on->vx = p->vx + (s32)((long long)dx * t >> 12);
-    on->vy = p->vy + (s32)((long long)(q->vy - p->vy) * t >> 12);
-    on->vz = p->vz + (s32)((long long)dz * t >> 12);
-    on->pad = 0;
-    y = on->vy;
-    if (y < y0 || y > y1) return 0x7fffffff;                 /* above its head / below its feet */
-    ex = (on->vx - cx) >> 4; ez = (on->vz - cz) >> 4;
-    return ex * ex + ez * ez;
+    /* in 1/16 units so the squares stay well inside 64 bits */
+    long long px = (p->vx - cx) >> 4, pz = (p->vz - cz) >> 4, dx = (q->vx - p->vx) >> 4, dz = (q->vz - p->vz) >> 4;
+    long long rr = (long long)(r >> 4) * (r >> 4), a = dx * dx + dz * dz, b = px * dx + pz * dz, c = px * px + pz * pz - rr;
+    s32 t = -1, y;
+    if (c <= 0) t = 0;                                         /* starts inside it */
+    else if (a > 0 && b < 0) {
+        long long disc = b * b - a * c;
+        if (disc >= 0) {
+            long long sq = (long long)isqrt((u32)(disc >> 16 < 0xffffffffLL ? (disc >> 16) : 0xffffffffLL)) << 8;
+            long long tn = ((-b - sq) << 12) / a;
+            if (tn >= 0 && tn <= 4096) t = (s32)tn;
+        }
+    }
+    if (t >= 0) {
+        y = p->vy + (s32)((long long)(q->vy - p->vy) * t >> 12);
+        if (y < top || y > bottom) t = -1;                     /* passes over its head / under its feet */
+    }
+    if (t < 0 && q->vy != p->vy && p->vy < top) {              /* coming down onto the top of it (the slam) */
+        s32 tt = (s32)(((long long)(top - p->vy) << 12) / (q->vy - p->vy));
+        if (tt >= 0 && tt <= 4096) {
+            long long hx = px + (dx * tt >> 12), hz = pz + (dz * tt >> 12);
+            if (hx * hx + hz * hz <= rr) t = tt;
+        }
+    }
+    if (t < 0) return -1;
+    hit->vx = p->vx + (s32)((long long)(q->vx - p->vx) * t >> 12);
+    hit->vy = p->vy + (s32)((long long)(q->vy - p->vy) * t >> 12);
+    hit->vz = p->vz + (s32)((long long)(q->vz - p->vz) * t >> 12);
+    hit->pad = 0;
+    {
+        s32 ex = hit->vx - cx, ez = hit->vz - cz, l = (s32)isqrt((u32)((ex >> 4) * (ex >> 4) + (ez >> 4) * (ez >> 4))) << 4;
+        nrm->vx = l ? ex * 4096 / l : 0; nrm->vy = 0; nrm->vz = l ? ez * 4096 / l : 0; nrm->pad = 0;
+    }
+    return t;
+}
+
+static void lerpv(const VECTOR *a, const VECTOR *b, int i, VECTOR *o)
+{
+    o->vx = a->vx + (b->vx - a->vx) * i / (RAYS - 1);
+    o->vy = a->vy + (b->vy - a->vy) * i / (RAYS - 1);
+    o->vz = a->vz + (b->vz - a->vz) * i / (RAYS - 1);
+    o->pad = 0;
 }
 
 int attack_update(Attack *at, const VECTOR *a, const VECTOR *b, CombatEvent *ev, int max)
 {
-    VECTOR seg[4][2];
-    int nseg = 0, n = 0, i, k;
+    VECTOR ray[RAYS + 1][2];
+    int nray = 0, n = 0, i, k;
     if (!at->live) return 0;
-    /* sweep: last frame's blade, the blade halfway, this frame's blade, and the tip's path */
-    if (at->have_prev) {
-        seg[nseg][0] = at->a; seg[nseg][1] = at->b; nseg++;
-        seg[nseg][0].vx = (at->a.vx + a->vx) / 2; seg[nseg][0].vy = (at->a.vy + a->vy) / 2; seg[nseg][0].vz = (at->a.vz + a->vz) / 2;
-        seg[nseg][1].vx = (at->b.vx + b->vx) / 2; seg[nseg][1].vy = (at->b.vy + b->vy) / 2; seg[nseg][1].vz = (at->b.vz + b->vz) / 2;
-        nseg++;
-        seg[nseg][0] = at->b; seg[nseg][1] = *b; nseg++;
-    }
-    seg[nseg][0] = *a; seg[nseg][1] = *b; nseg++;
+    if (at->have_prev)                                         /* each blade point: last frame -> now */
+        for (k = 0; k < RAYS; k++) { lerpv(&at->a, &at->b, k, &ray[nray][0]); lerpv(a, b, k, &ray[nray][1]); nray++; }
+    ray[nray][0] = *a; ray[nray][1] = *b; nray++;              /* along the bar */
     at->a = *a; at->b = *b; at->have_prev = 1;
+    at->rays = nray;
+    memcpy(at->ray, ray, sizeof(ray[0]) * (size_t)nray);
 
-    /* targets of other teams, each once per swing */
+    /* targets of other teams, each once per swing: the earliest ray to enter them */
     for (i = 0; i < COMBAT_MAX_TARGETS && n < max; i++) {
         CombatTarget *t = targets[i];
-        s32 best = 0x7fffffff, r;
-        VECTOR on, best_on;
-        memset(&on, 0, sizeof(on)); memset(&best_on, 0, sizeof(best_on));
+        s32 best = 0x7fffffff;
+        VECTOR hit, nrm, best_at, best_n;
         if (!t || !t->alive || t->team == at->team || (at->hit_mask & (1u << i))) continue;
-        r = (t->radius + at->radius) >> 4;
-        for (k = 0; k < nseg; k++) {
-            s32 d2 = seg_axis_dist2(&seg[k][0], &seg[k][1], t->x, t->z, t->y - t->height, t->y, &on);
-            if (d2 < best) { best = d2; best_on = on; }
+        for (k = 0; k < nray; k++) {
+            s32 tt = ray_cylinder(&ray[k][0], &ray[k][1], t->x, t->z, t->radius + EDGE, t->y - t->height, t->y, &hit, &nrm);
+            if (tt >= 0 && tt < best) { best = tt; best_at = hit; best_n = nrm; }
         }
-        if (best > r * r) continue;
+        if (best == 0x7fffffff) continue;
         {
             Hit h;
             s32 dx = t->x - at->ox, dz = t->z - at->oz, l = (s32)isqrt((u32)((dx >> 4) * (dx >> 4) + (dz >> 4) * (dz >> 4))) << 4;
             at->hit_mask |= 1u << i;
             memset(&h, 0, sizeof(h));
             h.damage = at->damage; h.knockback = at->knockback; h.stagger = at->stagger; h.move = at->move; h.team = at->team;
-            h.at = best_on;
+            h.at = best_at;
             h.dir_x = l ? dx * 4096 / l : 0; h.dir_z = l ? dz * 4096 / l : 4096;
             t->flash = 8;
             if (t->on_hit) t->on_hit(t, &h);
             else { t->hp -= h.damage; if (t->hp <= 0) { t->hp = 0; t->alive = 0; } }
-            ev[n].kind = COMBAT_HIT_TARGET; ev[n].at = best_on; ev[n].target = t;
-            ev[n].nrm.vx = -h.dir_x; ev[n].nrm.vy = 0; ev[n].nrm.vz = -h.dir_z;
+            ev[n].kind = COMBAT_HIT_TARGET; ev[n].at = best_at; ev[n].target = t; ev[n].nrm = best_n;
             n++;
         }
     }
-    /* level: walls, props, the floor (the first contact of the swing) */
+    /* level: the first wall, prop or floor any ray reaches (once per swing); the rays run along
+       the chain's lower edge for this, so a slam meets the floor with the teeth, not the bar's middle */
     if (!at->world_done && n < max) {
-        for (k = nseg - 1; k >= 0; k--) {
-            VECTOR p, nr, s0 = seg[k][0], s1 = seg[k][1];
+        s32 best = 0x7fffffff;
+        int best_kind = LEVEL_HIT_NONE;
+        VECTOR bp, bn;
+        for (k = 0; k < nray; k++) {
+            VECTOR p, nr, s0 = ray[k][0], s1 = ray[k][1];
             int kind;
-            s0.vy += at->radius; s1.vy += at->radius;          /* the blade's lower edge, not its centre line */
+            s32 d;
+            s0.vy += at->radius; s1.vy += at->radius;
             kind = level_hit_segment(&s0, &s1, &p, &nr);
             if (kind == LEVEL_HIT_NONE) continue;
-            ev[n].kind = kind == LEVEL_HIT_WALL ? COMBAT_HIT_WALL : kind == LEVEL_HIT_PROP ? COMBAT_HIT_PROP : COMBAT_HIT_FLOOR;
-            ev[n].at = p; ev[n].nrm = nr; ev[n].target = 0;
+            d = iabs32(p.vx - s0.vx) + iabs32(p.vy - s0.vy) + iabs32(p.vz - s0.vz);   /* how far along its ray */
+            if (k == nray - 1) d += 1 << 20;                    /* sweep rays first: they're the motion */
+            if (d < best) { best = d; best_kind = kind; bp = p; bn = nr; }
+        }
+        if (best_kind != LEVEL_HIT_NONE) {
+            ev[n].kind = best_kind == LEVEL_HIT_WALL ? COMBAT_HIT_WALL : best_kind == LEVEL_HIT_PROP ? COMBAT_HIT_PROP : COMBAT_HIT_FLOOR;
+            ev[n].at = bp; ev[n].nrm = bn; ev[n].target = 0;
             n++;
             at->world_done = 1;
-            break;
         }
     }
     return n;
