@@ -32,3 +32,9 @@ labview: $(LABVIEW_SRC) $(ROOT)/game/lab_data.h
 # solves the right-forearm roll that keeps the chainsaw's edge leading each combo swing
 rolltest: rolltest.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/game/fk.c $(ROOT)/game/fkclips.c
 	$(CC) $(CFLAGS) $(INC) rolltest.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/game/fk.c $(ROOT)/game/fkclips.c -o $@ -lm
+
+# combat system: chainsaw combo vs a dummy enemy, a wall and the floor (fails on regressions)
+COMBAT_SRC := combattest.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/game/player.c $(ROOT)/game/fk.c \
+              $(ROOT)/game/fkclips.c $(ROOT)/game/level.c $(ROOT)/game/combat.c
+combattest: $(COMBAT_SRC) $(wildcard $(ROOT)/game/*.h)
+	$(CC) $(CFLAGS) $(INC) $(COMBAT_SRC) -o $@

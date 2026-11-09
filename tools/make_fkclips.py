@@ -141,8 +141,8 @@ atk3 = atk("atk3", [
     (5,  dict(TRY=-14, TRX=-12, PRX=-8, HRX=6, RSD=80, RSS=110, REL=50, LSD=60, LSS=30, LEL=50, RFR=-6)),
     (9,  dict(TRY=-10, TRX=12, PRX=6, HRX=10, RSD=90, RSS=175, REL=40, LSD=50, LSS=50, LEL=50, RFR=10)),
     (12, dict(TRY=-8, TRX=14, PRX=5, HRX=12, RSD=90, RSS=185, REL=36, LSD=46, LSS=46, LEL=54, RFR=0)),
-    (15, dict(TRY=0, TRX=-30, PRX=-16, HRX=-20, RSD=90, RSS=55, REL=0, LSD=80, LSS=20, LEL=30, RFR=0)),
-    (24, dict(TRY=0, TRX=-28, PRX=-15, HRX=-18, RSD=90, RSS=50, REL=0, LSD=80, LSS=18, LEL=30, RFR=56)),
+    (15, dict(TRY=0, TRX=-36, PRX=-18, HRX=-20, RSD=90, RSS=40, REL=0, LSD=80, LSS=20, LEL=30, RFR=0)),
+    (24, dict(TRY=0, TRX=-34, PRX=-17, HRX=-18, RSD=90, RSS=38, REL=0, LSD=80, LSS=18, LEL=30, RFR=56)),
     (40, dict(TRX=-6, HRX=-2, RFR=0)),
 ])
 

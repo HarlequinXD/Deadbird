@@ -10,6 +10,8 @@ enum {
     SFX_SAW_REV,
     SFX_SWING,
     SFX_SLAM,
+    SFX_GRIND,
+    SFX_RIP,
     SFX_UI_MOVE,
     SFX_UI_OK,
     SFX_PAUSE,

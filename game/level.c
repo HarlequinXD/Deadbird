@@ -155,6 +155,51 @@ static s32 seg_box(const VECTOR *a, const VECTOR *d, s32 x0, s32 y0, s32 z0, s32
     return lo;
 }
 
+/* what a blade / weapon segment a->b strikes first: a collision box (wall: full-height shell piece,
+   else a prop: crate, console, machine...) or the floor. Fills the contact point and the surface
+   normal (4096 = 1). Returns LEVEL_HIT_NONE / _WALL / _PROP / _FLOOR. */
+int level_hit_segment(const VECTOR *a, const VECTOR *b, VECTOR *at, VECTOR *nrm)
+{
+    VECTOR d;
+    s32 best = 4096, t, minx, maxx, minz, maxz;
+    int i, kind = LEVEL_HIT_NONE, bi = -1;
+    d.vx = b->vx - a->vx; d.vy = b->vy - a->vy; d.vz = b->vz - a->vz;
+    minx = a->vx < b->vx ? a->vx : b->vx; maxx = a->vx ^ b->vx ^ minx;
+    minz = a->vz < b->vz ? a->vz : b->vz; maxz = a->vz ^ b->vz ^ minz;
+    if (flat) return LEVEL_HIT_NONE;
+    for (i = 0; i < LAB_NBOXES; i++) {
+        const LabBox *bx = &lab_boxes[i];
+        if (maxx < bx->x0 || minx > bx->x1 || maxz < bx->z0 || minz > bx->z1) continue;   /* broad phase */
+        t = seg_box(a, &d, bx->x0, -bx->h, bx->z0, bx->x1, 0, bx->z1);
+        if (t < best) { best = t; bi = i; }
+    }
+    if (bi >= 0) kind = lab_boxes[bi].h >= 9000 ? LEVEL_HIT_WALL : LEVEL_HIT_PROP;
+    /* the floor under the blade (Y down: floor at level_ground, blade below it = buried) */
+    if (d.vy > 0) {
+        s32 g = level_ground(b->vx, b->vz, b->vy - 400);
+        if (b->vy > g && a->vy <= g) {
+            t = (s32)(((long long)(g - a->vy) << 12) / d.vy);
+            if (t >= 0 && t < best) { best = t; kind = LEVEL_HIT_FLOOR; bi = -1; }
+        }
+    }
+    if (kind == LEVEL_HIT_NONE) return kind;
+    at->vx = a->vx + (s32)((long long)d.vx * best >> 12);
+    at->vy = a->vy + (s32)((long long)d.vy * best >> 12);
+    at->vz = a->vz + (s32)((long long)d.vz * best >> 12);
+    nrm->vx = nrm->vz = 0; nrm->vy = 0;
+    if (kind == LEVEL_HIT_FLOOR) nrm->vy = -ONE;
+    else {   /* the box face nearest the contact */
+        const LabBox *bx = &lab_boxes[bi];
+        s32 dl = at->vx - bx->x0, dr = bx->x1 - at->vx, df = at->vz - bx->z0, dk = bx->z1 - at->vz, dt = at->vy + bx->h;
+        s32 m = dl; nrm->vx = -ONE;
+        if (dr < m) { m = dr; nrm->vx = ONE; nrm->vz = 0; }
+        if (df < m) { m = df; nrm->vx = 0; nrm->vz = -ONE; }
+        if (dk < m) { m = dk; nrm->vx = 0; nrm->vz = ONE; }
+        if (dt < m) { nrm->vx = 0; nrm->vz = 0; nrm->vy = -ONE; }
+    }
+    return kind;
+}
+
 int level_clip_segment(const VECTOR *a, const VECTOR *b, s32 m)
 {
     VECTOR d;

@@ -22,11 +22,11 @@
 #define RUN_PUSH   2870           /* stick past 70% runs */
 
 /* chainsaw combo: each swing lunges her forward (she slides on planted hooves) */
-typedef struct { int len, lunge_at, lunge, strike, chain; } Swing;
+typedef struct { int len, lunge_at, lunge, strike, chain, live0, live1; } Swing;
 static const Swing SWINGS[3] = {
-    { 26, 5, 50 * SUB, 9, 13 },           /* 1: horizontal slash, right to left */
-    { 26, 5, 50 * SUB, 9, 13 },           /* 2: backhand, left to right */
-    { 40, 9, 80 * SUB, 15, 99 },          /* 3: overhead slam (ends the combo) */
+    { 26, 5, 50 * SUB, 9, 13, 6, 13 },    /* 1: horizontal slash, right to left */
+    { 26, 5, 50 * SUB, 9, 13, 6, 13 },    /* 2: backhand, left to right */
+    { 40, 9, 80 * SUB, 15, 99, 12, 19 },  /* 3: overhead slam (ends the combo) */
 };
 
 /* full-body footwork for each swing (model units; fwd + = ahead of her, out + = away from her centre,
@@ -41,7 +41,7 @@ static const Step STEPS2[] = {
     { 9, 40, 0, 20, 270, 30, 0, 150 },  { 16, 40, 0, 10, 270, 30, 0, 140 },  { 26, 10, 0, 0, 220, 20, 0, 80 } };
 static const Step STEPS3[] = {
     { 0, 10, 0, 0, 220, 20, 0, 80 },    { 5, 30, 10, 0, 150, 10, 0, 170 },   { 9, 110, 0, 130, 90, 0, 120, -130 },
-    { 12, 200, 20, 80, -110, 20, 70, -60 }, { 15, 270, 60, 0, -190, 40, 0, 240 }, { 24, 270, 60, 0, -190, 40, 0, 225 },
+    { 12, 200, 20, 80, -110, 20, 70, -60 }, { 15, 280, 60, 0, -200, 40, 0, 290 }, { 24, 280, 60, 0, -200, 40, 0, 275 },
     { 40, 60, 0, 0, -50, 0, 0, 20 } };
 static const Step *const STEPS[3] = { STEPS1, STEPS2, STEPS3 };
 static const int NSTEPS[3] = { 6, 6, 7 };
@@ -119,6 +119,13 @@ static void accelerate(Player *p, s32 wx, s32 wz, s32 wish, s32 cap, int accel)
     p->vx += as * wx >> 12; p->vz += as * wz >> 12;
 }
 
+void player_hit_react(Player *p, s32 nx, s32 nz, int push, int stop)
+{
+    if (stop > p->hitstop) p->hitstop = stop;
+    if (push) { p->vx = nx * push >> 12; p->vz = nz * push >> 12; }   /* kicked back off a surface */
+    else { p->vx = p->vx * 3 / 10; p->vz = p->vz * 3 / 10; }          /* the blade bites in: the lunge stops */
+}
+
 void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
 {
     u32 press = pad & ~p->prev;
@@ -126,6 +133,13 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
     int i;
     p->prev = pad; p->pad = pad;
     ox = oz = 0;
+
+    if (p->hitstop > 0) {                           /* frozen on impact: still listen for the next swing */
+        p->hitstop--;
+        p->atk_event = 0;
+        if (p->atk && (press & BTN_ATTACK)) p->atk_next = 1;
+        return;
+    }
 
 
     /* chainsaw combo */
@@ -145,8 +159,10 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         } else if (p->atk_t >= sw->len) {
             p->atk_last = p->atk; p->atk_last_t = p->atk_t; p->atk = 0;
         }
+        if (p->atk) { sw = &SWINGS[p->atk - 1]; p->atk_active = p->atk_t >= sw->live0 && p->atk_t <= sw->live1; }
+        else p->atk_active = 0;
     } else if ((press & BTN_ATTACK) && p->grounded) {
-        p->atk = 1; p->atk_t = 0; p->atk_next = 0; p->atk_event = 1;
+        p->atk = 1; p->atk_t = 0; p->atk_next = 0; p->atk_event = 1; p->atk_active = 0;
         if (input_mag > 300) p->yaw = input_yaw & 4095;
     }
 

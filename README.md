@@ -150,6 +150,21 @@ make -C platform/headless
 make -C platform/headless gaittest && ./platform/headless/gaittest gait.bmp   # side-on walk/run sheet
 ```
 
+## Combat
+
+`game/combat.h` is one hit system for the player now and enemies later:
+
+- **Targets**: anything hurtable registers a `CombatTarget` (feet position, radius, height, hit
+  points, team, `on_hit` callback for its own reaction: damage, knockback, stagger, death).
+- **Attacks**: a swing is an `Attack` capsule the attacker moves each frame while it's live.
+  `attack_update` sweeps it from last frame's position (fast swings can't skip through things)
+  and reports hits on other teams' targets (each once per swing) and on the level: walls, props
+  and the floor, with the contact point and surface normal.
+- **The chainsaw** is the first user: each combo swing has a live window; hitting steel throws
+  sparks, screeches and kicks her back off the surface; the slam bites the floor; flesh (enemies)
+  gets blood and the engine bogging down. Every hit freezes her for a few frames (hit-stop) and
+  jolts the camera like a landing. `platform/headless/combattest` checks it all in CI.
+
 ## Assets
 
 **Sound** (`tools/make_sounds.py`, previews in `docs/sfx/`): every sound is synthesised, no

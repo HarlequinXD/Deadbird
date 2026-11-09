@@ -12,6 +12,7 @@
 #include "level.h"
 #include "ui.h"
 #include "snd.h"
+#include "combat.h"
 #include "ik.h"
 #include "fk.h"
 #include "hud.h"
@@ -30,7 +31,8 @@ static int cur, disp_x, disp_y;
 static Model demon, saw_body, saw_chain[SAW_CHAIN_FRAMES];
 static TimInfo tim, saw_tim;
 static int chain_ph;                   /* chainsaw chain: strip frame = chain_ph >> 4 */
-static int land_shake_t = 99, land_shake_amp;   /* camera jolt when she lands */
+static int land_shake_t = 99, land_shake_amp;   /* camera jolt: landings and blade hits */
+static Attack saw_attack;                 /* the chainsaw's live hitbox (combat.h) */
 static Player pl;
 static int gs, gs_t, frame_count, shake, rumble;
 static s32 cam_yaw, cam_dist, cam_h, cam_side, cam_clip = 2900;
@@ -86,6 +88,8 @@ static void start_play(void)
     int syaw;
     level_reload_textures();                 /* the title backdrop borrowed the level's pages */
     fx_reset();
+    combat_reset();
+    attack_end(&saw_attack);
     level_spawn(&sx, &sz, &syaw);
     player_reset(&pl, sx, sz, syaw);
     cam_yaw = syaw;
@@ -178,6 +182,8 @@ static void read_move(u32 pad, int *yaw, int *mag)
 
 /* ------------------------------------------------------------------ sound */
 static int amb_timer = 120, was_grounded = 1;
+/* per combo swing: damage, knockback (1/16 u/frame), stagger frames */
+static const int SAW_DMG[3] = { 22, 26, 50 }, SAW_KNOCK[3] = { 28 * 16, 30 * 16, 70 * 16 }, SAW_STAGGER[3] = { 14, 16, 34 };
 static s32 clamp(s32 v, s32 lo, s32 hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 static int rnd(int n) { return (int)(fx_rand() % (u32)n); }
@@ -217,6 +223,58 @@ static void audio_update(void)
     }
 }
 
+/* blade from the clamp to the nose, in world space (from the fist bone the saw is strapped to) */
+static void saw_blade(VECTOR *base, VECTOR *tip)
+{
+    SVECTOR s;
+    s.vx = (s16)(DEMON_MOUNT_X + DEMON_MOUNT_DX * 90 / 4096); s.vy = (s16)DEMON_MOUNT_Y;
+    s.vz = (s16)(DEMON_MOUNT_Z + DEMON_MOUNT_DZ * 90 / 4096);
+    mat_apply(&pl.world[DEMON_MOUNT_BONE], &s, base);
+    s.vx = (s16)(DEMON_MOUNT_X + DEMON_MOUNT_DX * 480 / 4096); s.vz = (s16)(DEMON_MOUNT_Z + DEMON_MOUNT_DZ * 480 / 4096);
+    mat_apply(&pl.world[DEMON_MOUNT_BONE], &s, tip);
+}
+
+/* the chainsaw against the world and anything that can be hurt */
+static void saw_combat(void)
+{
+    CombatEvent ev[4];
+    VECTOR base, tip;
+    int n, i;
+    if (pl.atk_event >= 1 && pl.atk_event <= 3) {
+        int m = pl.atk_event - 1;
+        attack_begin(&saw_attack, TEAM_PLAYER, pl.atk_event, SAW_DMG[m], SAW_KNOCK[m], SAW_STAGGER[m], 70);
+    }
+    if (!pl.atk) { attack_end(&saw_attack); return; }
+    if (!pl.atk_active) return;
+    saw_blade(&base, &tip);
+    saw_attack.ox = pl.x; saw_attack.oz = pl.z;
+    n = attack_update(&saw_attack, &base, &tip, ev, 4);
+    for (i = 0; i < n; i++) {
+        const CombatEvent *e = &ev[i];
+        int pan = pan_of(e->at.vx, e->at.vz);
+        if (e->kind == COMBAT_HIT_TARGET) {                       /* flesh: blood, the engine bogs down */
+            fx_hit(&e->at, saw_attack.damage, 0);
+            snd_play(SFX_RIP, 4096, pan, 3900 + rnd(400));
+            player_hit_react(&pl, 0, 0, 0, 5);
+            land_shake_t = 0; land_shake_amp = 70 + saw_attack.move * 10;    /* jolt, like a landing */
+            rumble = 200;
+        } else if (e->kind == COMBAT_HIT_FLOOR && saw_attack.move == 3) {   /* the slam bites the floor */
+            fx_hit(&e->at, 70, 1); fx_hit(&e->at, 70, 1);
+            snd_play(SFX_SLAM, 4096, pan, 4096);
+            snd_play(SFX_GRIND, 3000, pan, 3300);
+            player_hit_react(&pl, 0, 0, 0, 4);
+            land_shake_t = 0; land_shake_amp = 130;
+            rumble = 240;
+        } else {                                                  /* steel: sparks, screech, the blade kicks back */
+            fx_hit(&e->at, 50, 1);
+            snd_play(SFX_GRIND, 3800, pan, 3800 + rnd(600));
+            player_hit_react(&pl, e->nrm.vx, e->nrm.vz, e->nrm.vy ? 0 : 18 * 16, 4);
+            land_shake_t = 0; land_shake_amp = 75;                          /* jolt, like a landing */
+            rumble = 150;
+        }
+    }
+}
+
 static void simulate(u32 pad)
 {
     int myaw, mmag;
@@ -227,17 +285,6 @@ static void simulate(u32 pad)
     was_grounded = pl.grounded;
     if (pl.atk_event >= 1 && pl.atk_event <= 3)                               /* swing: whoosh + the saw screams */
         snd_play(SFX_SWING, 3800, 300, pl.atk_event == 3 ? 3400 : 3900 + rnd(500));
-    if (pl.atk_event == 13) {                                                 /* overhead slam hits the floor */
-        MATRIX w = pl.world[DEMON_MOUNT_BONE];
-        SVECTOR tip; VECTOR at;
-        tip.vx = DEMON_MOUNT_X - 470; tip.vy = DEMON_MOUNT_Y; tip.vz = DEMON_MOUNT_Z + 16;
-        mat_apply(&w, &tip, &at);
-        at.vy = level_ground(at.vx, at.vz, pl.y) - 20;
-        fx_hit(&at, 60, 1);
-        snd_play(SFX_SLAM, 4096, pan_of(at.vx, at.vz), 4096);
-        land_shake_t = 0; land_shake_amp = 120;
-        rumble = 240;
-    }
     if (pl.land_t == 1)                                                       /* boom, scaled by the fall */
         snd_play(SFX_LAND, (int)clamp(pl.land_amp, 1300, 4096), 0, 4500 - pl.land_amp / 6);
     if (pl.land_t == 1 && pl.land_amp > 1500) rumble = pl.land_amp >> 4;      /* thump on a hard landing */
@@ -259,8 +306,10 @@ static void simulate(u32 pad)
         prev_half = half;
     }                                             /* chain idles, revs when she runs */
     player_pose(&pl, &demon);
+    saw_combat();
     level_update();
     fx_update();
+    combat_update();
 }
 
 static void flow(u32 pad, u32 press)

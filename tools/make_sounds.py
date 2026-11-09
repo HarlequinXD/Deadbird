@@ -215,6 +215,26 @@ grind = bandpass(noise(n), SR_HI, 2600, 2) * (0.6 + 0.4 * np.sign(np.sin(2 * np.
 slam = np.tanh(2.2 * boom + 0.6 * crash + 0.7 * grind + 0.6 * onepole_lp(noise(n), SR_HI, 2500) * env_exp(n, SR_HI, 0.04))
 add('slam', reverb(slam, SR_HI, 1.0, 0.3)[:int(1.4 * SR_HI)], SR_HI)
 
+# ---------------------------------------------------------------- blade impacts
+n = int(0.6 * SR_HI)
+t = t_(n, SR_HI)
+screech = sum(np.sin(2 * np.pi * f * t + rng.uniform(0, 6)) * a for f, a in ((2150, 1), (3310, .7), (4870, .45), (1420, .5)))
+screech *= (0.6 + 0.4 * np.sign(np.sin(2 * np.pi * 47 * t)))          # teeth chattering on the edge
+crackle = onepole_hp(noise(n), SR_HI, 3000) * (rng.uniform(0, 1, n) > 0.93) * 2.5
+clang = metal(n, SR_HI, 520, 0.12, parts=(1, 2.3, 3.9), amps=(1, .6, .4))
+g_env = env_exp(n, SR_HI, 0.16, 0.003)
+add('grind', np.tanh(1.4 * (0.45 * screech + crackle) * g_env + 0.8 * clang), SR_HI)
+
+n = int(0.55 * SR_HI)
+t = t_(n, SR_HI)
+bog = 60 + 40 * np.exp(-t / 0.08)                                     # the engine bogs down in meat
+ph = np.cumsum(bog) / SR_HI
+pul = np.exp(-(ph % 1.0) * 6)
+wet = bandpass(noise(n), SR_HI, 650, 1.3) * (0.5 + 0.5 * np.abs(np.sin(2 * np.pi * 23 * t)))
+thud = sweep_sine(n, SR_HI, 110, 45, 6) * env_exp(n, SR_HI, 0.08)
+rip = (bandpass(pul - pul.mean(), SR_HI, 300, 1) * 3 + wet * 1.4) * env_exp(n, SR_HI, 0.2, 0.004) + 1.4 * thud
+add('rip', np.tanh(1.5 * rip), SR_HI)
+
 # ---------------------------------------------------------------- UI
 n = int(0.12 * SR_HI)
 tick = metal(n, SR_HI, 1650, 0.03, parts=(1, 1.52, 2.8), amps=(1, .4, .2)) + 0.4 * sweep_sine(n, SR_HI, 400, 120, 6) * env_exp(n, SR_HI, 0.02)

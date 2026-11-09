@@ -52,6 +52,8 @@ typedef struct {
     int atk_t, atk_next;       /* frames into the swing; another press is buffered */
     int atk_w, atk_last, atk_last_t;   /* blend weight 0..4096, the clip to blend out of */
     int atk_event;             /* this frame: 1..3 = swing started, 11..13 = swing struck */
+    int atk_active;            /* the blade is live this frame (inside the swing's hit window) */
+    int hitstop;               /* frames frozen after a hit lands (weight / impact) */
     s32 atk_leg[7];            /* combo footwork, smoothed: L fwd/out/lift, R fwd/out/lift, pelvis drop */
     u32 pad, prev;
     FKPose pose;
@@ -67,5 +69,8 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag);
 /* angle of (dx right, dz forward), 4096 = 360, 0 = forward */
 int  player_input_angle(s32 dx, s32 dz);
 void player_pose(Player *p, const Model *m);
+/* the blade struck something: freeze for a few frames (hit-stop); push back off a surface
+   (normal nx, nz, 4096 = 1) by push (1/16 units per frame, 0 = no recoil) */
+void player_hit_react(Player *p, s32 nx, s32 nz, int push, int stop);
 
 #endif
