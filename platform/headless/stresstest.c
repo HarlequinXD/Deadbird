@@ -9,6 +9,9 @@
 #undef DEMON_MESH_NO_DATA
 #include "demon_mesh.h"
 #include "assets.h"
+#include "map.h"
+#include <stdlib.h>
+#include <string.h>
 
 static Player pl;
 static u32 rnd = 12345;
@@ -21,12 +24,14 @@ int main(void)
     int stuck = 0, since = 0, prev_g = 1, max_jump = 0, max_drop = 0, max_turn = 0;
     s32 px, py, pz;
     u32 pad = 0;
+    int sec = -1, on_map;
+    if (getenv("MAP") && !strcmp(getenv("MAP"), "test")) gen_level_select(&map_test);   /* MAP=test: the sector test map */
     level_init();
     assets_init();
     m = asset_demon;
     m.bones = (const DBONE *)demon_bones; m.nbones = DEMON_NBONES;
     player_init(&m);
-    { s32 sx, sz; int sy; level_spawn(&sx, &sz, &sy); player_reset(&pl, sx, sz, sy); }
+    { s32 sx, sz; int sy; level_spawn(&sx, &sz, &sy); player_reset(&pl, sx, sz, sy); on_map = level_sector_at(sx, sz, -1) >= 0; }
     px = pl.x; py = pl.y; pz = pl.z;
     for (f = 0; f < 60 * 60 * 5; f++) {
         if (--hold <= 0) {
@@ -43,8 +48,14 @@ int main(void)
             int d = (int)isqrt((u32)d2);
             if (d > max_jump) max_jump = d;
             if (d > 200) { if (fails++ < 10) printf("frame %d: teleported %d units from %d %d to %d %d y %d\n", f, d, (int)px, (int)pz, (int)pl.x, (int)pl.z, (int)pl.y); }
-            if (pl.y > 1) { if (fails++ < 10) printf("frame %d: below the floor (y %d)\n", f, (int)pl.y); }
-            if (pl.y < -3000) { if (fails++ < 10) printf("frame %d: flew away (y %d)\n", f, (int)pl.y); }
+            {
+                s32 g = 0;
+                sec = level_sector_at(pl.x, pl.z, sec);
+                if (sec >= 0) g = level_sector_floor(sec, pl.x, pl.z);
+                else if (on_map) { if (fails++ < 10) printf("frame %d: off the map at %d %d\n", f, (int)pl.x, (int)pl.z); }
+                if (pl.y > g + 1) { if (fails++ < 10) printf("frame %d: below the floor (y %d, floor %d)\n", f, (int)pl.y, (int)g); }
+                if (pl.y < g - 3000) { if (fails++ < 10) printf("frame %d: flew away (y %d)\n", f, (int)pl.y); }
+            }
         }
         {   /* stuck inside geometry for more than a few frames? (stepping off a stair edge can
                leave her overlapping for a frame while she settles) */
@@ -98,8 +109,12 @@ int main(void)
     level_debug_flat(0);
     /* scenario 2: walk into the loading dock's south wall at 45 degrees: she must slide along
        it, facing along it, walking */
-    player_reset(&pl, -17500, -29500, 2048);
-    for (f = 0; f < 60; f++) { player_update(&pl, 0, 1536, 2400); player_pose(&pl, &m); }
+    {   /* (sector test map: the hall's south wall) */
+        s32 wx = on_map ? 2000 : -17500, wz = on_map ? -5600 : -29500;
+        player_reset(&pl, wx, wz, 2048);
+        for (f = 0; f < 60; f++) { player_update(&pl, 0, 1536, 2400); player_pose(&pl, &m); }
+        if (on_map) pl.x += -17000 - 2500;          /* same pass mark as the plant's */
+    }
     {
         int dv = player_input_angle(pl.vx, pl.vz);
         printf("wall slide test: x %d z %d, facing %d, moving %d (want ~1024), speed %d, phase %d\n",

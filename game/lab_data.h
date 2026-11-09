@@ -19,6 +19,8 @@ typedef struct {
     LabArea areas[32]; int nareas;
     LabView views[16]; int nviews;
     s32 route[48][2]; int nroute;
+    LabSec *secs; LabWall *walls; int nsecs, nwalls;      /* sector maps only (else 0) */
+    s32 spawn_x, spawn_z; int spawn_yaw, has_spawn;
 } LabData;
 extern LabData lab;
 
@@ -34,6 +36,9 @@ extern LabData lab;
 #define LAB_NAREAS   lab.nareas
 #define LAB_NVIEWS   lab.nviews
 #define LAB_NROUTE   lab.nroute
+#define LAB_NSECS    lab.nsecs
+#define lab_secs     lab.secs
+#define lab_walls    lab.walls
 #define lab_verts    lab.verts
 #define lab_faces    lab.faces
 #define lab_chunks   lab.chunks

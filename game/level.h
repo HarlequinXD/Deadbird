@@ -30,6 +30,12 @@ typedef struct { s16 x, z, r, yt, yb; } LabRing;
 typedef struct { s16 x, z, r; } LabPod;
 typedef struct { s16 x0, z0, x1, z1; u32 pvs; const char *name; } LabArea;   /* room or hall */
 typedef struct { const char *name; s32 x, y, z; int yaw, pitch; } LabView;
+/* sector maps: a sector's bounds, floor and ceiling planes (up-positive height = h + ((x - ax) * kx +
+   (z - az) * kz) >> 12) and its walls; a wall runs (x0,z0) -> (x1,z1) with the sector on its left
+   (inward normal nx,nz, 4.12) and next = neighbour + 1 (0 = solid) */
+typedef struct { s16 h, ax, az, kx, kz; } LabPlane;
+typedef struct { s16 x0, z0, x1, z1; LabPlane f, c; u16 w0, nw; u8 room, kind, lock, pad; s16 ka, kb; } LabSec;
+typedef struct { s16 x0, z0, x1, z1, nx, nz; u16 next, sec; } LabWall;
 
 void level_init(void);
 void level_reload_textures(void);
@@ -58,6 +64,11 @@ void level_route_point(int i, s32 *x, s32 *z);
 int  level_view_count(void);
 const LabView *level_view(int i);
 void level_extra_views(const LabView *v, int n);   /* tools: more camera spots after the rooms' */
+/* sector maps: the sector at (x,z) (-1 = none; hint = a guess, e.g. last frame's), its floor and
+   ceiling (world y, Y down) */
+int  level_sector_at(s32 x, s32 z, int hint);
+s32  level_sector_floor(int sec, s32 x, s32 z);
+s32  level_sector_ceil(int sec, s32 x, s32 z);
 /* test hook: an endless flat floor with nothing on it */
 void level_debug_flat(int on);
 

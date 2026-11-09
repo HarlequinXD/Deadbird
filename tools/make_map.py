@@ -493,7 +493,12 @@ def preview(name, rooms, secs, lights, things, out_png):
     for (x, z, h, c, rad) in lights:
         px, pz = P(x, z); d.ellipse([px - 2, pz - 2, px + 2, pz + 2], fill=(255, 230, 120))
     col = {0: (60, 240, 90), 1: (240, 60, 60), 2: (255, 255, 255), 3: (180, 120, 255), 4: (255, 200, 0)}
+    way = [P(t["x"], t["z"]) for t in things if t["type"] in (0, 5)]
+    if len(way) > 1:
+        d.line(way, fill=(90, 200, 120), width=1)
     for t in things:
+        if t["type"] == 5:
+            continue
         px, pz = P(t["x"], t["z"]); c = col[t["type"]]
         if t["type"] == 2: c = {1: (40, 220, 240), 2: (250, 180, 40), 3: (230, 40, 60)}[t["arg"]]
         d.ellipse([px - 5, pz - 5, px + 5, pz + 5], fill=c, outline=(0, 0, 0))

@@ -52,6 +52,13 @@ static const MapThing things[] = {
     { 0, 0, 0, -3072, 0, 0, -3072 },
     { 1, 0, 13312, 0, 2048, 13312, 0 },
     { 2, 1, -6144, -4096, 0, -6144, -4096 },
+    { 5, 0, -1024, -4096, 0, -1024, -4096 },
+    { 5, 0, -6144, -4096, 0, -6144, -4096 },
+    { 5, 0, 0, 1024, 0, 0, 1024 },
+    { 5, 0, 8704, 1024, 0, 8704, 1024 },
+    { 5, 0, 13312, 1024, 0, 13312, 1024 },
+    { 5, 0, 13312, 7680, 0, 13312, 7680 },
+    { 5, 0, 13312, 11776, 0, 13312, 11776 },
 };
 static const char *const rooms[] = { "Hall", "Annex" };
-const MapDef map_test = { "test", pts, 48, walls, secs, 9, spec, props, things, 3, rooms, 2 };
+const MapDef map_test = { "test", pts, 48, walls, secs, 9, spec, props, things, 10, rooms, 2 };

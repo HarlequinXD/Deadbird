@@ -79,3 +79,12 @@ thing key cyan -6,-4
 prop crate 4,-4 0.7 0.7
 prop console 5,5 s graph
 prop pillar 0,2 5
+
+# route test: up the steps onto the platform, through the door, up the ramp
+thing way -1,-4
+thing way -6,-4
+thing way 0,1
+thing way 8.5,1
+thing way 13,1
+thing way 13,7.5
+thing way 13,11.5

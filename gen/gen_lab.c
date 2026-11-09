@@ -1432,6 +1432,40 @@ static void gen_map_geometry(void)
         v->y = (s32)-(ph(&F, vx, vz) + gmin((float)(s->ceil - s->floor) - 600, 3200));
         v->yaw = iround(gatan2(cx - vx, cz - vz) / (2 * GPI) * 4096) & 4095; v->pitch = 170;
     }
+    /* the sectors and walls the game collides with */
+    lab.nsecs = MAP->nsecs; lab.nwalls = MAP->npts;
+    lab.secs = (LabSec *)malloc(sizeof(LabSec) * (size_t)MAP->nsecs);
+    lab.walls = (LabWall *)malloc(sizeof(LabWall) * (size_t)MAP->npts);
+    for (int si = 0; si < MAP->nsecs; si++) {
+        const MapSector *s = &MAP->secs[si];
+        LabSec *o = &lab.secs[si];
+        memset(o, 0, sizeof(*o));
+        o->x0 = o->z0 = 32767; o->x1 = o->z1 = -32767;
+        for (int c = 0; c < 2; c++) {
+            Plane P = sec_plane(s, c);
+            LabPlane *q = c ? &o->c : &o->f;
+            q->h = (s16)iround(c ? (float)s->ceil : (float)s->floor);
+            if (s->kind == SK_DOOR && c) q->h = s->floor;            /* closed; the game opens it */
+            if (s->kind == SK_LIFT && !c) q->h = s->floor;
+            if (P.k != 0) { q->h = (s16)iround(P.h); q->ax = (s16)P.ax; q->az = (s16)P.az; q->kx = (s16)iround(P.k * P.nx * 4096); q->kz = (s16)iround(P.k * P.nz * 4096); }
+        }
+        o->w0 = s->p0; o->nw = s->np; o->room = s->room; o->kind = s->kind; o->lock = s->lock; o->ka = s->ka; o->kb = s->kb;
+        for (int i = 0; i < s->np; i++) {
+            const MapPt *pa = &MAP->pts[s->p0 + i], *pb = &MAP->pts[s->p0 + (i + 1) % s->np];
+            LabWall *w = &lab.walls[s->p0 + i];
+            float dx = (float)(pb->x - pa->x), dz = (float)(pb->z - pa->z), L = gsqrt(dx * dx + dz * dz);
+            w->x0 = pa->x; w->z0 = pa->z; w->x1 = pb->x; w->z1 = pb->z;
+            w->nx = (s16)iround(-dz / L * 4096); w->nz = (s16)iround(dx / L * 4096);
+            w->next = MAP->walls[s->p0 + i].next; w->sec = (u16)si;
+            if (pa->x < o->x0) o->x0 = pa->x;
+            if (pa->x > o->x1) o->x1 = pa->x;
+            if (pa->z < o->z0) o->z0 = pa->z;
+            if (pa->z > o->z1) o->z1 = pa->z;
+        }
+    }
+    lab.has_spawn = 0;
+    for (int i = 0; i < MAP->nthings; i++)
+        if (MAP->things[i].type == TH_START) { lab.spawn_x = MAP->things[i].x; lab.spawn_z = MAP->things[i].z; lab.spawn_yaw = MAP->things[i].yaw; lab.has_spawn = 1; break; }
     lab.nroute = 0;
     for (int i = 0; i < MAP->nthings && lab.nroute < 48; i++)
         if (MAP->things[i].type == TH_START || MAP->things[i].type == TH_WAY) {
