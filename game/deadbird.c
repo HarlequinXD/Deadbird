@@ -373,14 +373,11 @@ static void cine_frame(int f)
 {
     Enemy *e = enemy_get(cine.ei);
     VECTOR w, at;
-    int t, wgt = 4096;
-    if (f < 24) t = f * 4 / 24;                       /* slow wind-up, the saw revs */
-    else if (f < 32) t = 4 + (f - 24) / 2;            /* swings in */
-    else if (f < 80) t = 8;                            /* grinding through him (slow motion) */
-    else if (f < 86) t = 8 + (f - 80);                /* rips out the other side */
-    else if (f < 146) t = 14 + (f - 86) / 5;          /* follow-through, recovers */
-    else { t = 26; wgt = 4096 - (f - 146) * 64; if (wgt < 0) wgt = 0; }
-    player_script(&pl, wgt ? 1 : 0, t, wgt);
+    int wgt = 4096;
+    if (f > 146) { wgt = 4096 - (f - 146) * 64; if (wgt < 0) wgt = 0; }
+    /* her FATALITY clip (clip_fatal: step in, grab, coil, drive, grind, rip, follow through) */
+    player_script(&pl, wgt ? 4 : 0, f < 160 ? f : 160, wgt);
+    pl.shake = f >= 33 && f < 80 ? 2600 + (isin(f * 300) * 900 >> 12) : (f >= 80 && f < 86 ? 3600 : 0);   /* straining */
     player_pose(&pl, &demon);
     if (f < 84) enemy_fatal_step(e, f >= 32 ? 4096 : 0);
     else if (f == 84) {
@@ -423,10 +420,12 @@ static void cine_step(void)
     if ((cine.vt16 >> 4) >= 236) {                     /* back to the game */
         cine.active = 0;
         player_script(&pl, 0, 0, 0);
-        pl.atk = 0; pl.atk_w = 0;
+        pl.atk = 0; pl.atk_w = 0; pl.shake = 0;
         cam_yaw = pl.yaw;
     }
 }
+
+static s32 iabs(s32 v) { return v < 0 ? -v : v; }
 
 static void simulate(u32 pad)
 {
@@ -434,15 +433,39 @@ static void simulate(u32 pad)
     if (dead_t) { pad = 0; if (++dead_t > 150) { start_play(); return; } }
     camera_update(pad);
     read_move(pad, &myaw, &mmag);
+    {   /* auto-targeting: the nearest trooper within reach, roughly where she's facing or the stick
+           points, is locked; a chainsaw press turns her onto him and each swing's lunge is sized to
+           land the chain on him */
+        int i, ref = mmag > 300 ? myaw : pl.yaw, best_a = 0;
+        s32 best = 0x7fffffff, best_d = 0;
+        for (i = 0; i < enemy_count(); i++) {
+            const Enemy *e = enemy_get(i);
+            s32 dx = e->x - pl.x, dz = e->z - pl.z, d;
+            int a, diff;
+            if (e->state == E_DEAD || e->state == E_CUT || e->state == E_FATAL) continue;
+            if (iabs(e->y - pl.y) > 900 || iabs(dx) > 4200 || iabs(dz) > 4200) continue;
+            d = (s32)isqrt((u32)((dx >> 2) * (dx >> 2) + (dz >> 2) * (dz >> 2))) << 2;
+            if (d > 4200) continue;
+            a = player_input_angle(dx, dz) & 4095;
+            diff = ((a - ref + 2048) & 4095) - 2048;
+            if (diff < 0) diff = -diff;
+            if (diff > 1400) continue;
+            if (d + diff * 2 < best) { best = d + diff * 2; best_a = a; best_d = d; }
+        }
+        if (best_d) {
+            pl.lock_yaw = best_a; pl.lock_dist = best_d;
+            if (pad & ~pl.prev & BTN_ATTACK) { myaw = best_a; mmag = 4096; }
+        } else pl.lock_dist = 0;
+    }
     player_update(&pl, pad, myaw, mmag);
     if (was_grounded && !pl.grounded && pl.vy < -600) snd_play(SFX_JUMP, 3000, 0, 3800 + rnd(600));
     was_grounded = pl.grounded;
     if (pl.atk_event >= 1 && pl.atk_event <= 3)                               /* swing: whoosh + the saw screams */
         snd_play(SFX_SWING, 3800, 300, pl.atk_event == 3 ? 3400 : 3900 + rnd(500));
-    if (pl.roll_t == 2) snd_play(SFX_JUMP, 2600, 0, 4400 + rnd(400));      /* dodge roll: launch ... */
-    if (pl.roll_t == 9 || pl.roll_t == 21) {                                  /* ... shoulder and hooves slam down */
-        snd_play(SFX_LAND, pl.roll_t == 9 ? 2600 : 2000, 0, 5200 + rnd(500));
-        if (land_shake_t >= 12) { land_shake_t = 6; land_shake_amp = 40; }
+    if (pl.roll_t == 5) snd_play(SFX_STEP_RUN, 3000, -600, 3600);             /* dodge roll: the plant ... */
+    if (pl.roll_t == 10 || pl.roll_t == 17 || pl.roll_t == 31) {              /* ... shoulder, back, hooves hit the floor */
+        snd_play(SFX_LAND, pl.roll_t == 10 ? 2800 : pl.roll_t == 17 ? 1900 : 2400, 0, pl.roll_t == 31 ? 4600 : 5400 + rnd(400));
+        if (land_shake_t >= 12) { land_shake_t = 6; land_shake_amp = pl.roll_t == 17 ? 22 : 38; }
     }
     if (pl.pivot_t == PIVOT_FRAMES - 1) snd_play(SFX_STEP_RUN, 3600, 0, 3000);   /* hooves dig in to turn round */
     if (pl.land_t == 1)                                                       /* boom, scaled by the fall */

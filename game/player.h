@@ -60,6 +60,13 @@ typedef struct {
     /* locomotion extras */
     int aim, aim_yaw;          /* set by AI: face aim_yaw and move independently (strafe, back-pedal) */
     int roll_t, roll_yaw, rollw;   /* dodge roll: frames in (0 = none), its heading, pose weight */
+    s32 roll_py;               /* the roll's crouch depth this frame */
+    int lock_yaw; s32 lock_dist;   /* attack target (set by the game each frame; lock_dist 0 = none) */
+    int shake;                 /* 0..4096: whole-body strain tremor (cutscenes: the saw grinding) */
+    s32 drop_extra;            /* extra crouch (others' knees buckling) */
+    /* secondary motion: the upper body follows the keyframes through springs (mass, lag, overshoot) */
+    s32 spx[FK_COUNT], spv[FK_COUNT];
+    int sp_init, sp_kick_half;
     int sprint, sprintw, run_hold;  /* sprinting, its blend weight, frames of full-stick running */
     int pivot_t, pivot_yaw;    /* plant-and-turn when the stick is thrown the other way at speed */
     u32 pad, prev;

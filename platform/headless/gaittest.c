@@ -111,6 +111,18 @@ int main(int argc, char **argv)
             const LabArea *ar = level_area(a);
             player_reset(&pl, ar->x0 + 1500, (ar->z0 + ar->z1) / 2, 1024);
             for (i = 0; i < (row == 3 ? 85 : 40); i++) { player_update(&pl, 0, 1024, 4096); player_pose(&pl, &m); }
+            if (row == 4 && getenv("ROLL")) {    /* ROLL=1: rows 5-6 = the whole roll, every 2 frames */
+                for (i = 0; i < 2 * COLS; i++) {
+                    for (k = 0; k < 2; k++) { player_update(&pl, i == 0 && k == 0 ? BTN_DODGE : 0, 1024, 4096); player_pose(&pl, &m); }
+                    shot(&m, 4 + i / COLS, i % COLS, 0);
+                }
+                for (i = 0; i < 2 * COLS; i++) {
+                    for (k = 0; k < 2; k++) { player_update(&pl, 0, 1024, 4096); player_pose(&pl, &m); }
+                    if (i < COLS) shot(&m, 6, i, 0);
+                }
+                row = 5;
+                continue;
+            }
             for (i = 0; i < COLS; i++) {
                 for (k = 0; k < 3; k++) {
                     u32 pad = row == 4 && i == 0 && k == 0 ? BTN_DODGE : 0;

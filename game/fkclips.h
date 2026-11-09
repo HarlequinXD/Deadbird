@@ -9,4 +9,6 @@ extern const FKClip clip_land;
 extern const FKClip clip_atk1;
 extern const FKClip clip_atk2;
 extern const FKClip clip_atk3;
+extern const FKClip clip_roll;
+extern const FKClip clip_fatal;
 #endif

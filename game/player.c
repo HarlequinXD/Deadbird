@@ -22,8 +22,9 @@
 #define RUN_PUSH   2870           /* stick past 70% runs */
 #define SPRINT_SPEED (94 * SUB)   /* 5.8 m/s: head down, long strides */
 #define SPRINT_AFTER 70           /* frames of flat-out running before it becomes a sprint */
-#define ROLL_LEN   30             /* dodge roll, frames */
-#define ROLL_SPEED (100 * SUB)
+#define ROLL_LEN   44             /* dodge roll, frames (clip_roll) */
+#define ROLL_FK0   7              /* frames the feet are off the floor: legs from the clip, body on the floor */
+#define ROLL_FK1   33
 #define PIVOT_LEN  PIVOT_FRAMES
 
 /* chainsaw combo: each swing lunges her forward (she slides on planted hooves) */
@@ -48,8 +49,15 @@ static const Step STEPS3[] = {
     { 0, 10, 0, 0, 220, 20, 0, 80 },    { 5, 30, 10, 0, 150, 10, 0, 170 },   { 9, 110, 0, 130, 90, 0, 120, -130 },
     { 12, 200, 20, 80, -110, 20, 70, -60 }, { 15, 280, 60, 0, -200, 40, 0, 290 }, { 24, 280, 60, 0, -200, 40, 0, 275 },
     { 40, 60, 0, 0, -50, 0, 0, 20 } };
-static const Step *const STEPS[3] = { STEPS1, STEPS2, STEPS3 };
-static const int NSTEPS[3] = { 6, 6, 7 };
+/* 4: the FATALITY (cutscene): steps in with the left hoof, braces wide and sinks while the saw
+   grinds, the right hoof steps through as she rips it out, then she straightens up over him */
+static const Step STEPS4[] = {
+    { 0, 60, 0, 0, -50, 0, 0, 20 },      { 4, 110, 10, 75, -60, 0, 0, 34 },    { 9, 260, 40, 0, -140, 20, 0, 90 },
+    { 20, 240, 40, 0, -175, 30, 0, 115 }, { 30, 280, 44, 0, -200, 30, 22, 140 }, { 33, 300, 50, 0, -210, 30, 0, 160 },
+    { 79, 305, 52, 0, -215, 32, 0, 175 }, { 84, 300, 50, 0, -60, 20, 95, 125 },  { 92, 300, 50, 0, 120, 30, 0, 110 },
+    { 120, 200, 40, 0, 100, 20, 0, 70 },  { 140, 90, 10, 0, -20, 0, 0, 30 },     { 160, 60, 0, 0, -50, 0, 0, 20 } };
+static const Step *const STEPS[4] = { STEPS1, STEPS2, STEPS3, STEPS4 };
+static const int NSTEPS[4] = { 6, 6, 7, 12 };
 
 static void footwork(int stage, int t, s32 *out)
 {
@@ -167,8 +175,15 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         const Swing *sw = &SWINGS[p->atk - 1];
         p->atk_t++;
         if ((press & BTN_ATTACK) && p->atk_t >= 3) p->atk_next = 1;
+        if (p->lock_dist && p->atk_t < sw->strike) {   /* locked on: keep squaring up to him until the blade lands */
+            int d = wrap(p->lock_yaw - p->yaw);
+            p->yaw = (p->yaw + d / 3) & 4095;
+        }
         if (p->atk_t == sw->lunge_at) {                 /* lunge: she skids forward on the swing */
-            p->vx = sw->lunge * isin(p->yaw) >> 12; p->vz = sw->lunge * icos(p->yaw) >> 12;
+            s32 lunge = sw->lunge;
+            if (p->lock_dist)                           /* ... just far enough to put the chain into him */
+                lunge = clamp((p->lock_dist - 820) * 16 / 14, 4 * SUB, sw->lunge * 2);
+            p->vx = lunge * isin(p->yaw) >> 12; p->vz = lunge * icos(p->yaw) >> 12;
         }
         if (p->atk_t == sw->strike) p->atk_event = 10 + p->atk;
         if (p->atk_next && p->atk < 3 && p->atk_t >= sw->chain) {
@@ -195,9 +210,11 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         p->pivot_t = 0;
     }
     if (p->roll_t) {
-        int t = p->roll_t;
-        s32 v = t < 18 ? ROLL_SPEED : ROLL_SPEED * (ROLL_LEN - t) / (ROLL_LEN - 18);
-        if (t < 3) v = ROLL_SPEED * (t + 1) / 4;
+        /* speed along the roll (units / frame): checks into the plant, carried by the roll
+           (about the speed a 0.9 m ball turns at), then bleeds off as she comes up */
+        static const u8 RV[ROLL_LEN + 1] = { 70, 66, 62, 60, 62, 70, 82, 96, 108, 112, 114, 114, 114, 112, 112, 110, 110, 108,
+            106, 104, 102, 100, 98, 96, 92, 88, 84, 78, 72, 66, 58, 50, 44, 40, 38, 38, 38, 40, 42, 44, 46, 48, 50, 52, 54 };
+        s32 v = (s32)RV[p->roll_t] * SUB;
         p->vx = v * isin(p->roll_yaw) >> 12; p->vz = v * icos(p->roll_yaw) >> 12;
         if (++p->roll_t > ROLL_LEN) { p->roll_t = 0; if (pad & BTN_DODGE) p->sprint = 1; }
     }
@@ -326,9 +343,9 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         int amp_t = smooth((sp - 20) * 4096 / (174 - 20));                /* 0.08 .. 0.7 m/s */
         if (!p->grounded) amp_t = p->amp;
         if (p->atk) { run_t = 0; amp_t = 0; }                              /* braced: hooves slide, no steps */
-        if (p->roll_t) amp_t = 0;
+        if (p->roll_t && p->roll_t < 36) amp_t = 0;                       /* steps again as she drives up */
         p->sprintw += ((p->sprint ? smooth((sp - 70 * SUB) * 4096 / (20 * SUB)) : 0) - p->sprintw) / 6;
-        p->rollw += ((p->roll_t && p->roll_t < ROLL_LEN - 4 ? 4096 : 0) - p->rollw) / 3;
+        p->rollw = !p->roll_t ? 0 : p->roll_t < 2 ? 2048 : p->roll_t > ROLL_LEN - 3 ? (ROLL_LEN + 1 - p->roll_t) * 1365 : 4096;
         p->runw += (run_t - p->runw) / 6;
         p->amp += (amp_t - p->amp) / 3;
         p->stance = 2580 + ((1680 - 2580) * p->runw >> 12);                /* 0.63 .. 0.41: heavy, long ground contact */
@@ -337,7 +354,7 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         p->exc = exc;
         if (exc < 24) exc = 24;
         stride = 2 * exc * 4096 / p->stance;                                 /* ground covered per cycle */
-        if (p->grounded && !p->atk && !p->roll_t) p->phase += (int)(sp * 4096 / stride);  /* 65536 per cycle, sp in 1/16 */
+        if (p->grounded && !p->atk && (!p->roll_t || p->roll_t >= 36)) p->phase += (int)(sp * 4096 / stride);  /* 65536 per cycle, sp in 1/16 */
         if (p->pivot_t > 4) p->shuffle_amp = 4096;                           /* the stomping turn-round */
         if (sp < 2 * SUB && p->grounded) {
             /* standing: settle to a double-support moment so the next start is clean */
@@ -350,7 +367,7 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         else p->shuffle_amp -= p->shuffle_amp / 6;
         if (p->shuffle_amp > 200) p->shuffle_t = (p->shuffle_t + 260) & 8191;
         p->idle_t++;
-        p->airw += ((p->grounded && !p->roll_t ? 0 : 4096) - p->airw) / (p->grounded && !p->roll_t ? 2 : 3);
+        p->airw += ((p->grounded ? 0 : 4096) - p->airw) / (p->grounded ? 2 : 4);
         /* lean into acceleration, bank into turns */
         {
             /* (a wall stopping you is not braking: no lean back off it) */
@@ -368,7 +385,7 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         {   /* footwork: the current swing's keys (or the last swing's end while blending out), smoothed */
             s32 want[7];
             int st = p->atk ? p->atk : p->atk_last, k;
-            if (st >= 1 && st <= 3) footwork(st, p->atk ? p->atk_t : p->atk_last_t, want);
+            if (st >= 1 && st <= 4) footwork(st, p->atk ? p->atk_t : p->atk_last_t, want);
             else for (k = 0; k < 7; k++) want[k] = 0;
             for (k = 0; k < 7; k++) p->atk_leg[k] += (want[k] - p->atk_leg[k]) / 2;
         }
@@ -378,6 +395,68 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
 /* ---------------------------------------------------------------- pose */
 static s32 mixi(s32 a, s32 b, int w) { return a + ((b - a) * w >> 12); }
 static s32 sinpi(int q) { return isin(q >> 1); }   /* sin(pi * q), q 0..4096 */
+
+/* ---------------------------------------------------------------- the "mocap" layer
+   Keyframes alone look like keyframes. Captured motion has mass in it: the upper body lags and
+   overshoots what drives it, every footfall jolts up through the spine and the heavy saw arm,
+   the eyes stay level while the body bobs, and nobody ever stands perfectly still. */
+static int wave(int t, int a, int b) { return (isin(t * a) + isin(t * b + 1234)) / 2; }   /* -4096..4096 */
+#define ADD(ch, deg_x16, w) (o->v[ch] = (s16)(o->v[ch] + (((s32)(deg_x16) * (w) >> 12) >> 4)))
+
+static void mocap_layer(Player *p, FKPose *o)
+{
+    /* spring groups: 1 pelvis + torso (stiff), 2 head (steady), 3 arms (loose, the saw arm heavy) */
+    static const u8 GRP[FK_COUNT] = { 0, 1, 1, 1, 1, 1, 1, 2, 2, 3, 3, 3, 4, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 4 };
+    static const s16 K[5] = { 0, 1229, 1100, 700, 560 }, D[5] = { 0, 2540, 2780, 1760, 1640 };
+    int t = p->idle_t, still = (4096 - p->amp) * (4096 - p->atk_w) >> 12, c;
+    int stiff = p->atk_w > p->rollw ? p->atk_w : p->rollw;      /* swings and rolls stay on their keys */
+    if (p->roll_t || !p->grounded) still = 0;
+    /* eyes level: the head counters the body's lean */
+    ADD(FK_HRX, -(p->lean + p->lean / 2) * 10 / 16, 4096);
+    /* idle: breathing, slow weight shifts from hoof to hoof, glances, fidgets in the hands */
+    if (still > 0) {
+        int ws = isin(t * 9);                                   /* weight shift, ~7.5 s */
+        ADD(FK_PRZ, 48 * ws >> 12, still); ADD(FK_TRZ, -32 * ws >> 12, still); ADD(FK_HRY, 0, still);
+        ADD(FK_TRX, 22 * isin(t * 17) >> 12, still);            /* breathing, ~4 s */
+        ADD(FK_LSD, -16 * isin(t * 17) >> 12, still); ADD(FK_RSD, -12 * isin(t * 17) >> 12, still);
+        ADD(FK_HRY, 120 * wave(t, 5, 13) >> 12, still);         /* looking around */
+        ADD(FK_HRX, 36 * wave(t, 7, 19) >> 12, still);
+        ADD(FK_LSS, 36 * wave(t, 11, 23) >> 12, still); ADD(FK_LEL, 40 * wave(t, 6, 17) >> 12, still);
+        ADD(FK_RSS, 20 * wave(t, 8, 29) >> 12, still); ADD(FK_RFR, 60 * wave(t, 4, 15) >> 12, still);
+    }
+    if (p->shake) {                                             /* strain: arms and back trembling */
+        ADD(FK_TRX, 40 * isin(t * 610) >> 12, p->shake); ADD(FK_TRY, 32 * isin(t * 470 + 900) >> 12, p->shake);
+        ADD(FK_RSS, 60 * isin(t * 830) >> 12, p->shake); ADD(FK_REL, 50 * isin(t * 710 + 300) >> 12, p->shake);
+        ADD(FK_LEL, 50 * isin(t * 560 + 1700) >> 12, p->shake); ADD(FK_HRX, 30 * isin(t * 390) >> 12, p->shake);
+    }
+    /* follow-through: the springs */
+    if (!p->sp_init) { for (c = 0; c < FK_COUNT; c++) { p->spx[c] = (s32)o->v[c] << 4; p->spv[c] = 0; } p->sp_init = 1; }
+    {   /* footfalls and landings jolt the springs (heavier when running) */
+        int half = (p->phase >> 15) & 1;
+        if (half != p->sp_kick_half && p->grounded && p->amp > 1200 && !p->roll_t) {
+            s32 k = (s32)(p->amp >> 6) * (4096 + p->runw * 2) >> 12;       /* 1/16 degree per frame */
+            p->spv[FK_TRX] -= k; p->spv[FK_PRX] -= k / 3; p->spv[FK_HRX] += k * 3 / 4;
+            p->spv[FK_LSD] += k * 3 / 4; p->spv[FK_RSD] += k; p->spv[FK_REL] += k / 2;
+            p->spv[FK_TRZ] += half ? k / 3 : -k / 3;
+        }
+        p->sp_kick_half = half;
+        if (p->land_t == 1) {
+            s32 k = p->land_amp / 22;
+            p->spv[FK_TRX] -= k; p->spv[FK_HRX] += k / 2; p->spv[FK_LSD] += k; p->spv[FK_RSD] += k; p->spv[FK_RSS] -= k / 2;
+        }
+    }
+    for (c = 0; c < FK_COUNT; c++) {
+        int g = GRP[c];
+        s32 tgt = (s32)o->v[c] << 4, k, d, acc;
+        if (!g) { p->spx[c] = tgt; p->spv[c] = 0; continue; }
+        k = K[g] + ((2900 - K[g]) * stiff >> 12);
+        d = D[g] + ((3100 - D[g]) * stiff >> 12);
+        acc = ((tgt - p->spx[c]) * k >> 12) - (p->spv[c] * d >> 12);
+        p->spv[c] += acc;
+        p->spx[c] += p->spv[c];
+        o->v[c] = (s16)(p->spx[c] >> 4);
+    }
+}
 
 /* upper body + pelvis tilt from the keyframed clips (legs are placed by foot IK below) */
 static void build_pose(Player *p)
@@ -405,18 +484,18 @@ static void build_pose(Player *p)
         fk_blend(o, &a, p->landw, o);
     }
     if (p->atk_w > 0) {
-        static const FKClip *const ATK[3] = { &clip_atk1, &clip_atk2, &clip_atk3 };
+        static const FKClip *const ATK[4] = { &clip_atk1, &clip_atk2, &clip_atk3, &clip_fatal };
         int st = p->atk ? p->atk : p->atk_last, at = p->atk ? p->atk_t : p->atk_last_t;
-        if (st >= 1 && st <= 3) {
+        if (st >= 1 && st <= 4) {
             fk_sample(ATK[st - 1], (s32)at << 8, &a);
             fk_blend(o, &a, p->atk_w, o);
         }
     }
-    if (p->rollw > 0) {                          /* tucked into a ball: the landing crouch, folded harder */
-        fk_sample(&clip_land, 0, &a);
+    p->roll_py = 0;
+    if (p->rollw > 0) {                          /* the dodge roll clip */
+        fk_sample(&clip_roll, (s32)p->roll_t << 8, &a);
         fk_blend(o, &a, p->rollw, o);
-        o->v[FK_TRX] = (s16)(o->v[FK_TRX] - (24 * p->rollw >> 12));
-        o->v[FK_HRX] = (s16)(o->v[FK_HRX] - (20 * p->rollw >> 12));
+        p->roll_py = o->v[FK_PY] * p->rollw >> 12;
     }
     if (p->sprintw > 0) {                        /* sprinting: head down, driving forward */
         o->v[FK_PRX] = (s16)(o->v[FK_PRX] - (7 * p->sprintw >> 12));
@@ -427,6 +506,7 @@ static void build_pose(Player *p)
     o->v[FK_PRZ] += (s16)(p->bank / 16);
     o->v[FK_HRY] -= (s16)(p->turn / 12);
     o->v[FK_PY] = 0;
+    mocap_layer(p, o);
 }
 
 static void bone_vec(const Model *m, int b, VECTOR *v) { v->vx = m->bones[b].ox; v->vy = m->bones[b].oy; v->vz = m->bones[b].oz; }
@@ -518,8 +598,8 @@ static void place_feet(Player *p, const Model *m)
         fwd = fwd * (4096 - air) >> 12;
         /* airborne: tuck on the way up, reach down on the way down */
         off = mixi(off, sg > 0 ? 130 : -100, air);
-        lift = mixi(lift, p->vy < 0 || p->roll_t ? 300 : 100, air);
-        pt = mixi(pt, p->vy < 0 || p->roll_t ? 228 : 98, air);
+        lift = mixi(lift, p->vy < 0 ? 300 : 100, air);
+        pt = mixi(pt, p->vy < 0 ? 228 : 98, air);
 
         tgt[si].vx = an[si].vx + (mvx * off * 4 / 5 >> 12);
         if (sg > 0 && tgt[si].vx < 47) tgt[si].vx = 47;          /* side-steps never cross the feet */
@@ -555,7 +635,7 @@ static void place_feet(Player *p, const Model *m)
         int h = ph12 & 2047;
         if (h < 760) bob -= (s32)(mixi(26, 44, run) * isin(h * 2048 / 760) >> 12) * amp >> 12;
     }
-    dz = 12 + (60 * run >> 12) * amp / 4096 - bob + (170 * p->landw >> 12) - (20 * air >> 12) + (p->atk_leg[6] * p->atk_w >> 12);
+    dz = 12 + p->roll_py + p->drop_extra + (60 * run >> 12) * amp / 4096 - bob + (170 * p->landw >> 12) - (20 * air >> 12) + (p->atk_leg[6] * p->atk_w >> 12);
     lat = (-34 * icos((ph12 - mid) & 4095) >> 12) * amp / 4096 * (4096 - run * 6 / 10) / 4096;   /* weight rolls side to side */
     {
         MATRIX R;
@@ -608,33 +688,82 @@ static void place_feet(Player *p, const Model *m)
     }
 }
 
-int player_invulnerable(const Player *p) { return p->roll_t > 2 && p->roll_t < 22; }
+int player_invulnerable(const Player *p) { return p->roll_t > 4 && p->roll_t < 31; }
 
 void player_pose_begin(Player *p) { build_pose(p); }
+
+/* roll: how far over she has turned (degrees) by frame */
+static int roll_angle(int t)
+{
+    static const u8 F[] = { 0, 6, 8, 11, 18, 24, 29, 32 };
+    static const s16 A[] = { 0, 0, 35, 85, 190, 290, 345, 360 };
+    int i;
+    if (t >= 32) return 4096;
+    for (i = 0; i + 1 < 8 && F[i + 1] <= t; i++) ;
+    return (A[i] + (A[i + 1] - A[i]) * (t - F[i]) / (F[i + 1] - F[i])) * 4096 / 360;
+}
+
+/* the lowest point of the body: joints, plus the head top, chest and toes, each with a thickness */
+static s32 lowest_point(const Player *p)
+{
+    static const struct { u8 bone; s16 x, y, z, r; } PT[] = {
+        { DEMON_BONE_PELVIS, 0, 0, -60, 120 }, { DEMON_BONE_TORSO, 0, -280, -40, 130 }, { DEMON_BONE_NECK, 0, 0, 0, 90 },
+        { DEMON_BONE_HEAD, 0, -230, 0, 110 }, { DEMON_BONE_HEAD, 227, -445, -241, 20 }, { DEMON_BONE_HEAD, -227, -445, -241, 20 },   /* horn tips */
+        { DEMON_BONE_HEAD, 174, -331, -54, 30 }, { DEMON_BONE_HEAD, -174, -331, -54, 30 },
+        { DEMON_BONE_FIST_R, DEMON_MOUNT_X - 529, DEMON_MOUNT_Y - 197, DEMON_MOUNT_Z, 20 },    /* the chainsaw's corners */
+        { DEMON_BONE_FIST_R, DEMON_MOUNT_X - 529, DEMON_MOUNT_Y + 63, DEMON_MOUNT_Z, 20 },
+        { DEMON_BONE_FIST_R, DEMON_MOUNT_X - 250, DEMON_MOUNT_Y - 197, DEMON_MOUNT_Z, 20 },
+        { DEMON_BONE_FIST_R, DEMON_MOUNT_X + 290, DEMON_MOUNT_Y, DEMON_MOUNT_Z, 40 }, { DEMON_BONE_UPPER_ARM_L, 0, 0, 0, 80 }, { DEMON_BONE_UPPER_ARM_R, 0, 0, 0, 80 },
+        { DEMON_BONE_FOREARM_L, 0, 0, 0, 60 }, { DEMON_BONE_FOREARM_R, 0, 0, 0, 70 }, { DEMON_BONE_FIST_L, 0, 0, 0, 55 },
+        { DEMON_BONE_FIST_R, 0, 0, 0, 90 }, { DEMON_BONE_CALF_L, 0, 0, 0, 70 }, { DEMON_BONE_CALF_R, 0, 0, 0, 70 },
+        { DEMON_BONE_HOOF_L, 0, 0, 0, 50 }, { DEMON_BONE_HOOF_R, 0, 0, 0, 50 }, { DEMON_BONE_HOOF_L, 0, 70, 80, 25 },
+        { DEMON_BONE_HOOF_R, 0, 70, 80, 25 },
+    };
+    s32 low = -0x7fffffff;
+    unsigned i;
+    for (i = 0; i < sizeof(PT) / sizeof(PT[0]); i++) {
+        SVECTOR s; VECTOR w;
+        s.vx = PT[i].x; s.vy = PT[i].y; s.vz = PT[i].z;
+        mat_apply(&p->world[PT[i].bone], &s, &w);
+        if (w.vy + PT[i].r > low) low = w.vy + PT[i].r;
+    }
+    return low;
+}
 
 void player_pose_end(Player *p, const Model *m)
 {
     VECTOR off;
     MATRIX root, ry;
+    int fk_legs = p->roll_t >= ROLL_FK0 && p->roll_t <= ROLL_FK1;
     fk_bones(m, &p->pose, p->bone_pose, &off);
-    place_feet(p, m);
+    if (fk_legs) { p->pelvis_x = 0; p->pelvis_y = 0; }        /* legs tucked: keyframed, no foot IK */
+    else place_feet(p, m);
     mat_rot_y(&ry, p->yaw);
     mat_translate(&ry, p->x, p->y + p->step_off, p->z);
-    if (p->roll_t) {   /* the roll: the whole body turns head over heels about her middle */
-        MATRIX rx, piv;
-        int t = p->roll_t, a = t < 4 ? 0 : t > 24 ? 4096 : smooth((t - 4) * 4096 / 20);
-        s32 lift = (s32)(isin(a >> 1) * 720 >> 12);                    /* lifts as she goes over, so the head clears the floor */
-        mat_identity(&piv); mat_translate(&piv, 0, -560 - lift, 0);
+    if (p->roll_t) {
+        /* the roll: the body turns over its middle about an axis skewed toward the left shoulder
+           (a diagonal shoulder roll, keeping the chainsaw clear) */
+        MATRIX rx, tilt, untilt, piv, R;
+        mat_rot_y(&tilt, 420); mat_rot_y(&untilt, -420);
+        mat_rot_x(&rx, -roll_angle(p->roll_t));
+        mat_mul(&tilt, &rx, &R); mat_mul(&R, &untilt, &R);
+        mat_identity(&piv); mat_translate(&piv, 0, -600, 0);
         mat_mul(&ry, &piv, &ry);
-        mat_rot_x(&rx, -a);                                            /* head goes forward and down */
-        mat_mul(&ry, &rx, &ry);
-        mat_identity(&piv); mat_translate(&piv, 0, 560, 0);
+        mat_mul(&ry, &R, &ry);
+        mat_identity(&piv); mat_translate(&piv, 0, 600, 0);
         mat_mul(&ry, &piv, &ry);
     }
     mat_identity(&root);
     mat_translate(&root, p->pelvis_x, p->pelvis_y, 0);
     mat_mul(&ry, &root, &root);
     model_skeleton(m, &root, p->bone_pose, p->world);
+    if (fk_legs) {
+        /* on the floor the whole way: whatever part of her is lowest (hand, shoulder, back, hips,
+           then hooves) rests on the ground, so she rolls along it instead of flying over it */
+        s32 sh = (p->y + p->step_off) - lowest_point(p);
+        int b;
+        for (b = 0; b < m->nbones; b++) p->world[b].t[1] += sh;
+    }
 }
 
 void player_pose(Player *p, const Model *m) { player_pose_begin(p); player_pose_end(p, m); }

@@ -141,6 +141,20 @@ static void upper_body(Enemy *e, FKPose *o)
         set(o, FK_LKN, o->v[FK_LKN] + 22); set(o, FK_RKN, o->v[FK_RKN] + 28);
         set(o, FK_LHP, o->v[FK_LHP] + 10); set(o, FK_RHP, o->v[FK_RHP] + 12);
     }
+    if (e->state == E_FATAL) {
+        /* he sees it coming: head snaps to her, arms come up to fend off the saw, he leans away;
+           then the chain bites and he folds over it */
+        int t = e->t, w = t < 10 ? 0 : t < 24 ? (t - 10) * 4096 / 14 : t < 33 ? 4096 : 0;
+        if (w) {
+            mixch(o, FK_HRX, -2, w); mixch(o, FK_HRY, 0, w); mixch(o, FK_TRX, 12, w); mixch(o, FK_PRX, 6, w);
+            mixch(o, FK_LSD, 56, w); mixch(o, FK_LSS, 74, w); mixch(o, FK_LEL, 104, w);
+            mixch(o, FK_RSD, 60, w); mixch(o, FK_RSS, 58, w); mixch(o, FK_REL, 96, w); mixch(o, FK_TRY, -10, w);
+        }
+        if (t >= 31 && t < 40) {                                               /* the hit: doubles over it */
+            int k = t < 34 ? (t - 30) * 1365 : (40 - t) * 683;
+            mixch(o, FK_TRX, -34, k); mixch(o, FK_HRX, -30, k); mixch(o, FK_PRX, -10, k);
+        }
+    }
     if (e->flail > 0) {                                                        /* the saw is in him */
         int f = e->flail, a = isin(e->t * 230), b = isin(e->t * 190 + 1300);
         mixch(o, FK_TRX, 20, f); mixch(o, FK_HRX, 34 + (a * 8 >> 12), f); mixch(o, FK_PRX, 6, f);
@@ -371,7 +385,14 @@ void enemy_fatal_begin(Enemy *e, int face_yaw)
     e->tgt.alive = 0;
 }
 
-void enemy_fatal_step(Enemy *e, int flail) { e->flail = flail; e->t++; enemy_skeleton(e); }
+void enemy_fatal_step(Enemy *e, int flail)
+{
+    e->flail = flail; e->t++;
+    /* knees buckle under him while the saw grinds, and he convulses */
+    e->body.drop_extra += ((flail ? 230 : 0) - e->body.drop_extra) / 6;
+    e->body.shake = flail ? 3400 : 0;
+    enemy_skeleton(e);
+}
 
 void enemy_cut(Enemy *e, s32 dir_x, s32 dir_z)
 {
