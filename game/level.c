@@ -21,10 +21,15 @@
 #define FOG_FAR  18000
 #endif
 #define NEAR_Z   140
-#define GUARD    3                 /* guard band: x,y within +-3z keeps screen coords inside 11 bits */
+/* guard band: polygons are clipped to x within +-2z and y within +-z, so a clipped piece is at most
+   1000 px wide and 500 px tall - the PS1 GPU drops anything over 1023 x 511 (walls right beside the
+   camera used to vanish) */
+#define GUARD_X  2
+#define GUARD_Y  1
 #define MAXCV    1400
 
-static int uploaded, polys_drawn, frame_t, flat;
+static int uploaded, polys_drawn, frame_t, flat, all_rooms;
+void level_debug_all_rooms(int on) { all_rooms = on; }
 #define MAX_SECS 512
 static s16 sec_dyn[MAX_SECS];                 /* sector maps - door: how far it's open; lift: floor offset */
 static s16 mover_t[MAX_SECS];                 /* door: frames since she left; lift: frames she's stood on it */
@@ -243,6 +248,7 @@ static s32 seg_walls(const VECTOR *a, const VECTOR *d, s32 m, int *wi)
             px = a->vx + (s32)((long long)d->vx * t >> 12); pz = a->vz + (s32)((long long)d->vz * t >> 12);
             py = a->vy + (s32)((long long)d->vy * t >> 12);
             f = -floor_up(si, px, pz) + m; c = -ceil_up(si, px, pz) - m;
+            if (s->kind == 1 && !w->next) c = -(plane_h(&s->f, px, pz) + s->ka) - m;   /* a door's jambs stand full height, shut or open */
             if (w->next) {
                 nf = -floor_up(w->next - 1, px, pz) - m; nc = -ceil_up(w->next - 1, px, pz) + m;
                 if (nc < nf && !(py <= f && py >= nf) && !(py >= c && py <= nc)) continue;   /* through the opening */
@@ -256,6 +262,17 @@ static s32 seg_walls(const VECTOR *a, const VECTOR *d, s32 m, int *wi)
 
 /* which rooms the camera can see: a flood from its sector through the portals on screen, each
    one narrowing the window (horizontally - like Build), stopping at shut doors and the fog */
+static int seg_near(const LabWall *w, s32 x, s32 z, s32 r)
+{
+    s32 ex = w->x1 - w->x0, ez = w->z1 - w->z0, qx, qz;
+    long long L2 = (long long)ex * ex + (long long)ez * ez, tp = (long long)(x - w->x0) * ex + (long long)(z - w->z0) * ez;
+    if (tp <= 0) { qx = w->x0; qz = w->z0; }
+    else if (tp >= L2) { qx = w->x1; qz = w->z1; }
+    else { qx = w->x0 + (s32)(tp * ex / L2); qz = w->z0 + (s32)(tp * ez / L2); }
+    qx -= x; qz -= z;
+    return qx > -r && qx < r && qz > -r && qz < r && qx * qx + qz * qz < r * r;
+}
+
 static u32 portal_mask(const MATRIX *view, const PROJ *pr, s32 cx, s32 cz, int start)
 {
     struct { s16 sec; s32 l, r; } st[96];
@@ -283,11 +300,10 @@ static u32 portal_mask(const MATRIX *view, const PROJ *pr, s32 cx, s32 cz, int s
             if (lab_secs[o].kind == 1 && sec_dyn[o] == 0) { mask |= 1u << lab_secs[o].room; continue; }   /* shut door */
             l0 = ((w->x0 - cx) * rx + (w->z0 - cz) * rz) >> 12; d0 = ((w->x0 - cx) * fx + (w->z0 - cz) * fz) >> 12;
             l1 = ((w->x1 - cx) * rx + (w->z1 - cz) * rz) >> 12; d1 = ((w->x1 - cx) * fx + (w->z1 - cz) * fz) >> 12;
-            if (d0 < 64 && d1 < 64) {
-                /* behind the camera: still pass through when she's standing in the doorway */
-                s32 near0 = (w->x0 - cx) * (w->x0 - cx) / 16 + (w->z0 - cz) * (w->z0 - cz) / 16;
-                if (near0 > 1500 * 1500 / 16) continue;
-                a = wl; b = wr;
+            if (seg_near(w, cx, cz, 800)) {
+                a = wl; b = wr;                            /* the camera is in the doorway: keep the whole window */
+            } else if (d0 < 64 && d1 < 64) {
+                continue;                                  /* behind the camera */
             } else {
                 if (d0 < 64) { l0 = l1 + (s32)((long long)(l0 - l1) * (d1 - 64) / (d1 - d0)); d0 = 64; }
                 if (d1 < 64) { l1 = l0 + (s32)((long long)(l1 - l0) * (d0 - 64) / (d0 - d1)); d1 = 64; }
@@ -595,10 +611,10 @@ static u8 outcode(const VECTOR *c)
 {
     u8 o = 0;
     if (c->vz < NEAR_Z) o |= 1;
-    if (c->vx > c->vz * GUARD) o |= 2;
-    if (c->vx < -c->vz * GUARD) o |= 4;
-    if (c->vy > c->vz * GUARD) o |= 8;
-    if (c->vy < -c->vz * GUARD) o |= 16;
+    if (c->vx > c->vz * GUARD_X) o |= 2;
+    if (c->vx < -c->vz * GUARD_X) o |= 4;
+    if (c->vy > c->vz * GUARD_Y) o |= 8;
+    if (c->vy < -c->vz * GUARD_Y) o |= 16;
     return o;
 }
 
@@ -606,10 +622,10 @@ static s32 plane_d(const CV *v, int p)
 {
     switch (p) {
     case 0: return v->z - NEAR_Z;
-    case 1: return v->z * GUARD - v->x;
-    case 2: return v->z * GUARD + v->x;
-    case 3: return v->z * GUARD - v->y;
-    default: return v->z * GUARD + v->y;
+    case 1: return v->z * GUARD_X - v->x;
+    case 2: return v->z * GUARD_X + v->x;
+    case 3: return v->z * GUARD_Y - v->y;
+    default: return v->z * GUARD_Y + v->y;
     }
 }
 
@@ -894,7 +910,7 @@ static void draw_pickups(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t
 void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
 {
     int i, k;
-    u32 vis = visible_mask(view, pr);
+    u32 seen = visible_mask(view, pr), vis = all_rooms ? 0xffffffffu : seen;
     for (i = 0; i < 8; i++) pulse_now[i] = pulse(i, t);
     screen_du = ((t / SCREEN_FRAME_TICKS) & 1) * 64;
 #ifdef PSX_GTE
@@ -923,7 +939,7 @@ void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
     for (i = 0; i < LAB_NSPRITES; i++) {
         const LabSprite *s = &lab_sprites[i];
         int pm = pulse(s->anim, t);
-        if (!(vis & (1u << s->area))) continue;
+        if (!(seen & (1u << s->area))) continue;
         billboard(fb, view, pr, s->x, s->y, s->z, s->size, 15, s->r * pm >> 13, s->g * pm >> 13, s->b * pm >> 13, -4);
     }
     /* energy rings rising through the tanks */

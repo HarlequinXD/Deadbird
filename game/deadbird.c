@@ -125,6 +125,7 @@ void game_debug_setup_duel(int i, s32 x, s32 z, s32 dist, int ang)
         for (k = 0; k < enemy_count(); k++) if (k != i) { Enemy *o = enemy_get(k); o->state = E_DEAD; o->tgt.alive = 0; }
     }
 }
+s32 game_debug_player_x(void) { return pl.x; }
 int game_debug_enemy_state(int i) { Enemy *e = enemy_get(i); return e ? e->state * 1000 + e->tgt.hp : -1; }
 int game_debug_fatality(void) { return cine.active ? (cine.vt16 >> 4) : (fatal_ready >= 0 ? -2 : -1); }
 int game_debug_player_hp(void) { return php; }
@@ -580,6 +581,12 @@ static void simulate(u32 pad)
         int i, ref = mmag > 300 ? myaw : pl.yaw, best_i = -1;
         s32 best = 0x7fffffff;
         const Enemy *le = lock_ei >= 0 ? enemy_get(lock_ei) : 0;
+        if (le) {
+            VECTOR ca, cb;
+            ca.vx = pl.x; ca.vy = pl.y - 1200; ca.vz = pl.z;
+            cb.vx = le->x; cb.vy = le->y - 1200; cb.vz = le->z;
+            if (level_clip_segment(&ca, &cb, 0) < 4000) le = 0, lock_ei = -1;
+        }
         if (le && (!pl.atk || le->state == E_DEAD || le->state == E_CUT || le->state == E_FATAL ||
                    iabs(le->x - pl.x) > LOCK_KEEP || iabs(le->z - pl.z) > LOCK_KEEP)) le = 0, lock_ei = -1;
         if (!le) {
@@ -595,6 +602,12 @@ static void simulate(u32 pad)
                 diff = ((a - ref + 2048) & 4095) - 2048;
                 if (diff < 0) diff = -diff;
                 if (diff > 1600 && d > 1800) continue;          /* close by, any direction will do */
+                {   /* never through a wall or a shut door */
+                    VECTOR ca, cb;
+                    ca.vx = pl.x; ca.vy = pl.y - 1200; ca.vz = pl.z;
+                    cb.vx = e->x; cb.vy = e->y - 1200; cb.vz = e->z;
+                    if (level_clip_segment(&ca, &cb, 0) < 4000) continue;
+                }
                 if (d + diff * 2 < best) { best = d + diff * 2; best_i = i; }
             }
             if (best_i >= 0 && (pad & ~pl.prev & BTN_ATTACK)) lock_ei = best_i;    /* the swing commits to him */

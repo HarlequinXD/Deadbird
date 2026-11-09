@@ -395,8 +395,8 @@ prop box -6,-14 -5.3,-12 0 3.4 DARK_METAL HAZARD cell 0.9
 
 # atrium
 prop tank 0,-2
-prop console -8,-8 n graph
-prop console 8,-8 n vitals
+prop console -4,-9.2 n graph
+prop console 4,-9.2 n vitals
 prop pillar -7,7 14
 prop pillar 7,7 14
 prop pillar -7,-7 14

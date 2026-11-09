@@ -827,23 +827,52 @@ static void wall_part(unsigned spec, V3 a, V3 b, float Ba, float Bb, float Ta, f
                 for (int i = 0; i < nu; i++) {
                     float u0 = t0 + (t1 - t0) * i / nu, u1 = t0 + (t1 - t0) * (i + 1) / nu;
                     float v0 = h0 + (h1 - h0) * j / nv, v1 = h0 + (h1 - h0) * (j + 1) / nv;
-                    float tt[2] = { u0, u1 }, hh[4];
-                    for (int e = 0; e < 2; e++) {
-                        float w = tt[e] / L, B = Bb + (Ba - Bb) * w, Tt = Tb + (Ta - Tb) * w;
-                        hh[e * 2] = gclamp(v1, B, Tt); hh[e * 2 + 1] = gclamp(v0, B, Tt);
+                    /* the piece: rectangle [u0,u1] x [v0,v1] in (t, height), clipped exactly to
+                       the part's bottom line B(t) and top line T(t) (sloped floors and ceilings) */
+                    float pg[2][12][2]; int pn = 4, cur = 0;
+                    pg[0][0][0] = u0; pg[0][0][1] = v1; pg[0][1][0] = u1; pg[0][1][1] = v1;
+                    pg[0][2][0] = u1; pg[0][2][1] = v0; pg[0][3][0] = u0; pg[0][3][1] = v0;
+                    for (int e = 0; e < 2 && pn >= 3; e++) {           /* e 0: h >= B(t), 1: h <= T(t) */
+                        float (*src)[2] = pg[cur], (*dst)[2] = pg[cur ^ 1];
+                        int k = 0;
+                        for (int q = 0; q < pn && k < 10; q++) {
+                            float *A = src[q], *Bq = src[(q + 1) % pn];
+                            float la = (A[0] / L), lb = (Bq[0] / L);
+                            float da = e ? (Tb + (Ta - Tb) * la) - A[1] : A[1] - (Bb + (Ba - Bb) * la);
+                            float db = e ? (Tb + (Ta - Tb) * lb) - Bq[1] : Bq[1] - (Bb + (Ba - Bb) * lb);
+                            if (da >= 0) { dst[k][0] = A[0]; dst[k][1] = A[1]; k++; }
+                            if ((da >= 0) != (db >= 0)) { float tq = da / (da - db); dst[k][0] = A[0] + (Bq[0] - A[0]) * tq; dst[k][1] = A[1] + (Bq[1] - A[1]) * tq; k++; }
+                        }
+                        pn = k; cur ^= 1;
                     }
-                    if (hh[0] - hh[1] < 1 && hh[2] - hh[3] < 1) continue;
-                    V3 p[4]; float uv[4][2];
-                    for (int c = 0; c < 4; c++) {
-                        int e = c & 1;                      /* 0 left (u0), 1 right (u1) */
-                        float tpos = tt[e], h = c < 2 ? hh[e * 2] : hh[e * 2 + 1];
+                    if (pn < 3) continue;
+                    float area = 0;
+                    for (int q = 0; q < pn; q++) area += pg[cur][q][0] * pg[cur][(q + 1) % pn][1] - pg[cur][(q + 1) % pn][0] * pg[cur][q][1];
+                    if (gabs(area) < 2000) continue;
+                    V3 pp[12]; float uvp[12][2];
+                    for (int q = 0; q < pn; q++) {
+                        float tpos = pg[cur][q][0], h = pg[cur][q][1];
                         V3 g = add(b, mul(sub(a, b), tpos / L));
-                        p[c] = v3(g.x, -h, g.z);
-                        uv[c][0] = (tpos - cs) / T * 63;
-                        uv[c][1] = batop[bi] ? (anc - h) / T * 63 : 63 - (h - anc) / T * 63;
+                        pp[q] = v3(g.x, -h, g.z);
+                        uvp[q][0] = (tpos - cs) / T * 63;
+                        uvp[q][1] = batop[bi] ? (anc - h) / T * 63 : 63 - (h - anc) / T * 63;
                     }
-                    GF *f = emit_face(p, uv, 4, tile, 0, nd);
-                    f->base = -(Fb + (Fa - Fb) * ((u0 + u1) / 2 / L));
+                    GF *f;
+                    if (pn == 4 && gabs(gabs(area) / 2 - (u1 - u0) * (v1 - v0)) < 1) {
+                        /* the whole rectangle: one quad, Z order (top-left, top-right, bottom-left, bottom-right) */
+                        V3 p[4] = { pp[0], pp[1], pp[3], pp[2] };
+                        float uv[4][2] = { { uvp[0][0], uvp[0][1] }, { uvp[1][0], uvp[1][1] }, { uvp[3][0], uvp[3][1] }, { uvp[2][0], uvp[2][1] } };
+                        f = emit_face(p, uv, 4, tile, 0, nd);
+                        f->base = -(Fb + (Fa - Fb) * ((u0 + u1) / 2 / L));
+                        continue;
+                    }
+                    for (int q = 1; q + 1 < pn; q++) {                 /* a cut piece: a fan of triangles */
+                        V3 p[3] = { pp[0], pp[q], pp[q + 1] };
+                        float uv[3][2] = { { uvp[0][0], uvp[0][1] }, { uvp[q][0], uvp[q][1] }, { uvp[q + 1][0], uvp[q + 1][1] } };
+                        f = emit_face(p, uv, 3, tile, 0, nd);
+                        f->base = -(Fb + (Fa - Fb) * ((u0 + u1) / 2 / L));
+                    }
+                    (void)f;
                 }
         }
     }

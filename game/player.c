@@ -264,19 +264,29 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         accelerate(p, wx, wz, wish, AIR_CAP, AIR_ACCEL);
     }
 
-    /* move, then slide along walls (a few passes so corners don't jitter) */
-    nx = p->x16 + p->vx; nz = p->z16 + p->vz;
+    /* move, then slide along walls (a few passes so corners don't jitter); a fast move (the combo's
+       slide, a fall) goes in steps shorter than her radius so it can't pass through a wall or a
+       shut door */
+    nx = p->x16; nz = p->z16;
     p->pushing = 0;
-    for (i = 0; i < 3; i++) {
-        s32 cx, cz;
-        ox = nx >> 4; oz = nz >> 4; cx = ox; cz = oz;
-        if (!level_collide(&cx, &cz, p->y, RADIUS, &cnx, &cnz)) break;
-        nx += (cx - ox) * SUB; nz += (cz - oz) * SUB;
-        {
-            s32 into = -((p->vx * cnx + p->vz * cnz) >> 12);
-            if (into > 0) { p->vx += cnx * into >> 12; p->vz += cnz * into >> 12; }   /* slide along it */
+    {
+        s32 ax = p->vx < 0 ? -p->vx : p->vx, az = p->vz < 0 ? -p->vz : p->vz, big = (ax > az ? ax : az) >> 4;
+        int steps = 1 + (int)(big / (RADIUS / 2)), st;
+        if (steps > 8) steps = 8;
+        for (st = 0; st < steps; st++) {
+            nx += p->vx / steps; nz += p->vz / steps;
+            for (i = 0; i < 3; i++) {
+                s32 cx, cz;
+                ox = nx >> 4; oz = nz >> 4; cx = ox; cz = oz;
+                if (!level_collide(&cx, &cz, p->y, RADIUS, &cnx, &cnz)) break;
+                nx += (cx - ox) * SUB; nz += (cz - oz) * SUB;
+                {
+                    s32 into = -((p->vx * cnx + p->vz * cnz) >> 12);
+                    if (into > 0) { p->vx += cnx * into >> 12; p->vz += cnz * into >> 12; }   /* slide along it */
+                }
+                p->pushing = 1;                           /* touching a wall this frame */
+            }
         }
-        p->pushing = 1;                                   /* touching a wall this frame */
     }
     {   /* wedged between two things (a gap narrower than she is): don't move this frame */
         s32 cx = nx >> 4, cz = nz >> 4;

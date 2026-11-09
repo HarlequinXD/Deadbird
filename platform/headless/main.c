@@ -223,6 +223,15 @@ int main(int argc, char **argv)
                 if (st / 1000 != E_DAZED && st / 1000 != E_DEAD) { printf("FAIL: a full combo didn't put him down\n"); return 1; }
             }
         }
+        {   /* a trooper behind the shut cyan door: no lock through it, no sliding through it */
+            int q;
+            run(0, 90);
+            game_debug_setup_duel(5, -8 * 1024 - 512, 2560, 4600, -1024);     /* her by the door, him in containment */
+            for (q = 0; q < 110; q++) run((q == 0 || q == 14 || q == 28) ? BTN_ATTACK : 0, 1);
+            st = game_debug_enemy_state(5);
+            printf("through the shut door: her x %d (door at -10240), trooper hp %d\n", (int)game_debug_player_x(), st % 1000);
+            if (game_debug_player_x() < -10240 + 150 || st % 1000 != 120) { printf("FAIL: she reached him through the shut door\n"); return 1; }
+        }
         if (game_debug_goto_exit()) {                     /* the ending: the reactor, then the score */
             static const int at[] = { 10, 40, 70, 86, 96, 110, 130, 180 };
             int j = 0, f;

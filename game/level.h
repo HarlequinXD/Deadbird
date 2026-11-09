@@ -85,5 +85,6 @@ int  level_secrets(int *found);                 /* secret shards: how many, *fou
 const LabThing *level_thing(int i);
 /* test hook: an endless flat floor with nothing on it */
 void level_debug_flat(int on);
+void level_debug_all_rooms(int on);           /* test hook: draw every room (no portal visibility) */
 
 #endif

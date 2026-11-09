@@ -10,7 +10,7 @@ deadbird_headless: $(SRC) $(wildcard $(ROOT)/engine/*.h) $(wildcard $(ROOT)/game
 	$(CC) $(CFLAGS) $(INC) $(SRC) -o $@
 
 clean:
-	rm -f deadbird_headless gaittest stresstest *.bmp
+	rm -f deadbird_headless gaittest stresstest vistest *.bmp
 
 
 # side-on walk/run contact sheet driven by the real locomotion code
@@ -39,3 +39,8 @@ COMBAT_SRC := combattest.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/game/player.c 
               $(ROOT)/game/fkclips.c $(ROOT)/game/level.c $(ROOT)/game/combat.c $(ROOT)/game/assets.c $(GEN)
 combattest: $(COMBAT_SRC) $(wildcard $(ROOT)/game/*.h)
 	$(CC) $(CFLAGS) $(INC) $(COMBAT_SRC) -o $@
+
+# the portal visibility along the route vs drawing every room: fails on wrongly hidden geometry
+VIS_SRC := vistest.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/game/level.c $(GEN)
+vistest: $(VIS_SRC) $(wildcard $(ROOT)/game/*.h) $(wildcard $(ROOT)/gen/*.h)
+	$(CC) $(CFLAGS) $(INC) $(VIS_SRC) -o $@
