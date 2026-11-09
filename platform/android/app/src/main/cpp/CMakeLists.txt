@@ -9,11 +9,14 @@ target_include_directories(native_app_glue PUBLIC ${ANDROID_NDK}/sources/android
 
 file(GLOB ENGINE_SRC ${ROOT}/engine/*.c)
 file(GLOB GAME_SRC ${ROOT}/game/*.c)
+file(GLOB GEN_SRC ${ROOT}/gen/*.c)
 
-add_library(deadbird SHARED android_main.c ${ENGINE_SRC} ${GAME_SRC})
-target_include_directories(deadbird PRIVATE ${ROOT}/engine ${ROOT}/game ${ROOT}/assets)
+add_library(deadbird SHARED android_main.c ${ENGINE_SRC} ${GAME_SRC} ${GEN_SRC})
+target_include_directories(deadbird PRIVATE ${ROOT}/engine ${ROOT}/game ${ROOT}/gen ${ROOT}/assets)
 set_target_properties(deadbird PROPERTIES C_STANDARD 99)
-target_compile_options(deadbird PRIVATE -O2 -Wall)
+# built for size: the level, sounds and textures are generated at start-up (gen/)
+target_compile_options(deadbird PRIVATE -Os -Wall -ffunction-sections -fdata-sections -fno-asynchronous-unwind-tables -fvisibility=hidden)
+target_compile_options(native_app_glue PRIVATE -Os -ffunction-sections -fdata-sections)
 # keep the NativeActivity entry point from the static glue library
-set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -u ANativeActivity_onCreate")
-target_link_libraries(deadbird native_app_glue android EGL GLESv2 OpenSLES log m)
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -u ANativeActivity_onCreate -Wl,--gc-sections -Wl,--strip-all")
+target_link_libraries(deadbird native_app_glue android EGL GLESv2 OpenSLES log)

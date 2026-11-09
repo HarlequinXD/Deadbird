@@ -1,8 +1,8 @@
 #include "level.h"
-#include "tim.h"
 #include "ik.h"
 #include "lab_data.h"
 #include "gte_hw.h"
+#include "vram.h"
 
 /* face flags (tools/build_lab.py) */
 #define F_QUAD   1
@@ -12,8 +12,8 @@
 #define F_PULSE  16
 #define F_FLOOR  32
 #define F_EMIT   64
-#define F_ANIMUV 128          /* animated screen: U steps along a 4-frame strip */
-#define SCREEN_FRAME_TICKS 8
+#define F_ANIMUV 128          /* animated screen: U steps along a 2-frame strip */
+#define SCREEN_FRAME_TICKS 12
 
 #ifndef FOG_FAR
 #define FOG_NEAR 8000
@@ -23,9 +23,6 @@
 #define GUARD    3                 /* guard band: x,y within +-3z keeps screen coords inside 11 bits */
 #define MAXCV    1400
 
-static TimInfo page_tim[LAB_NPAGES];
-static const unsigned char *const page_data[LAB_NPAGES] = { lab_tim0, lab_tim1, lab_tim2, lab_tim3, lab_tim4, lab_tim5 };
-static const int page_size[LAB_NPAGES] = { LAB_TIM0_SIZE, LAB_TIM1_SIZE, LAB_TIM2_SIZE, LAB_TIM3_SIZE, LAB_TIM4_SIZE, LAB_TIM5_SIZE };
 static int uploaded, polys_drawn, frame_t, flat;
 int lvl_st_verts, lvl_st_faces, lvl_st_clip, lvl_st_chunks;
 
@@ -34,26 +31,26 @@ void level_debug_flat(int on) { flat = on; }
 void level_init(void)
 {
     if (!uploaded) {
-        int k;
-        for (k = 0; k < LAB_NPAGES; k++) tim_upload(page_data[k], page_size[k], &page_tim[k]);
+        gen_lab();
+        lab_upload_textures();
         uploaded = 1;
     }
     frame_t = 0;
 }
 
 void level_reload_textures(void) { uploaded = 0; level_init(); }
-void level_spawn(s32 *x, s32 *z, int *yaw) { *x = LAB_SPAWN_X; *z = LAB_SPAWN_Z; *yaw = LAB_SPAWN_YAW; }
+void level_spawn(s32 *x, s32 *z, int *yaw) { gen_lab(); *x = LAB_SPAWN_X; *z = LAB_SPAWN_Z; *yaw = LAB_SPAWN_YAW; }
 void level_tank(VECTOR *c) { c->vx = LAB_TANK_X; c->vy = LAB_TANK_Y; c->vz = LAB_TANK_Z; }
 int  level_polys_drawn(void) { return polys_drawn; }
 int  level_data_bytes(void)
 {
-    return (int)(sizeof(lab_verts) + sizeof(lab_faces) + sizeof(lab_chunks) + sizeof(lab_boxes) + sizeof(lab_sprites)
-                 + sizeof(lab_fans) + sizeof(lab_rings) + sizeof(lab_pods) + sizeof(lab_ceil) + sizeof(lab_areas));
+    return (int)(sizeof(LabVert) * (size_t)LAB_NVERTS + sizeof(LabFace) * (size_t)LAB_NFACES + sizeof(LabChunk) * (size_t)LAB_NCHUNKS
+                 + sizeof(LabBox) * (size_t)LAB_NBOXES + sizeof(LabData));
 }
-int  level_area_count(void) { return LAB_NAREAS; }
+int  level_area_count(void) { gen_lab(); return LAB_NAREAS; }   /* (tools may ask before level_init) */
 const LabArea *level_area(int i) { return &lab_areas[i]; }
-int  level_view_count(void) { return LAB_NVIEWS; }
-int  level_route_count(void) { return LAB_NROUTE; }
+int  level_view_count(void) { gen_lab(); return LAB_NVIEWS; }
+int  level_route_count(void) { gen_lab(); return LAB_NROUTE; }
 void level_route_point(int i, s32 *x, s32 *z) { *x = lab_route[i][0]; *z = lab_route[i][1]; }
 const LabView *level_view(int i) { return &lab_views[i]; }
 int  level_area_at(s32 x, s32 z)
@@ -332,8 +329,11 @@ static void emit(FrameBuf *fb, const LabFace *f, const s16 *x, const s16 *y, con
     if (!p) return;
     p->code = PF_TEX | PF_GOURAUD | (n == 4 ? PF_QUAD : 0);
     if (f->flags & (F_ADD | F_HALF)) p->code |= PF_SEMI;
-    p->tpage = get_tpage(TP_8BIT, (f->flags & F_ADD) ? SEMI_ADD : SEMI_HALF, lab_page_xy[f->page][0], lab_page_xy[f->page][1]);
-    p->clut = get_clut(0, 485 + f->page);
+    {   /* each 64x64 tile has its own CLUT; animated screens use the current frame's tile */
+        int du = (f->flags & F_ANIMUV) ? screen_du : 0, tile = (((f->uv[0] + du) & 255) >> 6) + (f->uv[1] >> 6) * 4;
+        p->tpage = get_tpage(TP_4BIT, (f->flags & F_ADD) ? SEMI_ADD : SEMI_HALF, LAB_PAGE_X(f->page), LAB_PAGE_Y(f->page));
+        p->clut = CLUT_ID(CL_LAB(f->page, tile));
+    }
     for (k = 0; k < n; k++) {
         p->v[k].x = x[k]; p->v[k].y = y[k]; p->v[k].u = u[k]; p->v[k].v = v[k];
         p->v[k].r = (u8)(r[k] > 255 ? 255 : r[k]); p->v[k].g = (u8)(g[k] > 255 ? 255 : g[k]); p->v[k].b = (u8)(b[k] > 255 ? 255 : b[k]);
@@ -469,8 +469,8 @@ static void billboard(FrameBuf *fb, const MATRIX *view, const PROJ *pr, s32 wx, 
     if (!p) return;
     fg = fog(c.vz);
     p->code = PF_TEX | PF_QUAD | PF_SEMI;
-    p->tpage = get_tpage(TP_8BIT, SEMI_ADD, 384 + 128, 0);
-    p->clut = get_clut(0, 486);
+    p->tpage = get_tpage(TP_4BIT, SEMI_ADD, LAB_PAGE_X(1), LAB_PAGE_Y(1));
+    p->clut = CLUT_ID(CL_LAB(1, tile));
     for (k = 0; k < 4; k++) {
         p->v[k].x = (s16)(x + ((k & 1) ? hs : -hs));
         p->v[k].y = (s16)(y + ((k & 2) ? hs : -hs));
@@ -501,8 +501,8 @@ static void world_quad(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const S
     if (!p) return;
     fg = fog(z);
     p->code = PF_TEX | PF_QUAD | PF_GOURAUD | (add ? PF_SEMI : 0);
-    p->tpage = get_tpage(TP_8BIT, SEMI_ADD, 384 + 128, 0);
-    p->clut = get_clut(0, 486);
+    p->tpage = get_tpage(TP_4BIT, SEMI_ADD, LAB_PAGE_X(1), LAB_PAGE_Y(1));
+    p->clut = CLUT_ID(CL_LAB(1, tile));
     for (k = 0; k < 4; k++) {
         p->v[k].x = (s16)(pr->ofx + c[k].vx * pr->h / c[k].vz);
         p->v[k].y = (s16)(pr->ofy + c[k].vy * pr->h / c[k].vz);
@@ -519,7 +519,7 @@ void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
     int i, k;
     u32 vis = visible_mask(view);
     for (i = 0; i < 8; i++) pulse_now[i] = pulse(i, t);
-    screen_du = ((t / SCREEN_FRAME_TICKS) & 3) * 64;
+    screen_du = ((t / SCREEN_FRAME_TICKS) & 1) * 64;
 #ifdef PSX_GTE
     gte_load_matrix(view);
     gte_load_proj(pr);

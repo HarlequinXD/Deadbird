@@ -8,7 +8,8 @@
 #include <stdlib.h>
 #include "gte.h"
 #include "model.h"
-#include "demon_mesh.h"       /* (first: with the vertex data) */
+#include "demon_mesh.h"
+#include "assets.h"
 #include "player.h"
 #include "level.h"
 #include "combat.h"
@@ -83,8 +84,8 @@ int main(void)
     dummy_ptr = &dummy;
     int c[5], fail = 0, a;
     const LabArea *ar;
-    m.verts = (const DVERT *)demon_verts; m.nverts = DEMON_NVERTS;
-    m.prims = (const DPRIM *)demon_prims; m.nprims = DEMON_NPRIMS;
+    assets_init();
+    m = asset_demon;
     m.bones = (const DBONE *)demon_bones; m.nbones = DEMON_NBONES;
     player_init(&m);
     a = area_named("Turbine Hall");

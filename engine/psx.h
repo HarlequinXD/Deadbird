@@ -26,8 +26,8 @@ typedef uint32_t u32;
 #endif
 
 /* PS1 memory model */
-#define VRAM_W      1024            /* 16-bit pixels */
-#define VRAM_H      512             /* 1024 x 512 x 2 bytes = 1 MB */
+#define VRAM_W      512             /* 16-bit pixels (game/vram.h maps it) */
+#define VRAM_H      512             /* 512 x 512 x 2 bytes = 512 KB: half the PS1's */
 #define RAM_BUDGET  (2 * 1024 * 1024)
 
 /* Display: 320x240, double buffered inside VRAM like a real PS1 */

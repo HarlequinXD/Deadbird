@@ -21,8 +21,8 @@ The code already respects the console's limits:
 |---|---|---|
 | `gte.c` | C fixed point | same C, or swap in GTE macros (`gte_rtps`, `gte_nclip`) for speed |
 | `gpu_soft.c` | software rasteriser into emulated VRAM | **removed**: replaced by `gpu_psx.c`, which converts `POLY` into libgpu packets (`POLY_FT3`/`POLY_FT4`/`POLY_G4`) and calls `DrawOTag` |
-| `tim.c` | copies into emulated VRAM | `LoadImage` into real VRAM (same coordinates) |
-| VRAM layout | framebuffers (0,0)/(0,240), demon texture (640,0), CLUT (0,480) | identical |
+| `gen/`, `game/assets.c` | generate / unpack the level, textures and sounds at start-up | **precomputed** on the build machine by `tools/gen_dump.c` (the PS1 has no FPU) and linked in: `LoadImage` of the same VRAM blocks, SPU ADPCM sounds |
+| VRAM layout | 512 KB used (`game/vram.h`): framebuffers (0,0)/(0,240), 4bpp texture pages at x 320-511, CLUTs and font under the second framebuffer | identical |
 | `platform/android` | NativeActivity, GLES2, touch | `platform/psx/main.c`: `ResetGraph`, `PutDispEnv`, pad via `InitPAD`, `VSync` |
 
 `game/` and `engine/model.c` stay unchanged: they only build primitives and link them into the OT.

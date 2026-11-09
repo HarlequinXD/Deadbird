@@ -1,12 +1,10 @@
 #include "hud.h"
 #include "gte.h"
-#include "tim.h"
-#include "font_tim.h"
+#include "assets.h"
 
-static TimInfo font;
 static const char FONT[] = FONT_CHARS;
 
-void hud_init(void) { tim_upload(font_tim, FONT_TIM_SIZE, &font); }
+void hud_init(void) { assets_init(); }
 
 static int glyph(char c)
 {
@@ -21,11 +19,11 @@ int text_width(const char *s, int scale) { return (int)strlen(s) * 7 * scale; }
 static void put_char(FrameBuf *fb, int g, int x, int y, int scale, int r, int gg, int b, int ot)
 {
     POLY *p = prim_alloc(fb);
-    int u = (g % 16) * 8, v = (g / 16) * 10, k;
+    int u = (g % 16) * 8, v = FONT_V0 + (g / 16) * 10, k;
     if (!p) return;
     memset(p, 0, sizeof(*p));
     p->code = PF_TEX | PF_QUAD;
-    p->tpage = font.tpage; p->clut = font.clut;
+    p->tpage = asset_font_tpage; p->clut = asset_font_clut;
     p->v[0].x = (s16)x;             p->v[0].y = (s16)y;             p->v[0].u = (u8)u;       p->v[0].v = (u8)v;
     p->v[1].x = (s16)(x + 8 * scale); p->v[1].y = (s16)y;             p->v[1].u = (u8)(u + 8); p->v[1].v = (u8)v;
     p->v[2].x = (s16)x;             p->v[2].y = (s16)(y + 10 * scale); p->v[2].u = (u8)u;       p->v[2].v = (u8)(v + 10);

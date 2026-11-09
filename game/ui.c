@@ -1,19 +1,10 @@
 #include "ui.h"
 #include "gte.h"
-#include "tim.h"
 #include "hud.h"
-#include "ui_tim.h"
-#include "titlebg_tim.h"
+#include "assets.h"
 
-static TimInfo atlas, bg_a, bg_b;
-
-void ui_init(void) { tim_upload(ui_tim, UI_TIM_SIZE, &atlas); }
-
-void ui_title_bg_upload(void)
-{
-    tim_upload(titlebg_a, TITLEBG_A_SIZE, &bg_a);
-    tim_upload(titlebg_b, TITLEBG_B_SIZE, &bg_b);
-}
+void ui_init(void) { assets_init(); }
+void ui_title_bg_upload(void) { assets_title_upload(); }
 
 static POLY *tex_quad(FrameBuf *fb, u16 tpage, u16 clut, int add, int ot)
 {
@@ -30,6 +21,11 @@ static POLY *tex_quad(FrameBuf *fb, u16 tpage, u16 clut, int add, int ot)
 static void corners(POLY *p, int x0, int y0, int x1, int y1, int u0, int v0, int u1, int v1, int r, int g, int b)
 {
     int k;
+    /* a cell that ends at the page edge would wrap to 0: stop at texel 255 (<1 texel short) */
+    if (u0 > 255) u0 = 255;
+    if (u1 > 255) u1 = 255;
+    if (v0 > 255) v0 = 255;
+    if (v1 > 255) v1 = 255;
     p->v[0].x = (s16)x0; p->v[0].y = (s16)y0; p->v[0].u = (u8)u0; p->v[0].v = (u8)v0;
     p->v[1].x = (s16)x1; p->v[1].y = (s16)y0; p->v[1].u = (u8)u1; p->v[1].v = (u8)v0;
     p->v[2].x = (s16)x0; p->v[2].y = (s16)y1; p->v[2].u = (u8)u0; p->v[2].v = (u8)v1;
@@ -39,21 +35,23 @@ static void corners(POLY *p, int x0, int y0, int x1, int y1, int u0, int v0, int
 
 void ui_title_bg(FrameBuf *fb, int bright, int ot)
 {
-    /* columns 0-191 live in page (384,0), 192-319 in page (512,0): every quad keeps U < 256 */
-    static const int xs[4] = { 0, 128, TITLEBG_SPLIT, 320 };
-    int i;
-    for (i = 0; i < 3; i++) {
-        POLY *p = tex_quad(fb, i < 2 ? bg_a.tpage : bg_b.tpage, bg_a.clut, 0, ot);
-        int u0 = i < 2 ? xs[i] : 0, u1 = u0 + (xs[i + 1] - xs[i]);
+    int tx, ty;         /* 5 x 4 tiles of 64x60, each with its own CLUT */
+    for (ty = 0; ty < 4; ty++) for (tx = 0; tx < 5; tx++) {
+        POLY *p = tex_quad(fb, assets_title_tpage(tx), assets_title_clut(tx, ty), 0, ot);
+        int u0 = (tx & 3) * 64;
         if (!p) return;
-        corners(p, xs[i], 0, xs[i + 1], 240, u0, 0, u1, 240, bright, bright, bright);
+        corners(p, tx * 64, ty * 60, tx * 64 + 64, ty * 60 + 60, u0, ty * 60, u0 + 64, ty * 60 + 60, bright, bright, bright);
     }
 }
 
 void ui_sprite(FrameBuf *fb, int x, int y, int w, int h, int u, int v, int uw, int vh, int r, int g, int b, int add, int flip, int ot)
 {
-    POLY *p = tex_quad(fb, atlas.tpage, atlas.clut, add, ot);
+    u16 tp, cl; int du, dv;
+    POLY *p;
+    if (!ui_cell(u, v, &tp, &cl, &du, &dv)) return;
+    p = tex_quad(fb, tp, cl, add, ot);
     if (!p) return;
+    u += du; v += dv;
     if (flip) corners(p, x, y, x + w, y + h, u + uw, v, u, v + vh, r, g, b);
     else corners(p, x, y, x + w, y + h, u, v, u + uw, v + vh, r, g, b);
 }
@@ -61,10 +59,14 @@ void ui_sprite(FrameBuf *fb, int x, int y, int w, int h, int u, int v, int uw, i
 void ui_sprite_rot(FrameBuf *fb, int cx, int cy, int size, int u, int v, int uw, int vh, int ang, int r, int g, int b, int add, int ot)
 {
     static const int sx[4] = { -1, 1, -1, 1 }, sy[4] = { -1, -1, 1, 1 };
-    POLY *p = tex_quad(fb, atlas.tpage, atlas.clut, add, ot);
+    u16 tp, cl; int du, dv;
+    POLY *p;
     s32 c = icos(ang), s = isin(ang), h = size / 2;
     int k;
+    if (!ui_cell(u, v, &tp, &cl, &du, &dv)) return;
+    p = tex_quad(fb, tp, cl, add, ot);
     if (!p) return;
+    u += du; v += dv;
     corners(p, 0, 0, 0, 0, u, v, u + uw, v + vh, r, g, b);
     for (k = 0; k < 4; k++) {
         s32 lx = sx[k] * h, ly = sy[k] * h;
@@ -96,7 +98,8 @@ void ui_button(FrameBuf *fb, int cx, int cy, int r, int icon, int lit, int t)
         int g = 110 + (isin(t * 200) * 30 >> 12);
         ui_sprite(fb, cx - s, cy - s, s * 2, s * 2, 32, 144, 32, 32, g, g / 2, g / 3, 1, 0, 2);
     }
-    ui_sprite(fb, cx - s / 2, cy - s / 2 - 2, s, s, lit ? 48 : 0, 64, 48, 48, b, b, b, 0, 0, 1);
+    if (lit) ui_sprite(fb, cx - s / 2, cy - s / 2 - 2, s, s, 0, 64, 48, 48, 255, 150, 90, 0, 0, 1);      /* burning */
+    else ui_sprite(fb, cx - s / 2, cy - s / 2 - 2, s, s, 0, 64, 48, 48, b, b, b, 0, 0, 1);
     ui_sprite(fb, cx - is / 2, cy - is / 2, is, is, iu[icon], iv[icon], 32, 32, lit ? 128 : 100, lit ? 128 : 92, lit ? 128 : 88, 0, 0, 0);
 }
 

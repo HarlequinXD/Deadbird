@@ -6,7 +6,6 @@
 #include "deadbird.h"
 #include "gte.h"
 #include "gpu.h"
-#include "tim.h"
 #include "model.h"
 #include "player.h"
 #include "level.h"
@@ -21,16 +20,14 @@
 #include "title.h"
 #include "gte.h"
 #undef DEMON_MESH_NO_DATA
-#include "demon_tim.h"
 #include "demon_mesh.h"
 #include "chainsaw_mesh.h"
-#include "chainsaw_tim.h"
+#include "assets.h"
 
 
 static FrameBuf frames[2];
 static int cur, disp_x, disp_y;
 static Model demon, saw_body, saw_chain[SAW_CHAIN_FRAMES];
-static TimInfo tim, saw_tim;
 static int chain_ph;                   /* chainsaw chain: strip frame = chain_ph >> 4 */
 static int land_shake_t = 99, land_shake_amp;   /* camera jolt: landings and blade hits */
 static Attack saw_attack;                 /* the chainsaw's live hitbox (combat.h) */
@@ -156,17 +153,12 @@ void game_init(void)
 {
     int b;
     gpu_init();
-    tim_upload(demon_tim, DEMON_TIM_SIZE, &tim);
-    demon.verts = (const DVERT *)demon_verts; demon.nverts = DEMON_NVERTS;
-    demon.prims = (const DPRIM *)demon_prims; demon.nprims = DEMON_NPRIMS;
+    assets_init();
+    demon = asset_demon;
     demon.bones = (const DBONE *)demon_bones; demon.nbones = DEMON_NBONES;
-    demon.tpage = tim.tpage; demon.clut = tim.clut;
     /* arm chainsaw: body + the chain as 4 one-bone models (one per strip frame), sharing vertices */
-    tim_upload(chainsaw_tim, CHAINSAW_TIM_SIZE, &saw_tim);
-    saw_body.verts = (const DVERT *)saw_verts; saw_body.nverts = SAW_NVERTS;
-    saw_body.prims = (const DPRIM *)saw_prims; saw_body.nprims = SAW_NPRIMS;
+    saw_body = asset_saw;
     saw_body.bones = (const DBONE *)saw_bones; saw_body.nbones = 1;
-    saw_body.tpage = saw_tim.tpage; saw_body.clut = saw_tim.clut;
     for (b = 0; b < SAW_CHAIN_FRAMES; b++) {
         saw_chain[b] = saw_body;
         saw_chain[b].bones = (const DBONE *)&saw_bones[1 + b];
@@ -782,8 +774,8 @@ void game_frame(u32 pad)
 
 int game_ram_used(void)
 {
-    return (int)(sizeof(frames) + sizeof(pl) + sizeof(demon_verts) + sizeof(demon_prims) + sizeof(demon_bones)
-                 + DEMON_TIM_SIZE);
+    return (int)(sizeof(frames) + sizeof(pl) + sizeof(DVERT) * (size_t)demon.nverts + sizeof(DPRIM) * (size_t)demon.nprims
+                 + sizeof(demon_bones));
 }
 
-PSX_STATIC_ASSERT(ram_budget, sizeof(frames) + sizeof(pl) + sizeof(demon_verts) + sizeof(demon_prims) + DEMON_TIM_SIZE < RAM_BUDGET);
+PSX_STATIC_ASSERT(ram_budget, sizeof(frames) + sizeof(pl) < RAM_BUDGET);
