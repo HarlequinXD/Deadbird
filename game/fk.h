@@ -17,6 +17,7 @@ enum {
     FK_RSD, FK_RSS, FK_REL,        /* right arm */
     FK_LHP, FK_LKN, FK_LAN, FK_LAB, /* left leg: hip (+ = forward), knee bend, ankle (+ = toe down), abduct (+ = out) */
     FK_RHP, FK_RKN, FK_RAN, FK_RAB, /* right leg */
+    FK_RFR,                        /* right forearm roll about its own axis (turns the chainsaw blade) */
     FK_COUNT
 };
 

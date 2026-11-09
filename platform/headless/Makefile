@@ -28,3 +28,7 @@ stresstest: $(STRESS_SRC) $(wildcard $(ROOT)/game/*.h)
 LABVIEW_SRC := labview.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/game/level.c
 labview: $(LABVIEW_SRC) $(ROOT)/game/lab_data.h
 	$(CC) $(CFLAGS) $(INC) $(LABVIEW_SRC) -o $@
+
+# solves the right-forearm roll that keeps the chainsaw's edge leading each combo swing
+rolltest: rolltest.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/game/fk.c $(ROOT)/game/fkclips.c
+	$(CC) $(CFLAGS) $(INC) rolltest.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/game/fk.c $(ROOT)/game/fkclips.c -o $@ -lm

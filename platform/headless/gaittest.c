@@ -14,6 +14,7 @@
 #include "chainsaw_mesh.h"
 #include "chainsaw_tim.h"
 #include <string.h>
+#include <stdlib.h>
 
 #define COLS 8
 #define CW 150
@@ -130,7 +131,7 @@ int main(int argc, char **argv)
                 if (pl.atk == stage) t = pl.atk_t; else if (stage > 1 && pl.atk == stage - 1) { player_update(&pl, BTN_ATTACK, 0, 0); player_pose(&pl, &m); }
                 else t++;
             }
-            shot(&m, 3 + k / 8, k % 8, 0);
+            shot(&m, 3 + k / 8, k % 8, getenv("BEHIND") != 0);
         }
         printf("combo: stage %d t %d\n", pl.atk, pl.atk_t);
     }

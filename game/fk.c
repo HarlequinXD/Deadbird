@@ -74,7 +74,12 @@ void fk_bones(const Model *m, const FKPose *p, MATRIX *pose, VECTOR *off)
     rot_yxz(&pose[DEMON_BONE_UPPER_ARM_L], 0, DEG(v[FK_LSS]), DEG(v[FK_LSD]));
     rot_yxz(&pose[DEMON_BONE_UPPER_ARM_R], 0, DEG(v[FK_RSS]), -DEG(v[FK_RSD]));
     mat_rot_y(&pose[DEMON_BONE_FOREARM_L], -DEG(v[FK_LEL]));
-    mat_rot_y(&pose[DEMON_BONE_FOREARM_R], DEG(v[FK_REL]));
+    {   /* right forearm: roll about its own length first, then the elbow bend */
+        MATRIX bend, roll;
+        mat_rot_y(&bend, DEG(v[FK_REL]));
+        mat_rot_x(&roll, DEG(v[FK_RFR]));
+        mat_mul(&bend, &roll, &pose[DEMON_BONE_FOREARM_R]);
+    }
 
     /* legs: hip pitch + abduction, knee bends the calf back, hoof stays level plus the ankle angle */
     rot_yxz(&pose[DEMON_BONE_THIGH_L], 0, DEG(v[FK_LHP]), -DEG(v[FK_LAB]));

@@ -6,7 +6,7 @@ import os
 
 CH = ["PY","PRX","PRY","PRZ","TRX","TRY","TRZ","HRX","HRY",
       "LSD","LSS","LEL","RSD","RSS","REL",
-      "LHP","LKN","LAN","LAB","RHP","RKN","RAN","RAB"]
+      "LHP","LKN","LAN","LAB","RHP","RKN","RAN","RAB","RFR"]
 
 def interp(curve, f, length):
     """curve: list of (frame, value) covering 0..length, looping"""
@@ -41,7 +41,7 @@ def oneshot(name, keys):
 
 STAND = dict(PY=0, PRX=0, PRY=0, PRZ=0, TRX=0, TRY=0, TRZ=0, HRX=0, HRY=0,
              LSD=74, LSS=4, LEL=16, RSD=74, RSS=4, REL=16,
-             LHP=3, LKN=6, LAN=0, LAB=5, RHP=3, RKN=6, RAN=0, RAB=5)
+             LHP=3, LKN=6, LAN=0, LAB=5, RHP=3, RKN=6, RAN=0, RAB=5, RFR=0)
 def pose(**kw):
     v = dict(STAND); v.update(kw); return v
 
@@ -116,32 +116,34 @@ land = oneshot("land", [
 
 # --- chainsaw combo (upper body; her legs brace in a lunge stance and slide, see player.c)
 # 1: horizontal slash right to left   2: backhand left to right   3: overhead slam
+# RFR rolls the forearm so the chain edge, not the flat of the bar, leads each cut
+# (values solved by platform/headless/rolltest.c from the swing paths)
 HOLD = dict(RSD=72, RSS=18, REL=36)
 def atk(name, keys):
     return oneshot(name, [(f, pose(**{**HOLD, **k})) for f, k in keys])
 
 atk1 = atk("atk1", [
-    (0,  dict()),
-    (4,  dict(TRY=-34, PRY=-22, PRZ=4, TRX=-2, HRY=10, RSD=80, RSS=25, REL=70, LSD=60, LSS=30, LEL=40)),
-    (9,  dict(TRY=36, PRY=28, PRZ=-5, TRX=-14, HRY=-10, RSD=88, RSS=95, REL=8, LSD=70, LSS=-20, LEL=30)),
-    (14, dict(TRY=42, PRY=30, PRZ=-5, TRX=-12, HRY=-12, RSD=92, RSS=110, REL=15, LSD=70, LSS=-24, LEL=30)),
-    (26, dict(TRY=20, PRY=8, TRX=-8, RSD=80, RSS=60, REL=30, LSD=70, LSS=0, LEL=24)),
+    (0,  dict(RFR=0)),
+    (4,  dict(TRY=-34, PRY=-22, PRZ=4, TRX=-2, HRY=10, RSD=80, RSS=25, REL=70, LSD=60, LSS=30, LEL=40, RFR=-100)),
+    (9,  dict(TRY=36, PRY=28, PRZ=-5, TRX=-14, HRY=-10, RSD=88, RSS=95, REL=8, LSD=70, LSS=-20, LEL=30, RFR=-58)),
+    (14, dict(TRY=42, PRY=30, PRZ=-5, TRX=-12, HRY=-12, RSD=92, RSS=110, REL=15, LSD=70, LSS=-24, LEL=30, RFR=-56)),
+    (26, dict(TRY=20, PRY=8, TRX=-8, RSD=80, RSS=60, REL=30, LSD=70, LSS=0, LEL=24, RFR=-56)),
 ])
 atk2 = atk("atk2", [
-    (0,  dict(TRY=20, PRY=8, TRX=-8, RSD=80, RSS=60, REL=30, LSD=70, LEL=24)),
-    (4,  dict(TRY=42, PRY=24, PRZ=-4, TRX=-6, HRY=-10, RSD=92, RSS=84, REL=55, LSD=64, LSS=-10, LEL=34)),
-    (9,  dict(TRY=-38, PRY=-28, PRZ=5, TRX=-14, HRY=12, RSD=82, RSS=86, REL=5, LSD=62, LSS=30, LEL=40)),
-    (14, dict(TRY=-46, PRY=-30, PRZ=5, TRX=-12, HRY=14, RSD=72, RSS=70, REL=10, LSD=62, LSS=34, LEL=40)),
-    (26, dict(TRY=-20, PRY=-8, TRX=-8, RSD=70, RSS=60, REL=30, LSD=70, LSS=10, LEL=24)),
+    (0,  dict(TRY=20, PRY=8, TRX=-8, RSD=80, RSS=60, REL=30, LSD=70, LEL=24, RFR=-34)),
+    (4,  dict(TRY=42, PRY=24, PRZ=-4, TRX=-6, HRY=-10, RSD=92, RSS=84, REL=55, LSD=64, LSS=-10, LEL=34, RFR=-64)),
+    (9,  dict(TRY=-38, PRY=-28, PRZ=5, TRX=-14, HRY=12, RSD=82, RSS=86, REL=5, LSD=62, LSS=30, LEL=40, RFR=-78)),
+    (14, dict(TRY=-46, PRY=-30, PRZ=5, TRX=-12, HRY=14, RSD=72, RSS=70, REL=10, LSD=62, LSS=34, LEL=40, RFR=-60)),
+    (26, dict(TRY=-20, PRY=-8, TRX=-8, RSD=70, RSS=60, REL=30, LSD=70, LSS=10, LEL=24, RFR=-76)),
 ])
 atk3 = atk("atk3", [
-    (0,  dict(TRY=-20, PRY=-8, TRX=-8, RSD=70, RSS=60, REL=30, LSD=70, LEL=24)),
-    (5,  dict(TRY=-14, TRX=-12, PRX=-8, HRX=6, RSD=80, RSS=110, REL=50, LSD=60, LSS=30, LEL=50)),
-    (9,  dict(TRY=-10, TRX=12, PRX=6, HRX=10, RSD=90, RSS=175, REL=40, LSD=50, LSS=50, LEL=50)),
-    (12, dict(TRY=-8, TRX=14, PRX=5, HRX=12, RSD=90, RSS=185, REL=36, LSD=46, LSS=46, LEL=54)),
-    (15, dict(TRY=0, TRX=-30, PRX=-16, HRX=-20, RSD=90, RSS=55, REL=0, LSD=80, LSS=20, LEL=30)),
-    (24, dict(TRY=0, TRX=-28, PRX=-15, HRX=-18, RSD=90, RSS=50, REL=0, LSD=80, LSS=18, LEL=30)),
-    (40, dict(TRX=-6, HRX=-2)),
+    (0,  dict(TRY=-20, PRY=-8, TRX=-8, RSD=70, RSS=60, REL=30, LSD=70, LEL=24, RFR=-36)),
+    (5,  dict(TRY=-14, TRX=-12, PRX=-8, HRX=6, RSD=80, RSS=110, REL=50, LSD=60, LSS=30, LEL=50, RFR=-6)),
+    (9,  dict(TRY=-10, TRX=12, PRX=6, HRX=10, RSD=90, RSS=175, REL=40, LSD=50, LSS=50, LEL=50, RFR=10)),
+    (12, dict(TRY=-8, TRX=14, PRX=5, HRX=12, RSD=90, RSS=185, REL=36, LSD=46, LSS=46, LEL=54, RFR=0)),
+    (15, dict(TRY=0, TRX=-30, PRX=-16, HRX=-20, RSD=90, RSS=55, REL=0, LSD=80, LSS=20, LEL=30, RFR=0)),
+    (24, dict(TRY=0, TRX=-28, PRX=-15, HRX=-18, RSD=90, RSS=50, REL=0, LSD=80, LSS=18, LEL=30, RFR=56)),
+    (40, dict(TRX=-6, HRX=-2, RFR=0)),
 ])
 
 clips = [walk, run, idle, air, land, atk1, atk2, atk3]
