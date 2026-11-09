@@ -8,6 +8,7 @@
 #include "level.h"
 #undef DEMON_MESH_NO_DATA
 #include "demon_mesh.h"
+#include "assets.h"
 
 static Player pl;
 static u32 rnd = 12345;
@@ -21,8 +22,8 @@ int main(void)
     s32 px, py, pz;
     u32 pad = 0;
     level_init();
-    m.verts = (const DVERT *)demon_verts; m.nverts = DEMON_NVERTS;
-    m.prims = (const DPRIM *)demon_prims; m.nprims = DEMON_NPRIMS;
+    assets_init();
+    m = asset_demon;
     m.bones = (const DBONE *)demon_bones; m.nbones = DEMON_NBONES;
     player_init(&m);
     { s32 sx, sz; int sy; level_spawn(&sx, &sz, &sy); player_reset(&pl, sx, sz, sy); }

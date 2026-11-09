@@ -1,11 +1,11 @@
 /*
  * Software sound mixer (Android, Windows, headless). The game thread posts commands into a
  * single-producer / single-consumer ring; the audio callback (which may run on another thread)
- * applies them and mixes up to 16 voices of 8-bit PCM with linear interpolation into 16-bit
+ * applies them and mixes up to 16 voices of 8-bit PCM (synthesised at start-up by gen/gen_sfx.c) with linear interpolation into 16-bit
  * stereo at SND_RATE. Loop slots glide their volume and pitch so changes never click.
  */
 #include "snd.h"
-#include "sfx_pcm.h"
+#include "gen.h"
 
 #define NVOICE  16
 #define NCMD    64
@@ -42,7 +42,7 @@ static void push(int kind, int slot, int id, int vol, int pan, int pitch)
     cmd_head = n;
 }
 
-void snd_init(void) { memset(voice, 0, sizeof(voice)); cmd_head = cmd_tail = 0; }
+void snd_init(void) { gen_sfx(); memset(voice, 0, sizeof(voice)); cmd_head = cmd_tail = 0; }
 
 void snd_play(int id, int vol, int pan, int pitch) { if (id >= 0 && id < SFX_COUNT && vol > 0) push(0, 0, id, vol, pan, pitch); }
 

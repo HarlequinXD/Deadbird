@@ -63,7 +63,7 @@ static inline void ot_add(FrameBuf *fb, int z, POLY *p)
 
 /* GPU */
 void  gpu_init(void);
-u16  *gpu_vram(void);                                        /* 1024x512 BGR555 */
+u16  *gpu_vram(void);                                        /* VRAM_W x VRAM_H BGR555 */
 void  gpu_load_image(const RECT *r, const u16 *data);        /* LoadImage */
 void  gpu_fill(const RECT *r, u8 cr, u8 cg, u8 cb);          /* FillRect (ClearImage) */
 void  gpu_set_draw_env(int x, int y, int w, int h, int ofx, int ofy, int dither);

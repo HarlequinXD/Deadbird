@@ -4,15 +4,13 @@
 #include <stdio.h>
 #include "gpu.h"
 #include "gte.h"
-#include "tim.h"
 #include "model.h"
 #include "player.h"
 #include "level.h"
-#include "demon_tim.h"
+#include "assets.h"
 #undef DEMON_MESH_NO_DATA
 #include "demon_mesh.h"
 #include "chainsaw_mesh.h"
-#include "chainsaw_tim.h"
 #include <string.h>
 #include <stdlib.h>
 
@@ -68,26 +66,18 @@ static void shot(const Model *m, int row, int col, int behind)
 int main(int argc, char **argv)
 {
     const char *out = argc > 1 ? argv[1] : "gait.bmp";
-    TimInfo tim;
     Model m;
     int row, i, W = CW * COLS, H = CH * ROWS, y;
     FILE *f;
 
     gpu_init();
-    tim_upload(demon_tim, DEMON_TIM_SIZE, &tim);
     level_init();
-    m.verts = (const DVERT *)demon_verts; m.nverts = DEMON_NVERTS;
-    m.prims = (const DPRIM *)demon_prims; m.nprims = DEMON_NPRIMS;
+    assets_init();
+    m = asset_demon;
     m.bones = (const DBONE *)demon_bones; m.nbones = DEMON_NBONES;
-    m.tpage = tim.tpage; m.clut = tim.clut;
-
     {
-        TimInfo st;
-        tim_upload(chainsaw_tim, CHAINSAW_TIM_SIZE, &st);
-        saw_body.verts = (const DVERT *)saw_verts; saw_body.nverts = SAW_NVERTS;
-        saw_body.prims = (const DPRIM *)saw_prims; saw_body.nprims = SAW_NPRIMS;
+        saw_body = asset_saw;
         saw_body.bones = (const DBONE *)saw_bones; saw_body.nbones = 1;
-        saw_body.tpage = st.tpage; saw_body.clut = st.clut;
         saw_chain = saw_body; saw_chain.bones = (const DBONE *)&saw_bones[1];
     }
     player_init(&m);

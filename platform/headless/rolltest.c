@@ -10,6 +10,7 @@
 #include "fk.h"
 #include "fkclips.h"
 #include "demon_mesh.h"
+#include "assets.h"
 
 static Model m;
 
@@ -40,8 +41,8 @@ int main(void)
 {
     static const FKClip *const C[3] = { &clip_atk1, &clip_atk2, &clip_atk3 };
     int ci, k;
-    m.verts = (const DVERT *)demon_verts; m.nverts = DEMON_NVERTS;
-    m.prims = (const DPRIM *)demon_prims; m.nprims = DEMON_NPRIMS;
+    assets_init();
+    m = asset_demon;
     m.bones = (const DBONE *)demon_bones; m.nbones = DEMON_NBONES;
     fk_init(&m);
     int prev = 0;                    /* chained across the combo so the wrist never spins round */

@@ -39,7 +39,10 @@ jobs:
         with:
           gradle-version: '8.11.1'
       - name: Build debug APK
-        run: gradle -p platform/android assembleDebug --stacktrace
+        run: |
+          gradle -p platform/android assembleDebug --stacktrace
+          ls -la platform/android/app/build/outputs/apk/debug/
+          find platform/android/app/build -name libdeadbird.so -path '*stripped*' -exec ls -la {} \;
       - uses: actions/upload-artifact@v4
         with:
           name: Deadbird-debug-apk
@@ -72,7 +75,9 @@ jobs:
       - name: Install MinGW-w64
         run: sudo apt-get update && sudo apt-get install -y gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64
       - name: Build Deadbird.exe
-        run: make -C platform/windows CC=x86_64-w64-mingw32-gcc CFLAGS="-O2 -std=c99 -Wall -Wextra -Wno-unused-parameter -Werror"
+        run: |
+          make -C platform/windows CC=x86_64-w64-mingw32-gcc CFLAGS="-Os -std=c99 -Wall -Wextra -Wno-unused-parameter -Werror"
+          ls -la platform/windows/Deadbird.exe
 
   ps1:
     name: PS1 disc image

@@ -32,14 +32,18 @@ u16 *gpu_vram(void) { return 0; }            /* VRAM is not CPU-visible on the r
 
 void gpu_load_image(const ENGINE_RECT *r, const u16 *data)
 {
-    static uint32_t buf[VRAM_W / 2];          /* DMA needs 4-byte aligned source data */
-    RECT rr;
-    int n = r->w * r->h;
-    if (n > VRAM_W) n = VRAM_W;
-    memcpy(buf, data, (size_t)n * 2);
-    rr.x = r->x; rr.y = r->y; rr.w = r->w; rr.h = r->h;
-    LoadImage(&rr, buf);
-    DrawSync(0);
+    static uint32_t buf[2048];                /* DMA needs 4-byte aligned source data: 4096 halfwords */
+    int y = 0, rows = r->w > 0 ? 4096 / r->w : 1;
+    if (rows < 1) rows = 1;
+    while (y < r->h) {                        /* big blocks go up in bands */
+        RECT rr;
+        int n = r->h - y < rows ? r->h - y : rows;
+        memcpy(buf, data + (size_t)y * r->w, (size_t)(n * r->w) * 2);
+        rr.x = r->x; rr.y = (short)(r->y + y); rr.w = r->w; rr.h = (short)n;
+        LoadImage(&rr, buf);
+        DrawSync(0);
+        y += n;
+    }
 }
 
 void gpu_fill(const ENGINE_RECT *r, u8 cr, u8 cg, u8 cb)

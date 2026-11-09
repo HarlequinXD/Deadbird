@@ -10,7 +10,7 @@
  */
 #include "gpu.h"
 
-static u16 vram[VRAM_W * VRAM_H];   /* the emulated 1 MB VRAM */
+static u16 vram[VRAM_W * VRAM_H];   /* the emulated VRAM (512 KB) */
 
 static struct { int x0, y0, x1, y1, ofx, ofy, dither; } env;
 
@@ -33,7 +33,7 @@ void gpu_load_image(const RECT *r, const u16 *data)
 {
     int y;
     for (y = 0; y < r->h; y++)
-        memcpy(&vram[((r->y + y) & 511) * VRAM_W + r->x], data + y * r->w, (size_t)r->w * 2);
+        memcpy(&vram[((r->y + y) & (VRAM_H - 1)) * VRAM_W + (r->x & (VRAM_W - 1))], data + y * r->w, (size_t)r->w * 2);
 }
 
 void gpu_fill(const RECT *r, u8 cr, u8 cg, u8 cb)
@@ -42,7 +42,7 @@ void gpu_fill(const RECT *r, u8 cr, u8 cg, u8 cb)
     int x, y;
     for (y = r->y; y < r->y + r->h; y++)
         for (x = r->x; x < r->x + r->w; x++)
-            vram[(y & 511) * VRAM_W + (x & 1023)] = c;
+            vram[(y & (VRAM_H - 1)) * VRAM_W + (x & (VRAM_W - 1))] = c;
 }
 
 void gpu_set_draw_env(int x, int y, int w, int h, int ofx, int ofy, int dither)
@@ -92,19 +92,19 @@ static inline u16 blend(u16 bk, u16 fg, int abr)
 
 static inline u16 texel(const RState *s, int u, int v)
 {
-    int ty = (s->tpy + (v & 255)) & 511;
+    int ty = (s->tpy + (v & 255)) & (VRAM_H - 1);
     u &= 255;
     switch (s->tmode) {
     case TP_4BIT: {
-        u16 w = vram[ty * VRAM_W + ((s->tpx + (u >> 2)) & 1023)];
+        u16 w = vram[ty * VRAM_W + ((s->tpx + (u >> 2)) & (VRAM_W - 1))];
         return vram[s->cly * VRAM_W + s->clx + ((w >> ((u & 3) * 4)) & 15)];
     }
     case TP_8BIT: {
-        u16 w = vram[ty * VRAM_W + ((s->tpx + (u >> 1)) & 1023)];
-        return vram[s->cly * VRAM_W + ((s->clx + ((u & 1) ? (w >> 8) : (w & 255))) & 1023)];
+        u16 w = vram[ty * VRAM_W + ((s->tpx + (u >> 1)) & (VRAM_W - 1))];
+        return vram[s->cly * VRAM_W + ((s->clx + ((u & 1) ? (w >> 8) : (w & 255))) & (VRAM_W - 1))];
     }
     default:
-        return vram[ty * VRAM_W + ((s->tpx + u) & 1023)];
+        return vram[ty * VRAM_W + ((s->tpx + u) & (VRAM_W - 1))];
     }
 }
 
@@ -112,7 +112,7 @@ static void span(const RState *s, int y, int xa, int xb,
                  s32 u, s32 v, s32 r, s32 g, s32 b,
                  s32 dudx, s32 dvdx, s32 drdx, s32 dgdx, s32 dbdx)
 {
-    u16 *row = &vram[(y & 511) * VRAM_W];
+    u16 *row = &vram[(y & (VRAM_H - 1)) * VRAM_W];
     const s8 *dt = DITHER[y & 3];
     int x;
     for (x = xa; x < xb; x++) {
@@ -237,7 +237,7 @@ static void draw_poly(const POLY *p)
     s.tpx = (p->tpage & 15) * 64;
     s.tpy = ((p->tpage >> 4) & 1) * 256;
     s.clx = (p->clut & 0x3f) * 16;
-    s.cly = (p->clut >> 6) & 511;
+    s.cly = (p->clut >> 6) & (VRAM_H - 1);
     s.fr = p->v[0].r; s.fg = p->v[0].g; s.fb = p->v[0].b;
     /* PS1 dithers shaded (gouraud) and modulated-texture pixels when dithering is on */
     s.dither = env.dither && (s.gouraud || s.mod);

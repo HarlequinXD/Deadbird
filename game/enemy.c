@@ -1,14 +1,12 @@
 #include "enemy.h"
 #include "level.h"
 #include "fx.h"
-#include "tim.h"
 #include "fk.h"
 #include "fkclips.h"
 #include "snd.h"
 #include "soldier_mesh.h"
-#include "soldier_tim.h"
+#include "assets.h"
 #include "pistol_mesh.h"
-#include "pistol_tim.h"
 
 #define E_RADIUS   230
 #define E_HEIGHT   1900
@@ -22,7 +20,6 @@
 PSX_STATIC_ASSERT(same_skeleton, SOLDIER_NBONES == DEMON_NBONES);
 
 static Model soldier, pistol;
-static TimInfo soldier_tim_info, pistol_tim_info;
 static Enemy enemies[MAX_ENEMIES];
 static int n_enemies;
 static EnemyHooks hooks;
@@ -67,16 +64,11 @@ static void on_hit(CombatTarget *t, const Hit *h)
 void enemy_init(const EnemyHooks *h)
 {
     hooks = *h;
-    tim_upload(soldier_tim, SOLDIER_TIM_SIZE, &soldier_tim_info);
-    tim_upload(pistol_tim, PISTOL_TIM_SIZE, &pistol_tim_info);
-    soldier.verts = (const DVERT *)soldier_verts; soldier.nverts = SOLDIER_NVERTS;
-    soldier.prims = (const DPRIM *)soldier_prims; soldier.nprims = SOLDIER_NPRIMS;
+    assets_init();
+    soldier = asset_soldier;
     soldier.bones = (const DBONE *)soldier_bones; soldier.nbones = SOLDIER_NBONES;
-    soldier.tpage = soldier_tim_info.tpage; soldier.clut = soldier_tim_info.clut;
-    pistol.verts = (const DVERT *)pistol_verts; pistol.nverts = PISTOL_NVERTS;
-    pistol.prims = (const DPRIM *)pistol_prims; pistol.nprims = PISTOL_NPRIMS;
+    pistol = asset_pistol;
     pistol.bones = (const DBONE *)pistol_bones; pistol.nbones = 1;
-    pistol.tpage = pistol_tim_info.tpage; pistol.clut = pistol_tim_info.clut;
 }
 
 static void place(s32 x, s32 z, int yaw)

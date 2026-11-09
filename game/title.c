@@ -3,7 +3,6 @@
 #include "hud.h"
 #include "fx.h"
 #include "gte.h"
-#include "tim.h"
 #include "ui.h"
 #include "snd.h"
 
