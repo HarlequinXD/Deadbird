@@ -11,7 +11,7 @@
 
 int _fltused = 0x9875;                       /* tells the linker floating point is in use */
 
-#pragma function(strlen, strcmp, memset, memcpy, memcmp, sqrt)
+#pragma function(strlen, strcmp, memset, memcpy, memcmp, memmove, sqrt)
 void *memset(void *d, int c, size_t n) { __stosb((unsigned char *)d, (unsigned char)c, n); return d; }
 void *memcpy(void *d, const void *s, size_t n) { __movsb((unsigned char *)d, (const unsigned char *)s, n); return d; }
 double sqrt(double x) { return _mm_cvtsd_f64(_mm_sqrt_sd(_mm_set_sd(x), _mm_set_sd(x))); }
