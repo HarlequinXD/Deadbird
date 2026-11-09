@@ -1,15 +1,20 @@
 /*
  * Just enough C runtime for Deadbird.exe, so the MSVC build doesn't link the whole static CRT
  * (~100 KB of start-up, stdio and locale code the game never uses): heap via HeapAlloc, the few
- * string / sort helpers, and the entry point. memcpy / memset come from libvcruntime.
+ * string / sort helpers, memcpy / memset (rep movsb / stosb), sqrt and the entry point.
  * Built only by build_msvc.bat (with /NODEFAULTLIB).
  */
 #include <windows.h>
 #include <string.h>
+#include <intrin.h>
+#include <emmintrin.h>
 
 int _fltused = 0x9875;                       /* tells the linker floating point is in use */
 
-#pragma function(strlen, strcmp)
+#pragma function(strlen, strcmp, memset, memcpy, sqrt)
+void *memset(void *d, int c, size_t n) { __stosb((unsigned char *)d, (unsigned char)c, n); return d; }
+void *memcpy(void *d, const void *s, size_t n) { __movsb((unsigned char *)d, (const unsigned char *)s, n); return d; }
+double sqrt(double x) { return _mm_cvtsd_f64(_mm_sqrt_sd(_mm_set_sd(x), _mm_set_sd(x))); }
 size_t strlen(const char *s) { const char *p = s; while (*p) p++; return (size_t)(p - s); }
 int strcmp(const char *a, const char *b) { while (*a && *a == *b) a++, b++; return (unsigned char)*a - (unsigned char)*b; }
 
