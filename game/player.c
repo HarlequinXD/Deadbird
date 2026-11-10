@@ -302,7 +302,7 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
     if (p->grounded) {
         gy = level_ground(p->x, p->z, p->y);
         /* stairs and small drops: stay glued to the ground; only a real ledge makes you fall */
-        if (gy > p->y + STEP_HEIGHT) { p->grounded = 0; p->vy = 0; p->air_t = 0; }
+        if (gy > p->y + STEP_DOWN) { p->grounded = 0; p->vy = 0; p->air_t = 0; }
         else if (gy != p->y) { p->step_off += p->y - gy; p->y = gy; p->y16 = gy * SUB; }
     }
     if (!p->grounded) {

@@ -39,7 +39,7 @@ void ed3d_enter(s32 x, s32 z)
     cx_ = x; cz_ = z; cy_ = -((si >= 0 ? em_floor_at(&ED, si, x, z) : 0) + 1700);
     closing = 0; pitch = 80; pick_free = 0; pick_sx = 160; pick_sy = 120;
     level_debug_all_rooms(1);
-    ed_toast("X PAINTS  SQUARE COPIES A TILE  L1 R1 TILE");
+    ed_toast(ed_rail_r() ? "DRAG LEFT TO FLY  RIGHT TO LOOK" : "X PAINTS  SQUARE COPIES A TILE  L1 R1 TILE");
 }
 int ed3d_closing(void) { int c = closing; closing = 0; return c; }
 
@@ -299,16 +299,16 @@ void ed3d_update(u32 pad, u32 press)
             continue;
         }
         if (e->kind == EK_MOUSE_L) {
-            if (e->ev == EP_HOVER || e->ev == EP_MOVE) { if (!rdrag && e->y > 14 && e->y < 226) { pick_sx = e->x; pick_sy = e->y; pick_free = 1; } }
+            if (e->ev == EP_HOVER || e->ev == EP_MOVE) { if (!rdrag && e->y > 14 && e->y < ed_bar_y()) { pick_sx = e->x; pick_sy = e->y; pick_free = 1; } }
             if (e->ev == EP_DOWN) { if (eu_hit_at(e->x, e->y) >= 0) { /* the bars handle it */ } }
-            if (e->ev == EP_UP && e->y > 14 && e->y < 226 && eu_hit_at(e->x, e->y) < 0) { pick_sx = e->x; pick_sy = e->y; pick_free = 1; press |= PAD_CROSS; }
+            if (e->ev == EP_UP && e->y > 14 && e->y < ed_bar_y() && eu_hit_at(e->x, e->y) < 0) { pick_sx = e->x; pick_sy = e->y; pick_free = 1; press |= PAD_CROSS; }
             continue;
         }
         /* touch */
         if (e->ev == EP_DOWN) {
-            if (eu_hit_at(e->x, e->y) >= 0 || e->y < 14 || e->y >= 226) continue;
+            if (eu_hit_at(e->x, e->y) >= 0 || e->y < 14 || e->y >= ed_bar_y()) continue;
             tap_id = e->id; tap_x = e->x; tap_y = e->y; tap_moved = 0;
-            if (e->x < SCREEN_W / 2 && move_id < 0) { move_id = e->id; mx0 = e->x; my0 = e->y; mvx = mvy = 0; }
+            if (e->x < (SCREEN_W - ed_rail_r()) / 2 && move_id < 0) { move_id = e->id; mx0 = e->x; my0 = e->y; mvx = mvy = 0; }
             else if (look_id < 0) { look_id = e->id; lx0 = e->x; ly0 = e->y; }
         } else if (e->ev == EP_MOVE) {
             if (e->id == tap_id && ((e->x - tap_x) * (e->x - tap_x) + (e->y - tap_y) * (e->y - tap_y)) > 36) tap_moved = 1;
@@ -442,7 +442,8 @@ void ed3d_draw(FrameBuf *fb, int t)
     eu_clip.y0 = 0; eu_clip.y1 = SCREEN_H;
     /* crosshair */
     if (!pick_free) {
-        eu_rect(158, 120, 163, 121, RGB(255, 200, 120), 31); eu_rect(160, 118, 161, 123, RGB(255, 200, 120), 31);
+        int cx = SCREEN_W / 2, cy = SCREEN_H / 2;
+        eu_rect(cx - 2, cy, cx + 3, cy + 1, RGB(255, 200, 120), 31); eu_rect(cx, cy - 2, cx + 1, cy + 3, RGB(255, 200, 120), 31);
     }
     /* what's picked, top left */
     b[0] = 0; o = b;
@@ -456,26 +457,29 @@ void ed3d_draw(FrameBuf *fb, int t)
     {
         char *p; for (p = b; *p; p++) if (*p >= 'a' && *p <= 'z') *p = (char)(*p - 32);
     }
-    if (b[0] && !ed_overlay_busy()) { eu_rect_semi(2, 16, 8 + eu_text_w(b), 28, RGB(70, 80, 80), SEMI_SUB, 29); eu_text(b, 5, 18, RGB(255, 210, 160), 28); }
+    if (b[0] && !ed_overlay_busy()) { int y = ed_top_h() + 2; eu_rect_semi(2, y, 8 + eu_text_w(b), y + 12, RGB(70, 80, 80), SEMI_SUB, 29); eu_text(b, 5, y + 2, RGB(255, 210, 160), 28); }
     /* the paint tile, bottom right */
-    if (!ed_overlay_busy()) {
-        u16 tp, cl; int u, v;
+    if (!ed_overlay_busy()) {   /* the paint tile, bottom right (left of the touch rail) */
+        u16 tp, cl; int u, v, R = SCREEN_W - ed_rail_r(), B = ed_bar_y() - 2;
         ed_tile_tex(ed3d_tile, &tp, &cl, &u, &v);
-        eu_panel(SCREEN_W - 46, 226 - 58, SCREEN_W - 2, 224, 30);
-        eu_tex(SCREEN_W - 40, 226 - 52, SCREEN_W - 8, 226 - 20, tp, cl, u, v, u + 63, v + 63, 28);
-        eu_text_c("PAINT", SCREEN_W - 23, 226 - 14, RGB(255, 170, 70), 28);
+        eu_panel(R - 46, B - 56, R - 2, B, 30);
+        eu_tex(R - 40, B - 50, R - 8, B - 18, tp, cl, u, v, u + 63, v + 63, 28);
+        eu_text_c("PAINT", R - 23, B - 12, RGB(255, 170, 70), 28);
         if (hit.what != PK_NONE && hit.tile != 255) {
             ed_tile_tex(hit.tile, &tp, &cl, &u, &v);
-            eu_tex(SCREEN_W - 70, 226 - 32, SCREEN_W - 52, 226 - 14, tp, cl, u, v, u + 63, v + 63, 28);
-            eu_frame(SCREEN_W - 71, 226 - 33, SCREEN_W - 51, 226 - 13, RGB(120, 60, 30), 29);
+            eu_tex(R - 70, B - 30, R - 52, B - 12, tp, cl, u, v, u + 63, v + 63, 28);
+            eu_frame(R - 71, B - 31, R - 51, B - 11, RGB(120, 60, 30), 29);
         }
-        eu_rect_semi(2, 226 - 13, 6 + eu_text_w(em_tile_names[ed3d_tile]), 225, RGB(70, 80, 80), SEMI_SUB, 29);
-        eu_text(em_tile_names[ed3d_tile], 4, 226 - 12, RGB(220, 180, 140), 28);
+        eu_rect_semi(2, B - 11, 6 + eu_text_w(em_tile_names[ed3d_tile]), B + 1, RGB(70, 80, 80), SEMI_SUB, 29);
+        eu_text(em_tile_names[ed3d_tile], 4, B - 10, RGB(220, 180, 140), 28);
     }
     if (!ed_overlay_busy()) {
         static const u32 bt[6] = { PAD_CROSS, PAD_UP, PAD_DOWN, PAD_SQUARE, PAD_TRIANGLE, PAD_CIRCLE };
         static const char *const lb[6] = { "PAINT", "RAISE", "LOWER", "COPY", "TILES", "MAP" };
-        ed_prompts(bt, lb, 6);
+        /* touch: no sticks for going up and down, so they get buttons */
+        static const u32 tbt[8] = { PAD_CROSS, PAD_UP, PAD_DOWN, PAD_SQUARE, PAD_TRIANGLE, PAD_R2, PAD_L2, PAD_CIRCLE };
+        static const char *const tlb[8] = { "PAINT", "RAISE", "LOWER", "COPY", "TILES", "FLY UP", "FLY DOWN", "2D MAP" };
+        if (ed_rail_r()) ed_prompts(tbt, tlb, 8); else ed_prompts(bt, lb, 6);
     }
 }
 #endif

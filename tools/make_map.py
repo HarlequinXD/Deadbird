@@ -558,7 +558,7 @@ def preview(name, rooms, secs, lights, things, out_png):
                 d.line([P(*a), P(*b)], fill=(235, 230, 220), width=3)
             else:
                 o = secs[s.next[i]]
-                step = abs(o.floor - s.floor) > 220
+                step = abs(o.floor - s.floor) > 512
                 d.line([P(*a), P(*b)], fill=(200, 120, 90) if step else (110, 110, 120), width=1)
     for s in secs:
         cx = sum(p[0] for p in s.pts) / len(s.pts); cz = sum(p[1] for p in s.pts) / len(s.pts)

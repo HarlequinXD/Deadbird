@@ -33,14 +33,33 @@ static void corners(POLY *p, int x0, int y0, int x1, int y1, int u0, int v0, int
     for (k = 0; k < 4; k++) { p->v[k].r = (u8)r; p->v[k].g = (u8)g; p->v[k].b = (u8)b; }
 }
 
+/* the title painting (320x240), centred; on a wider frame its edge columns are stretched out to
+   the screen's sides (the sky and the lava run on) and darkened toward the edges */
 void ui_title_bg(FrameBuf *fb, int bright, int ot)
 {
-    int tx, ty;         /* 5 x 4 tiles of 64x60, each with its own CLUT */
+    int tx, ty, ox = (SCREEN_W - 320) / 2;      /* 5 x 4 tiles of 64x60, each with its own CLUT */
     for (ty = 0; ty < 4; ty++) for (tx = 0; tx < 5; tx++) {
         POLY *p = tex_quad(fb, assets_title_tpage(tx), assets_title_clut(tx, ty), 0, ot);
         int u0 = (tx & 3) * 64;
         if (!p) return;
-        corners(p, tx * 64, ty * 60, tx * 64 + 64, ty * 60 + 60, u0, ty * 60, u0 + 64, ty * 60 + 60, bright, bright, bright);
+        corners(p, ox + tx * 64, ty * 60, ox + tx * 64 + 64, ty * 60 + 60, u0, ty * 60, u0 + 64, ty * 60 + 60, bright, bright, bright);
+    }
+    if (ox <= 0) return;
+    for (ty = 0; ty < 4; ty++) {
+        POLY *l = tex_quad(fb, assets_title_tpage(0), assets_title_clut(0, ty), 0, ot);
+        POLY *r = tex_quad(fb, assets_title_tpage(4), assets_title_clut(4, ty), 0, ot);
+        int ur = (4 & 3) * 64;
+        if (!l || !r) return;
+        corners(l, 0, ty * 60, ox, ty * 60 + 60, 0, ty * 60, 1, ty * 60 + 60, bright, bright, bright);
+        corners(r, ox + 320, ty * 60, SCREEN_W, ty * 60 + 60, ur + 62, ty * 60, ur + 63, ty * 60 + 60, bright, bright, bright);
+    }
+    {   /* vignette: the stretched bands fade darker toward the screen's edges */
+        int k, steps = 6;
+        for (k = 0; k < steps; k++) {
+            int x0 = ox * k / steps, x1 = ox * (k + 1) / steps, a = (steps - k) * 9;
+            quad_g(fb, x0, 0, x1, 240, RGB(a, a, a), RGB(a, a, a), SEMI_SUB, ot - 1);
+            quad_g(fb, SCREEN_W - x1, 0, SCREEN_W - x0, 240, RGB(a, a, a), RGB(a, a, a), SEMI_SUB, ot - 1);
+        }
     }
 }
 

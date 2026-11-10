@@ -171,11 +171,11 @@ void sky_draw(FrameBuf *fb, int t, int camx)
 void embers_draw(FrameBuf *fb, int t, int ot)
 {
     int i;
-    for (i = 0; i < 40; i++) {
+    for (i = 0; i < 40 * SCREEN_W / 320; i++) {
         /* deterministic drifting embers: each loops upward with its own speed and sway */
         int speed = 1 + (i * 7) % 3, period = 260;
         int y = 250 - ((t * speed + i * 97) % period);
-        int x = (i * 83) % 320 + (isin(t * (20 + i % 7) + i * 500) * 9 >> 12);
+        int x = (i * 83) % SCREEN_W + (isin(t * (20 + i % 7) + i * 500) * 9 >> 12);
         int b = 120 + (isin(t * 60 + i * 300) * 100 >> 12);
         int s = 1 + (i % 3 == 0);
         if (b < 30) b = 30;

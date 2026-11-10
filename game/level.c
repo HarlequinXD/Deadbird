@@ -83,11 +83,11 @@ void level_spawn(s32 *x, s32 *z, int *yaw)
     gen_lab();
     *x = lab.spawn_x; *z = lab.spawn_z; *yaw = lab.spawn_yaw;
 }
-void level_tank(VECTOR *c)
+int level_tank(VECTOR *c)
 {
     /* the first energy tank, if there is one (its hum) */
-    if (LAB_NRINGS) { c->vx = lab_rings[0].x; c->vy = (lab_rings[0].yt + lab_rings[0].yb) / 2; c->vz = lab_rings[0].z; }
-    else { c->vx = lab.spawn_x; c->vy = -2000; c->vz = lab.spawn_z; }
+    if (LAB_NRINGS) { c->vx = lab_rings[0].x; c->vy = (lab_rings[0].yt + lab_rings[0].yb) / 2; c->vz = lab_rings[0].z; return 1; }
+    c->vx = lab.spawn_x; c->vy = -2000; c->vz = lab.spawn_z; return 0;
 }
 int  level_polys_drawn(void) { return polys_drawn; }
 int  level_data_bytes(void)

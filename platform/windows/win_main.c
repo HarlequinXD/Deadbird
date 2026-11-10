@@ -86,12 +86,12 @@ static void stick(SHORT sx, SHORT sy, int dead, int *ox, int *oy)
 /* ------------------------------------------------------------------ window */
 static HWND wnd;
 static BITMAPINFO bmi;
-static unsigned int frame32[SCREEN_W * SCREEN_H];
+static unsigned int frame32[SCREEN_W_MAX * SCREEN_H];
 static int fullscreen;
 static WINDOWPLACEMENT prev_place;
 static BYTE keys[256];
 static int running = 1;
-static int view_x, view_y, view_w = SCREEN_W, view_h = SCREEN_H;   /* where the picture is in the window */
+static int view_x, view_y, view_w = 320, view_h = SCREEN_H;   /* where the picture is in the window */
 
 /* a window point -> the 320x240 screen */
 static void to_screen(LPARAM lp, int *x, int *y)
@@ -124,6 +124,19 @@ static void toggle_fullscreen(void)
     }
 }
 
+/* the frame is 240 PS1 lines, as wide as the window's shape (320..512): it fills the window */
+static void fit_width(void)
+{
+    RECT rc;
+    int w;
+    GetClientRect(wnd, &rc);
+    if (rc.right <= 0 || rc.bottom <= 0) return;
+    w = (int)((long long)SCREEN_H * rc.right / rc.bottom) & ~1;
+    if (w < 320) w = 320;
+    if (w > SCREEN_W_MAX) w = SCREEN_W_MAX;
+    screen_w = w;
+}
+
 static void present(HDC dc)
 {
     RECT rc;
@@ -141,8 +154,11 @@ static void present(HDC dc)
     GetClientRect(wnd, &rc);
     w = rc.right; h = rc.bottom;
     if (w <= 0 || h <= 0) return;
-    if (w * 3 > h * 4) { vh = h; vw = h * 4 / 3; } else { vw = w; vh = w * 3 / 4; }
+    /* cover the window (a shape wider than 512:240 loses a pixel or two top and bottom) */
+    if ((long long)w * SCREEN_H > (long long)h * SCREEN_W) { vw = w; vh = (int)((long long)w * SCREEN_H / SCREEN_W); }
+    else { vh = h; vw = (int)((long long)h * SCREEN_W / SCREEN_H); }
     vx = (w - vw) / 2; vy = (h - vh) / 2;
+    bmi.bmiHeader.biWidth = SCREEN_W;
     view_x = vx; view_y = vy; view_w = vw; view_h = vh;
     /* black bars */
     if (vx > 0) { PatBlt(dc, 0, 0, vx, h, BLACKNESS); PatBlt(dc, vx + vw, 0, w - vx - vw, h, BLACKNESS); }
@@ -393,7 +409,7 @@ static void audio_pump(void)
 int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
 {
     WNDCLASSA wc;
-    RECT r = { 0, 0, SCREEN_W * 3, SCREEN_H * 3 };
+    RECT r = { 0, 0, 426 * 3, SCREEN_H * 3 };                   /* 16:9 */
     LARGE_INTEGER freq, last, now;
     double acc = 0.0, step;
     (void)prev; (void)cmd;
@@ -442,6 +458,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
         acc += (double)(now.QuadPart - last.QuadPart) / (double)freq.QuadPart;
         last = now;
         if (acc > 0.25) acc = 0.25;                            /* after a stall, don't fast-forward */
+        fit_width();
         while (acc >= step && ticks < 4) {                     /* fixed 60 Hz game logic */
             game_frame(read_input());
             acc -= step;

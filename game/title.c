@@ -17,7 +17,7 @@ static const char *MENU[MENU_COUNT] = { "PLAY", "EDITOR", "CONTROLS" };
 #define MENU_DY 36
 #endif
 #define PLATE_W 150
-#define MENU_X  110             /* left of centre: the backdrop's Deadbird stands on the right */
+#define MENU_X  (SCREEN_W / 2 - 50)   /* left of centre: the backdrop's Deadbird stands on the right */
 
 void title_init(void) { title_reset(); }
 
@@ -65,6 +65,6 @@ void title_draw(FrameBuf *fb, int t)
     text(fb, "V0.5", 6, 228, 1, 90, 5);
 
     /* fade from / to black */
-    if (fade_in > 0) quad_g(fb, 0, 0, 320, 240, RGB(fade_in * 8, fade_in * 8, fade_in * 8), RGB(fade_in * 8, fade_in * 8, fade_in * 8), SEMI_SUB, 1);
-    if (confirm_t >= 0) quad_g(fb, 0, 0, 320, 240, RGB(confirm_t * 8, confirm_t * 8, confirm_t * 8), RGB(confirm_t * 8, confirm_t * 8, confirm_t * 8), SEMI_SUB, 1);
+    if (fade_in > 0) quad_g(fb, 0, 0, SCREEN_W, 240, RGB(fade_in * 8, fade_in * 8, fade_in * 8), RGB(fade_in * 8, fade_in * 8, fade_in * 8), SEMI_SUB, 1);
+    if (confirm_t >= 0) quad_g(fb, 0, 0, SCREEN_W, 240, RGB(confirm_t * 8, confirm_t * 8, confirm_t * 8), RGB(confirm_t * 8, confirm_t * 8, confirm_t * 8), SEMI_SUB, 1);
 }

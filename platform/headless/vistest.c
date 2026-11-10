@@ -20,7 +20,7 @@ static int player_angle(s32 dx, s32 dz)      /* heading of (dx, dz): 0 = +z, 102
     }
     return best;
 }
-static u16 shot[2][SCREEN_W * SCREEN_H];
+static u16 shot[2][SCREEN_W_MAX * SCREEN_H];
 
 static void grab(u16 *dst)
 {
@@ -31,7 +31,7 @@ static void grab(u16 *dst)
 
 static void save(const char *path)
 {
-    unsigned char h[54] = { 'B', 'M' }, row[SCREEN_W * 2 * 3];
+    unsigned char h[54] = { 'B', 'M' }, row[SCREEN_W_MAX * 2 * 3 + 4];
     int x, y, k, W = SCREEN_W * 2, size = 54 + W * SCREEN_H * 3;
     FILE *f = fopen(path, "wb");
     if (!f) return;
@@ -44,7 +44,7 @@ static void save(const char *path)
             int r = c & 31, g = (c >> 5) & 31, b = (c >> 10) & 31, o = (k * SCREEN_W + x) * 3;
             row[o] = (unsigned char)(b << 3); row[o + 1] = (unsigned char)(g << 3); row[o + 2] = (unsigned char)(r << 3);
         }
-        fwrite(row, 1, sizeof(row), f);
+        fwrite(row, 1, (size_t)((W * 3 + 3) & ~3), f);
     }
     fclose(f);
 }

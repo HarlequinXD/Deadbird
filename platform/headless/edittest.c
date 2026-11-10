@@ -14,7 +14,7 @@ static int fails;
 
 static void shot(const char *name)
 {
-    static unsigned char row[SCREEN_W * 3];
+    static unsigned char row[SCREEN_W_MAX * 3 + 4];
     unsigned char h[54] = { 'B', 'M' };
     char path[512];
     int x, y, dx, dy, size = 54 + SCREEN_W * SCREEN_H * 3;
@@ -33,7 +33,7 @@ static void shot(const char *name)
             int r = c & 31, g = (c >> 5) & 31, b = (c >> 10) & 31;
             row[x * 3 + 0] = (unsigned char)((b << 3) | (b >> 2)); row[x * 3 + 1] = (unsigned char)((g << 3) | (g >> 2)); row[x * 3 + 2] = (unsigned char)((r << 3) | (r >> 2));
         }
-        fwrite(row, 1, sizeof(row), f);
+        fwrite(row, 1, (size_t)((SCREEN_W * 3 + 3) & ~3), f);
     }
     fclose(f);
 }
@@ -48,8 +48,9 @@ int main(int argc, char **argv)
     if (argc > 1) out = argv[1];
     setenv("DEADBIRD_LEVELS", "/tmp/deadbird_levels_test", 1);
     if (system("rm -rf /tmp/deadbird_levels_test")) {}
+    if (getenv("WIDE")) screen_w = atoi(getenv("WIDE"));   /* WIDE=512: a phone's frame width */
     game_init();
-    game_set_touch_ui(0);
+    game_set_touch_ui(getenv("TOUCH") != 0);
     game_set_pad_style(0);
     run(0, 40);
     /* title: EDITOR is the second item */
@@ -147,11 +148,14 @@ int main(int argc, char **argv)
     shot("ed_22_keyboard");
     press(PAD_CIRCLE); press(PAD_CIRCLE);
     /* touch: a tap on the map moves the cursor; a tap on a prompt presses its button */
+    if (!getenv("TOUCH")) {
     game_set_touch_ui(1);
     tap(200, 80); run(0, 2);
     shot("ed_20_touch");
     tap(16, 232); run(0, 2);                                  /* the first prompt: X (place) */
     shot("ed_23_touch_prompt");
+    game_set_touch_ui(0);
+    }
     /* back to the title restores level 1 */
     press(PAD_START); presses(PAD_UP, 1); press(PAD_CROSS); run(0, 4);
     press(PAD_CIRCLE); run(0, 10);

@@ -19,7 +19,9 @@
 #include "gpu.h"
 #include "map.h"
 
-#define STEP_HEIGHT 220          /* tallest ledge you can walk up without jumping */
+#define STEP_HEIGHT 512          /* tallest ledge you can walk up without jumping: 16 texels (a texture tile
+                                    is 64 texels over 2 m), half a metre */
+#define STEP_DOWN   220          /* drops up to this keep her glued to the ground; deeper ones she falls */
 
 typedef struct { s16 x, y, z; } LabVert;
 typedef struct { u16 v[4]; u8 uv[8]; u8 rgb[12]; u8 page, flags, anim, pal; } LabFace;   /* pal: extra CLUT + 1 */
@@ -51,7 +53,7 @@ int  level_collide(s32 *x, s32 *z, s32 y, s32 radius, s32 *nx, s32 *nz);
 /* how far along a -> b (0..4096) before solid geometry or the ceiling: for the camera */
 int  level_clip_segment(const VECTOR *a, const VECTOR *b, s32 margin);
 void level_spawn(s32 *x, s32 *z, int *yaw);
-void level_tank(VECTOR *centre);
+int  level_tank(VECTOR *centre);   /* 0 when the level has no energy tank */
 void level_update(void);
 void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t);
 void level_set_ot_bias(int b);            /* added to every OT index the level uses (the editor's 3D view) */

@@ -12,7 +12,7 @@
 
 static void write_bmp(const char *dir, const char *name)
 {
-    static unsigned char row[SCREEN_W * 3];
+    static unsigned char row[SCREEN_W_MAX * 3 + 4];
     unsigned char h[54] = { 'B', 'M' };
     char path[512];
     int x, y, dx, dy, size = 54 + SCREEN_W * SCREEN_H * 3;
@@ -36,7 +36,7 @@ static void write_bmp(const char *dir, const char *name)
             row[x * 3 + 1] = (unsigned char)((g << 3) | (g >> 2));
             row[x * 3 + 2] = (unsigned char)((r << 3) | (r >> 2));
         }
-        fwrite(row, 1, sizeof(row), f);
+        fwrite(row, 1, (size_t)((SCREEN_W * 3 + 3) & ~3), f);
     }
     fclose(f);
 }
@@ -83,6 +83,7 @@ int main(int argc, char **argv)
     char name[32];
     int i;
 
+    if (getenv("WIDE")) screen_w = atoi(getenv("WIDE"));   /* WIDE=512: a phone's frame width */
     game_init();
     printf("static game RAM: %d bytes of %d (PS1 main RAM)\n", game_ram_used(), RAM_BUDGET);
     printf("VRAM: %d bytes\n", VRAM_W * VRAM_H * 2);

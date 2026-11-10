@@ -29,12 +29,13 @@
 static struct {
     EGLDisplay dpy; EGLSurface surf; EGLContext ctx;
     int w, h;
-    int vx, vy, vw, vh;          /* 4:3 viewport */
+    int vx, vy, vw, vh;          /* where the frame lands on the screen (it fills it) */
+    int quad_w;                  /* the frame width the quad's texture coordinates were made for */
     GLuint prog, tex, vbo;
     int ready;
 } G;
 
-static u16 pixels[SCREEN_W * SCREEN_H];
+static u16 pixels[SCREEN_W_MAX * SCREEN_H];
 static int game_started;
 
 /* active touches */
@@ -111,13 +112,7 @@ static void gl_setup(void)
     static const char *fs =
         "precision mediump float; varying vec2 v; uniform sampler2D s;"
         "void main(){ gl_FragColor = texture2D(s, v); }";
-    static const float quad[] = {
-        /* x, y, u, v  (v = 0 is the top row of the frame) */
-        -1.f,  1.f, 0.f, 0.f,
-         1.f,  1.f, (float)SCREEN_W / TEX_W, 0.f,
-        -1.f, -1.f, 0.f, (float)SCREEN_H / TEX_H,
-         1.f, -1.f, (float)SCREEN_W / TEX_W, (float)SCREEN_H / TEX_H,
-    };
+    float quad[16];
     G.prog = glCreateProgram();
     glAttachShader(G.prog, shader(GL_VERTEX_SHADER, vs));
     glAttachShader(G.prog, shader(GL_FRAGMENT_SHADER, fs));
@@ -135,14 +130,38 @@ static void gl_setup(void)
 
     glGenBuffers(1, &G.vbo);
     glBindBuffer(GL_ARRAY_BUFFER, G.vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_STATIC_DRAW);
+    memset(quad, 0, sizeof(quad));
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quad), quad, GL_DYNAMIC_DRAW);
+    G.quad_w = 0;
 }
 
-static void viewport_43(void)
+/* the quad's texture coordinates for the frame's current width */
+static void quad_for_width(void)
 {
-    /* largest 4:3 rectangle that fits, centred */
-    if (G.w * 3 > G.h * 4) { G.vh = G.h; G.vw = G.h * 4 / 3; }
-    else { G.vw = G.w; G.vh = G.w * 3 / 4; }
+    float u = (float)SCREEN_W / TEX_W, v = (float)SCREEN_H / TEX_H;
+    float quad[16] = {
+        /* x, y, u, v  (v = 0 is the top row of the frame) */
+        -1.f,  1.f, 0.f, 0.f,
+         1.f,  1.f, u, 0.f,
+        -1.f, -1.f, 0.f, v,
+         1.f, -1.f, u, v,
+    };
+    glBindBuffer(GL_ARRAY_BUFFER, G.vbo);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(quad), quad);
+    G.quad_w = SCREEN_W;
+}
+
+static void viewport_fill(void)
+{
+    /* 240 lines like the PS1, as many PS1-sized pixels across as the screen's shape holds (a
+       19.5:9 phone: 512, the most VRAM has room for), scaled up to cover the whole screen (a
+       phone wider than that loses a pixel or two top and bottom rather than showing bars) */
+    int w = G.h > 0 ? (int)((long long)SCREEN_H * G.w / G.h) & ~1 : 320;
+    if (w < 320) w = 320;
+    if (w > SCREEN_W_MAX) w = SCREEN_W_MAX;
+    screen_w = w;
+    if ((long long)G.w * SCREEN_H > (long long)G.h * w) { G.vw = G.w; G.vh = (int)((long long)G.w * SCREEN_H / w); }
+    else { G.vh = G.h; G.vw = (int)((long long)G.h * w / SCREEN_H); }
     G.vx = (G.w - G.vw) / 2;
     G.vy = (G.h - G.vh) / 2;
 }
@@ -166,7 +185,7 @@ static int display_init(ANativeWindow *win)
     eglQuerySurface(G.dpy, G.surf, EGL_WIDTH, &G.w);
     eglQuerySurface(G.dpy, G.surf, EGL_HEIGHT, &G.h);
     eglSwapInterval(G.dpy, 1);
-    viewport_43();
+    viewport_fill();
     gl_setup();
     G.ready = 1;
     LOG("display %dx%d, frame %dx%d", G.w, G.h, SCREEN_W, SCREEN_H);
@@ -191,6 +210,7 @@ static void present(void)
     const u16 *v = gpu_vram();
     int dx, dy, x, y;
     game_display_area(&dx, &dy);
+    if (G.quad_w != SCREEN_W) quad_for_width();
     for (y = 0; y < SCREEN_H; y++) {
         const u16 *src = &v[(dy + y) * VRAM_W + dx];
         u16 *dst = &pixels[y * SCREEN_W];
@@ -219,7 +239,7 @@ static void present(void)
 /* ---------------------------------------------------------------- input */
 static void to_frame(float px, float py, int *x, int *y)
 {
-    /* window pixels (top-left origin) -> 320x240 frame coordinates */
+    /* window pixels (top-left origin) -> frame coordinates (SCREEN_W x 240) */
     *x = (int)((px - G.vx) * SCREEN_W / (G.vw ? G.vw : 1));
     *y = (int)((py - (G.h - G.vy - G.vh)) * SCREEN_H / (G.vh ? G.vh : 1));
 }

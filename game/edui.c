@@ -3,7 +3,7 @@
 #include "edui.h"
 #include "gte.h"
 
-ERect eu_clip = { 0, 0, SCREEN_W, SCREEN_H };
+ERect eu_clip = { 0, 0, 320, SCREEN_H };                 /* (eu_begin sets it to the frame) */
 static FrameBuf *FB;
 #define MAXHIT 160
 static ERect hits[2][MAXHIT]; static int hit_id[2][MAXHIT], nhit[2], hcur;

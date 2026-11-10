@@ -57,7 +57,7 @@ int  game_debug_player_yaw(void);
 
 /* touch layout in 320x240 screen space, shared with the platform's hit testing */
 typedef struct { s16 x, y, r; u32 button; } TouchButton;
-extern const TouchButton touch_buttons[];
+extern TouchButton touch_buttons[];
 extern const int touch_button_count;
 u32 touch_hit(int x, int y);       /* screen point -> pad bits */
 

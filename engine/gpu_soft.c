@@ -10,7 +10,8 @@
  */
 #include "gpu.h"
 
-static u16 vram[VRAM_W * VRAM_H];   /* the emulated VRAM (512 KB) */
+static u16 vram[VRAM_W * VRAM_H];   /* the emulated VRAM (1 MB, like the PS1's) */
+int screen_w = 320;                  /* the frame's width (psx.h): the platform sets it to the screen's shape */
 
 static struct { int x0, y0, x1, y1, ofx, ofy, dither; } env;
 

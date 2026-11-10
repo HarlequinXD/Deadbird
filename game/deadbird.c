@@ -57,26 +57,40 @@ static int stick_on, stick_ox, stick_oy, stick_x, stick_y;   /* floating touch s
 static int an_lx, an_ly, an_rx, an_ry;                       /* gamepad sticks, -4096..4096 */
 static int playtest;                      /* playing a level from the editor: back to it after */
 static int custom_map;                    /* the level built is the editor's, not level 1 */
-#define STICK_R 34
+#define STICK_R 38
 static int debug_side_cam;
 static int touch_ui;
 
 /* ------------------------------------------------------------------ touch layout */
 /* the stick runs / walks by how far it's pushed and swiping the right half turns the camera,
    so the pad only needs: chainsaw attack (big, under the thumb), jump, pause */
-const TouchButton touch_buttons[] = {
-    { 286, 196, 21, BTN_ATTACK },
-    { 238, 214, 15, BTN_JUMP },
-    { 300, 22, 11, PAD_START },
-    { 252, 140, 24, PAD_TRIANGLE | PAD_SQUARE },          /* FATALITY: only while one is possible */
-    { 296, 150, 13, BTN_DODGE },                          /* dodge roll */
+TouchButton touch_buttons[] = {                        /* placed by touch_layout */
+    { 0, 0, 25, BTN_ATTACK },
+    { 0, 0, 17, BTN_JUMP },
+    { 0, 0, 12, PAD_START },
+    { 0, 0, 26, PAD_TRIANGLE | PAD_SQUARE },               /* FATALITY: only while one is possible */
+    { 0, 0, 15, BTN_DODGE },                               /* dodge roll */
 };
 const int touch_button_count = (int)(sizeof(touch_buttons) / sizeof(touch_buttons[0]));
+/* thumb-sized and anchored to the screen's corners, however wide the frame is: the chainsaw
+   under the right thumb, jump and dodge round it, pause in the top corner */
+static void touch_layout(void)
+{
+    int W = SCREEN_W;
+    touch_buttons[0].x = (s16)(W - 52);  touch_buttons[0].y = 186;
+    touch_buttons[1].x = (s16)(W - 112); touch_buttons[1].y = 212;
+    touch_buttons[2].x = (s16)(W - 22);  touch_buttons[2].y = 22;
+    touch_buttons[3].x = (s16)(W - 118); touch_buttons[3].y = 134;
+    touch_buttons[4].x = (s16)(W - 42);  touch_buttons[4].y = 124;
+}
+#define STICK_HOME_X 74
+#define STICK_HOME_Y 172
 
 u32 touch_hit(int x, int y)
 {
     int i;
     u32 bits = 0;
+    touch_layout();
     for (i = 0; i < touch_button_count; i++) {
         const TouchButton *b = &touch_buttons[i];
         int dx = x - b->x, dy = y - b->y;
@@ -92,7 +106,16 @@ void game_set_stick(int active, int ox, int oy, int x, int y)
 }
 
 void game_cam_drag(int dx) { if (gs == GS_PLAY) { cam_yaw = (cam_yaw + dx * 12) & 4095; } }
-void game_touch_tap(int x, int y) { if (gs == GS_TITLE) title_tap(x, y); }
+static u32 tap_press;                     /* a tap on a menu, as a button press next frame */
+void game_touch_tap(int x, int y)
+{
+    int cx = SCREEN_W / 2;
+    if (gs == GS_TITLE) title_tap(x, y);
+    else if (gs == GS_PAUSE) {   /* the plates are buttons */
+        if (x > cx - 110 && x < cx + 110 && y >= 112 && y < 150) tap_press |= PAD_START;
+        else if (x > cx - 110 && x < cx + 110 && y >= 150 && y < 190) tap_press |= BTN_JUMP;
+    } else if (gs == GS_CONTROLS || gs == GS_END) tap_press |= PAD_CROSS;
+}
 void game_set_touch_ui(int on) { touch_ui = on; }
 void game_set_pad_style(int style) { pad_style = style; }
 int  game_rumble(void) { return rumble; }
@@ -788,13 +811,14 @@ static void draw_touch(FrameBuf *fb)
 {
     static const int icon_of[] = { UI_ICON_SAW, UI_ICON_JUMP, UI_ICON_PAUSE, 0, UI_ICON_SPRINT };
     int i;
+    touch_layout();
     /* floating stick: a runic iron ring where the thumb landed, the demon eye follows the thumb */
     if (stick_on) {
         s32 dx = stick_x - stick_ox, dy = stick_y - stick_oy, len = (s32)isqrt((u32)(dx * dx + dy * dy));
         if (len > STICK_R) { dx = dx * STICK_R / len; dy = dy * STICK_R / len; }
         ui_stick(fb, stick_ox, stick_oy, stick_ox + dx, stick_oy + dy, STICK_R, 1, frame_count);
     } else {
-        ui_stick(fb, 52, 184, 52, 184, STICK_R, 0, frame_count);
+        ui_stick(fb, STICK_HOME_X, STICK_HOME_Y, STICK_HOME_X, STICK_HOME_Y, STICK_R, 0, frame_count);
     }
     for (i = 0; i < touch_button_count; i++) {
         const TouchButton *b = &touch_buttons[i];
@@ -825,8 +849,8 @@ static void draw_captive(FrameBuf *fb, const MATRIX *view, const DrawCtx *ctx0)
     p.v[FK_HRX] = -38 + (isin(frame_count * 9) * 4 >> 12); p.v[FK_TRX] = -6;
     p.v[FK_LHP] = 12; p.v[FK_LKN] = 40; p.v[FK_LAN] = 30; p.v[FK_RHP] = -6; p.v[FK_RKN] = 26; p.v[FK_RAN] = 34;
     p.v[FK_LAB] = 4; p.v[FK_RAB] = 4;
+    if (!level_tank(&c)) return;   /* no tank in this level: nobody to hold captive */
     fk_bones(&demon, &p, pose, &off);
-    level_tank(&c);
     mat_rot_y(&ry, frame_count * 3);
     mat_translate(&ry, c.vx, c.vy + 900 + (isin(frame_count * 14) * 60 >> 12), c.vz);
     mat_identity(&root);
@@ -944,37 +968,145 @@ have_view:
     fx_draw(fb, &view, pr);
 }
 
+/* ------------------------------------------------------------------ the health bar
+   a horned bone sigil with a burning eye, an iron-and-bone frame with thorns, a blood fill in a
+   dark notched trough, a draining damage trail, and a shine that sweeps left to right with a
+   crackle of lightning at its head; under 35% the whole bar throbs like a heartbeat */
+#define HB_X0 34
+#define HB_X1 154
+#define HB_Y0 13
+#define HB_Y1 22
+static int hp_trail = 100, hp_trail_wait;
+static u32 hash3(int a, int b) { u32 h = (u32)a * 73856093u ^ (u32)b * 19349663u; h ^= h >> 13; h *= 0x5bd1e995u; return h ^ (h >> 15); }
+/* a 1-pixel segment as two thin triangles (works on the PS1 too) */
+static void seg(FrameBuf *fb, int x0, int y0, int x1, int y1, u32 c, int mode, int ot)
+{
+    if ((x1 - x0) * (x1 - x0) >= (y1 - y0) * (y1 - y0)) {
+        tri_f(fb, x0, y0, x1, y1, x0, y0 + 1, c, mode, ot); tri_f(fb, x1, y1, x1, y1 + 1, x0, y0 + 1, c, mode, ot);
+    } else {
+        tri_f(fb, x0, y0, x1, y1, x0 + 1, y0, c, mode, ot); tri_f(fb, x1, y1, x1 + 1, y1, x0 + 1, y0, c, mode, ot);
+    }
+}
+/* an additive slanted band from xa to xb (bottom edge shifted left by slant), clipped to [lo, hi] */
+static void band(FrameBuf *fb, int xa, int xb, int slant, int lo, int hi, int y0, int y1, u32 c, int ot)
+{
+    int tx0 = xa, tx1 = xb, bx0 = xa - slant, bx1 = xb - slant;
+    POLY *p;
+    if (tx0 < lo) tx0 = lo;
+    if (tx1 > hi) tx1 = hi;
+    if (bx0 < lo) bx0 = lo;
+    if (bx1 > hi) bx1 = hi;
+    if (tx1 <= tx0 && bx1 <= bx0) return;
+    if (tx1 < tx0) tx1 = tx0;
+    if (bx1 < bx0) bx1 = bx0;
+    p = quad_g(fb, 0, y0, 1, y1, c, c, SEMI_ADD, ot);
+    if (!p) return;
+    p->v[0].x = (s16)tx0; p->v[1].x = (s16)tx1; p->v[2].x = (s16)bx0; p->v[3].x = (s16)bx1;
+}
+static void draw_health(FrameBuf *fb, int t)
+{
+    const int W = HB_X1 - HB_X0, cx = 18, cy = 18;
+    int w = php * W / 100, wt, k, low = php > 0 && php < 35;
+    int beat = low ? (isin(t * 180) > 2600 ? 90 : isin(t * 180) > 0 ? 40 : 0) : 0;
+    /* the damage trail: holds a moment, then drains down to the health */
+    if (php >= hp_trail) { hp_trail = php; hp_trail_wait = 0; }
+    else if (++hp_trail_wait > 24) hp_trail -= 1;
+    wt = hp_trail * W / 100;
+
+    /* frame: black outline, a bone bevel, the dark trough with segment notches */
+    quad_g(fb, HB_X0 - 4, HB_Y0 - 4, HB_X1 + 4, HB_Y1 + 4, RGB(4, 2, 2), RGB(4, 2, 2), NO_SEMI, 9);
+    quad_g(fb, HB_X0 - 3, HB_Y0 - 3, HB_X1 + 3, HB_Y1 + 3, RGB(196, 160, 118), RGB(78, 46, 34), NO_SEMI, 8);
+    quad_g(fb, HB_X0 - 2, HB_Y0 - 2, HB_X1 + 2, HB_Y1 + 2, RGB(60, 30, 24), RGB(26, 10, 10), NO_SEMI, 8);
+    quad_g(fb, HB_X0, HB_Y0, HB_X1, HB_Y1, RGB(10, 3, 4), RGB(30, 6, 8), NO_SEMI, 7);
+    for (k = 1; k < 10; k++) { int x = HB_X0 + k * W / 10; quad_g(fb, x, HB_Y0, x + 1, HB_Y1, RGB(4, 1, 1), RGB(4, 1, 1), NO_SEMI, 6); }
+    /* thorns along the top and bottom, a spike off the end */
+    for (k = 0; k < 6; k++) {
+        int x = HB_X0 + 8 + k * 20;
+        tri_f(fb, x - 3, HB_Y0 - 3, x + 3, HB_Y0 - 3, x + 1, HB_Y0 - 7, RGB(170, 132, 96), NO_SEMI, 8);
+        tri_f(fb, x + 7, HB_Y1 + 3, x + 13, HB_Y1 + 3, x + 9, HB_Y1 + 6, RGB(110, 76, 56), NO_SEMI, 8);
+    }
+    tri_f(fb, HB_X1 + 3, HB_Y0 - 3, HB_X1 + 3, HB_Y1 + 3, HB_X1 + 14, (HB_Y0 + HB_Y1) / 2, RGB(4, 2, 2), NO_SEMI, 9);
+    tri_f(fb, HB_X1 + 3, HB_Y0 - 1, HB_X1 + 3, HB_Y1 + 1, HB_X1 + 11, (HB_Y0 + HB_Y1) / 2, RGB(160, 124, 90), NO_SEMI, 8);
+
+    /* the damage trail and the blood */
+    if (wt > w) quad_g(fb, HB_X0 + w, HB_Y0, HB_X0 + wt, HB_Y1, RGB(255, 196, 110), RGB(190, 80, 30), NO_SEMI, 5);
+    if (w > 0) {
+        quad_g(fb, HB_X0, HB_Y0, HB_X0 + w, HB_Y1, RGB(255, 64 + beat / 3, 34), RGB(112, 6, 8), NO_SEMI, 5);
+        quad_g(fb, HB_X0, HB_Y0, HB_X0 + w, HB_Y0 + 2, RGB(110, 50, 30), RGB(60, 20, 10), SEMI_ADD, 4);   /* wet top edge */
+        quad_g(fb, HB_X0 + w - 1, HB_Y0, HB_X0 + w, HB_Y1, RGB(255, 170, 120), RGB(160, 40, 20), NO_SEMI, 3);   /* bright tip */
+        for (k = 1; k < 10; k++) { int x = HB_X0 + k * W / 10; if (x < HB_X0 + w - 1) quad_g(fb, x, HB_Y0 + 2, x + 1, HB_Y1, RGB(40, 20, 16), RGB(60, 24, 20), SEMI_SUB, 4); }
+        if (beat) quad_g(fb, HB_X0, HB_Y0, HB_X0 + w, HB_Y1, RGB(beat, beat / 6, beat / 8), RGB(beat / 2, 0, 0), SEMI_ADD, 3);
+        {   /* the shine: a slanted glow sweeping left to right, lightning crackling at its head */
+            int period = low ? 70 : 110, ph = t % period, head = HB_X0 - 16 + ph * (W + 40) / period, j;
+            band(fb, head - 14, head, 5, HB_X0, HB_X0 + w, HB_Y0, HB_Y1, RGB(60, 26, 12), 3);
+            band(fb, head - 6, head, 5, HB_X0, HB_X0 + w, HB_Y0, HB_Y1, RGB(110, 70, 40), 2);
+            if (head > HB_X0 && head - 4 < HB_X0 + w) {
+                /* the bolt: jagged, top to bottom through the head, flickering every few frames */
+                int px = head, py = HB_Y0;
+                for (j = 1; j <= 3; j++) {
+                    int ny = HB_Y0 + j * (HB_Y1 - HB_Y0) / 3, nx = head - j * 2 + (int)(hash3(t >> 1, j) % 5) - 2;
+                    if (nx < HB_X0) nx = HB_X0;
+                    if (nx > HB_X0 + w - 1) nx = HB_X0 + w - 1;
+                    seg(fb, px, py, nx, ny, RGB(255, 230, 170), SEMI_ADD, 1);
+                    px = nx; py = ny;
+                }
+                /* a crackle trailing back along the bar */
+                px = head; py = (HB_Y0 + HB_Y1) / 2;
+                for (j = 1; j <= 4; j++) {
+                    int nx = head - j * 6, ny = (HB_Y0 + HB_Y1) / 2 + (int)(hash3(t >> 2, j + 7) % 7) - 3;
+                    if (nx < HB_X0) break;
+                    seg(fb, px, py, nx, ny, j < 3 ? RGB(200, 150, 90) : RGB(110, 70, 40), SEMI_ADD, 2);
+                    px = nx; py = ny;
+                }
+            }
+        }
+    }
+
+    /* the sigil: a horned bone diamond round a burning eye */
+    tri_f(fb, cx - 7, cy - 6, cx - 15, cy - 16, cx - 3, cy - 9, RGB(196, 160, 118), NO_SEMI, 6);     /* horns */
+    tri_f(fb, cx + 7, cy - 6, cx + 15, cy - 16, cx + 3, cy - 9, RGB(196, 160, 118), NO_SEMI, 6);
+    tri_f(fb, cx, cy - 13, cx + 13, cy, cx - 13, cy, RGB(4, 2, 2), NO_SEMI, 7);
+    tri_f(fb, cx - 13, cy, cx + 13, cy, cx, cy + 13, RGB(4, 2, 2), NO_SEMI, 7);
+    tri_f(fb, cx, cy - 11, cx + 11, cy, cx - 11, cy, RGB(206, 170, 128), NO_SEMI, 6);
+    tri_f(fb, cx - 11, cy, cx + 11, cy, cx, cy + 11, RGB(96, 60, 44), NO_SEMI, 6);
+    tri_f(fb, cx, cy - 8, cx + 8, cy, cx - 8, cy, RGB(40, 10, 10), NO_SEMI, 5);
+    tri_f(fb, cx - 8, cy, cx + 8, cy, cx, cy + 8, RGB(20, 4, 6), NO_SEMI, 5);
+    {
+        int g = 150 + (isin(t * (low ? 200 : 70)) * 100 >> 12);
+        tri_f(fb, cx - 6, cy, cx, cy - 3, cx + 6, cy, RGB(g, g / 5, g / 10), NO_SEMI, 4);            /* the eye */
+        tri_f(fb, cx - 6, cy, cx + 6, cy, cx, cy + 3, RGB(g * 3 / 4, g / 8, 0), NO_SEMI, 4);
+        quad_g(fb, cx, cy - 3, cx + 1, cy + 3, RGB(0, 0, 0), RGB(0, 0, 0), NO_SEMI, 3);              /* slit pupil */
+        tri_f(fb, cx - 10, cy, cx, cy - 6, cx + 10, cy, RGB(g / 3, g / 14, 0), SEMI_ADD, 5);          /* glow */
+        tri_f(fb, cx - 10, cy, cx + 10, cy, cx, cy + 6, RGB(g / 3, g / 14, 0), SEMI_ADD, 5);
+    }
+}
+
 static void draw_hud(FrameBuf *fb)
 {
-    /* bone-framed name plate */
-    quad_g(fb, 8, 8, 124, 26, RGB(30, 6, 8), RGB(10, 2, 3), NO_SEMI, 5);
-    quad_g(fb, 6, 6, 126, 28, RGB(150, 120, 96), RGB(70, 44, 34), NO_SEMI, 6);
-    tri_f(fb, 6, 6, 18, 6, 6, -2, RGB(140, 110, 86), NO_SEMI, 6);
-    tri_f(fb, 126, 6, 114, 6, 126, -2, RGB(140, 110, 86), NO_SEMI, 6);
-    text(fb, "DEADBIRD", 14, 12, 1, 200, 4);
-    {   /* health: a blood bar under the name plate */
-        int w = php * 112 / 100;
-        quad_g(fb, 8, 30, 124, 37, RGB(14, 4, 6), RGB(14, 4, 6), NO_SEMI, 6);
-        if (w > 0) quad_g(fb, 10, 31, 10 + w, 36, RGB(230, 40, 26), RGB(110, 8, 8), NO_SEMI, 5);
-    }
-    if (pl.speed > 40) text(fb, "RUN", 96, 12, 1, 120, 4);
-    {   /* keycard slots under the health bar: filled when carried, flashing when a door wants one */
+    draw_health(fb, frame_count);
+    {   /* keycard slots under the bar: slanted bone frames, lit when carried, flashing when a door wants one */
         static const u32 KC[4] = { 0, RGB(40, 200, 240), RGB(250, 160, 30), RGB(230, 30, 50) };
         int c;
         for (c = 1; c <= 3; c++) {
-            int x = 10 + (c - 1) * 16, have = (keys >> c) & 1, flash = key_flash_t && key_flash_col == c && ((key_flash_t >> 3) & 1);
-            quad_g(fb, x, 41, x + 12, 49, RGB(20, 6, 8), RGB(20, 6, 8), NO_SEMI, 6);
-            if (have || flash) quad_g(fb, x + 1, 42, x + 11, 48, KC[c], flash && !have ? RGB(60, 10, 10) : KC[c] >> 1 & 0x7f7f7f, NO_SEMI, 5);
+            int x = HB_X0 + 2 + (c - 1) * 18, y = HB_Y1 + 8, have = (keys >> c) & 1, flash = key_flash_t && key_flash_col == c && ((key_flash_t >> 3) & 1);
+            POLY *p = quad_g(fb, x, y, x + 14, y + 8, RGB(150, 116, 86), RGB(70, 42, 32), NO_SEMI, 7);
+            if (p) { p->v[0].x += 2; p->v[1].x += 2; }
+            p = quad_g(fb, x + 1, y + 1, x + 13, y + 7, RGB(16, 6, 8), RGB(16, 6, 8), NO_SEMI, 6);
+            if (p) { p->v[0].x += 2; p->v[1].x += 2; }
+            if (have || flash) {
+                p = quad_g(fb, x + 2, y + 2, x + 12, y + 6, KC[c], flash && !have ? RGB(60, 10, 10) : KC[c] >> 1 & 0x7f7f7f, NO_SEMI, 5);
+                if (p) { p->v[0].x += 2; p->v[1].x += 2; }
+            }
         }
     }
     if (msg && msg_t > 0) {
-        if (msg_t > 20 || (msg_t >> 2) & 1) text_center(fb, msg, 160, 172, 1, msg_col ? 230 : 200, 4);
+        if (msg_t > 20 || (msg_t >> 2) & 1) text_center(fb, msg, SCREEN_W / 2, touch_ui ? 96 : 172, 1, msg_col ? 230 : 200, 4);
     }
     if (fps_shown > 0) {
         char b[12];
         b[0] = 'F'; b[1] = 'P'; b[2] = 'S'; b[3] = ' ';
         b[4] = (char)('0' + fps_shown / 10 % 10); b[5] = (char)('0' + fps_shown % 10); b[6] = 0;
-        text(fb, b, 262, 12, 1, 200, 4);
+        text(fb, b, SCREEN_W - (touch_ui ? 104 : 58), 12, 1, 200, 4);
     }
 }
 
@@ -1000,19 +1132,21 @@ static void draw_controls(FrameBuf *fb)
     };
     const char *(*L)[2] = touch_ui ? lines : pad_lines;
     int i;
-    quad_g(fb, 18, 34, 302, 214, RGB(30, 4, 6), RGB(8, 1, 2), NO_SEMI, 8);
-    quad_g(fb, 16, 32, 304, 216, RGB(160, 40, 20), RGB(60, 8, 4), NO_SEMI, 9);
-    text_hell(fb, "CONTROLS", 160, 42, 2, frame_count, 6);
+    int ox = SCREEN_W / 2 - 160;
+    quad_g(fb, ox + 18, 34, ox + 302, 214, RGB(30, 4, 6), RGB(8, 1, 2), NO_SEMI, 8);
+    quad_g(fb, ox + 16, 32, ox + 304, 216, RGB(160, 40, 20), RGB(60, 8, 4), NO_SEMI, 9);
+    text_hell(fb, "CONTROLS", SCREEN_W / 2, 42, 2, frame_count, 6);
     for (i = 0; i < 7; i++) {
-        text(fb, L[i][0], 28, 74 + i * 18, 1, 230, 6);
-        text(fb, L[i][1], 128, 74 + i * 18, 1, 140, 6);
+        text(fb, L[i][0], ox + 28, 74 + i * 18, 1, 230, 6);
+        text(fb, L[i][1], ox + 128, 74 + i * 18, 1, 140, 6);
     }
-    if ((frame_count >> 4) & 1) text_center(fb, "PRESS ANY BUTTON", 160, 200, 1, 160, 6);
+    if ((frame_count >> 4) & 1) text_center(fb, touch_ui ? "TAP TO GO BACK" : "PRESS ANY BUTTON", SCREEN_W / 2, 200, 1, 160, 6);
 }
 
 void game_step(u32 pad)
 {
-    u32 press = pad & ~prev_pad;
+    u32 press = (pad & ~prev_pad) | tap_press;
+    tap_press = 0;
     cur_pad = pad;
     prev_pad = pad;
     frame_count++;
@@ -1030,7 +1164,7 @@ void game_frame(u32 pad)
     game_step(pad);
 
     ot_clear(fb);
-    gpu_set_draw_env(0, by, SCREEN_W, SCREEN_H, 0, by, 1);
+    gpu_set_draw_env(FB_X, by, SCREEN_W, SCREEN_H, FB_X, by, 1);
     if (gs == GS_TITLE) {
         title_draw(fb, frame_count);
 #ifndef GEN_BAKED
@@ -1047,60 +1181,60 @@ void game_frame(u32 pad)
     if (cine.active) {
         /* letterbox, a red flash on the cut, then FATALITY */
         int f = cine.vt16 >> 4;
-        quad_g(fb, 0, 0, 320, 26, RGB(0, 0, 0), RGB(0, 0, 0), NO_SEMI, 1);
-        quad_g(fb, 0, 214, 320, 240, RGB(0, 0, 0), RGB(0, 0, 0), NO_SEMI, 1);
-        if (f >= 84 && f < 92) { int a = (92 - f) * 9; quad_g(fb, 0, 26, 320, 214, RGB(a, a / 10, a / 12), RGB(a, a / 10, a / 12), SEMI_ADD, 3); }
+        quad_g(fb, 0, 0, SCREEN_W, 26, RGB(0, 0, 0), RGB(0, 0, 0), NO_SEMI, 1);
+        quad_g(fb, 0, 214, SCREEN_W, 240, RGB(0, 0, 0), RGB(0, 0, 0), NO_SEMI, 1);
+        if (f >= 84 && f < 92) { int a = (92 - f) * 9; quad_g(fb, 0, 26, SCREEN_W, 214, RGB(a, a / 10, a / 12), RGB(a, a / 10, a / 12), SEMI_ADD, 3); }
         if (cine.ei < 0 && f >= 84 && f < 130) {          /* the reactor's flash: white, then orange */
             int a = f < 92 ? 255 - (f - 84) * 12 : (130 - f) * 3;
-            quad_g(fb, 0, 26, 320, 214, RGB(a, a * 7 / 10, a / 3), RGB(a, a / 2, a / 6), SEMI_ADD, 3);
+            quad_g(fb, 0, 26, SCREEN_W, 214, RGB(a, a * 7 / 10, a / 3), RGB(a, a / 2, a / 6), SEMI_ADD, 3);
         }
-        if (f >= 32 && f < 34) quad_g(fb, 0, 26, 320, 214, RGB(70, 6, 4), RGB(70, 6, 4), SEMI_ADD, 3);
+        if (f >= 32 && f < 34) quad_g(fb, 0, 26, SCREEN_W, 214, RGB(70, 6, 4), RGB(70, 6, 4), SEMI_ADD, 3);
         if (cine.title_t) {
             /* FATALITY slams in large, settles, glows */
             int sc = cine.title_t < 3 ? 6 : cine.title_t < 6 ? 5 : 4, y = 96 - sc * 5;
-            quad_g(fb, 0, y - 10, 320, y + sc * 10 + 10, RGB(0, 0, 0), RGB(40, 2, 2), SEMI_SUB, 3);
-            quad_g(fb, 0, y - 12, 320, y - 10, RGB(200, 30, 10), RGB(200, 30, 10), NO_SEMI, 1);
-            quad_g(fb, 0, y + sc * 10 + 10, 320, y + sc * 10 + 12, RGB(200, 30, 10), RGB(200, 30, 10), NO_SEMI, 1);
-            text_hell(fb, cine.ei < 0 ? "PLANT DESTROYED" : "FATALITY", 160, y, cine.ei < 0 ? (sc > 3 ? 3 : sc) : sc, frame_count, 1);
+            quad_g(fb, 0, y - 10, SCREEN_W, y + sc * 10 + 10, RGB(0, 0, 0), RGB(40, 2, 2), SEMI_SUB, 3);
+            quad_g(fb, 0, y - 12, SCREEN_W, y - 10, RGB(200, 30, 10), RGB(200, 30, 10), NO_SEMI, 1);
+            quad_g(fb, 0, y + sc * 10 + 10, SCREEN_W, y + sc * 10 + 12, RGB(200, 30, 10), RGB(200, 30, 10), NO_SEMI, 1);
+            text_hell(fb, cine.ei < 0 ? "PLANT DESTROYED" : "FATALITY", SCREEN_W / 2, y, cine.ei < 0 ? (sc > 3 ? 3 : sc) : sc, frame_count, 1);
         }
     } else if (gs == GS_END) {
         /* the score: time, kills, secrets */
         char b[32];
         int sec = play_frames / 60;
-        quad_g(fb, 0, 0, 320, 240, RGB(120, 130, 130), RGB(150, 160, 160), SEMI_SUB, 3);
-        text_hell(fb, "PLANT DESTROYED", 160, 46, 2, frame_count, 2);
+        quad_g(fb, 0, 0, SCREEN_W, 240, RGB(120, 130, 130), RGB(150, 160, 160), SEMI_SUB, 3);
+        text_hell(fb, "PLANT DESTROYED", SCREEN_W / 2, 46, 2, frame_count, 2);
         score_line(b, "TIME      ", sec / 60, ":", sec % 60, 2);
-        text(fb, b, 96, 100, 1, 220, 2);
+        text(fb, b, SCREEN_W / 2 - 64, 100, 1, 220, 2);
         score_line(b, "KILLS     ", end_kills, " / ", end_troopers, 1);
-        text(fb, b, 96, 120, 1, 220, 2);
+        text(fb, b, SCREEN_W / 2 - 64, 120, 1, 220, 2);
         score_line(b, "SECRETS   ", end_secrets, " / ", end_secrets_n, 1);
-        text(fb, b, 96, 140, 1, 220, 2);
-        if (gs_t > 90 && ((frame_count >> 4) & 1)) text_center(fb, "PRESS ANY BUTTON", 160, 188, 1, 160, 2);
+        text(fb, b, SCREEN_W / 2 - 64, 140, 1, 220, 2);
+        if (gs_t > 90 && ((frame_count >> 4) & 1)) text_center(fb, touch_ui ? "TAP TO CONTINUE" : "PRESS ANY BUTTON", SCREEN_W / 2, 188, 1, 160, 2);
     } else if (gs != GS_TITLE && gs != GS_CONTROLS && gs != GS_EDITOR) {
         draw_hud(fb);
-        if (hurt_flash > 0) quad_g(fb, 0, 0, 320, 240, RGB(hurt_flash * 9, 0, 0), RGB(hurt_flash * 5, 0, 0), SEMI_ADD, 3);
+        if (hurt_flash > 0) quad_g(fb, 0, 0, SCREEN_W, 240, RGB(hurt_flash * 9, 0, 0), RGB(hurt_flash * 5, 0, 0), SEMI_ADD, 3);
         if (dead_t) {
-            quad_g(fb, 0, 0, 320, 240, RGB(dead_t, dead_t + 10, dead_t + 10), RGB(dead_t, dead_t + 10, dead_t + 10), SEMI_SUB, 3);
-            text_hell(fb, "YOU DIED", 160, 100, 3, frame_count, 1);
+            quad_g(fb, 0, 0, SCREEN_W, 240, RGB(dead_t, dead_t + 10, dead_t + 10), RGB(dead_t, dead_t + 10, dead_t + 10), SEMI_SUB, 3);
+            text_hell(fb, "YOU DIED", SCREEN_W / 2, 100, 3, frame_count, 1);
         }
         if (fatal_ready >= 0 && !dead_t && gs == GS_PLAY) {             /* the prompt */
             static const char *how[3] = { "TRIANGLE + SQUARE", "Y + X    KEYS R + F", "TAP THE SIGIL" };
-            text_hell(fb, "FATALITY", 160, 44, 2, frame_count, 1);
-            text_center(fb, how[touch_ui ? 2 : pad_style], 160, 68, 1, 150 + (isin(frame_count * 160) * 100 >> 12), 1);
+            text_hell(fb, "FATALITY", SCREEN_W / 2, 44, 2, frame_count, 1);
+            text_center(fb, how[touch_ui ? 2 : pad_style], SCREEN_W / 2, 68, 1, 150 + (isin(frame_count * 160) * 100 >> 12), 1);
         }
         if (gs == GS_PAUSE) {
-            quad_g(fb, 0, 0, 320, 240, RGB(90, 100, 100), RGB(90, 100, 100), SEMI_SUB, 4);
-            text_hell(fb, "PAUSED", 160, 80, 3, frame_count, 2);
-            ui_plate(fb, 160, 118, 200, 1, frame_count, 8);
-            ui_plate(fb, 160, 156, 200, 0, frame_count, 8);
-            text_center(fb, touch_ui ? "BONES  RESUME" : "START  RESUME", 161, 129, 1, 255, 2);
-            text_center(fb, playtest ? (touch_ui ? "WINGS  BACK TO EDITOR" : "A  BACK TO EDITOR") : touch_ui ? "WINGS  QUIT TO TITLE" : "A  QUIT TO TITLE", 161, 167, 1, 170, 2);
+            quad_g(fb, 0, 0, SCREEN_W, 240, RGB(90, 100, 100), RGB(90, 100, 100), SEMI_SUB, 4);
+            text_hell(fb, "PAUSED", SCREEN_W / 2, 80, 3, frame_count, 2);
+            ui_plate(fb, SCREEN_W / 2, 118, 220, 1, frame_count, 8);
+            ui_plate(fb, SCREEN_W / 2, 156, 220, 0, frame_count, 8);
+            text_center(fb, touch_ui ? "RESUME" : "START  RESUME", SCREEN_W / 2 + 1, 129, 1, 255, 2);
+            text_center(fb, playtest ? (touch_ui ? "BACK TO EDITOR" : "A  BACK TO EDITOR") : touch_ui ? "QUIT TO TITLE" : "A  QUIT TO TITLE", SCREEN_W / 2 + 1, 167, 1, 200, 2);
         }
         if (touch_ui) draw_touch(fb);
     }
 
     gpu_draw_ot(fb);
-    disp_x = 0; disp_y = by;
+    disp_x = FB_X; disp_y = by;
     cur ^= 1;
 }
 

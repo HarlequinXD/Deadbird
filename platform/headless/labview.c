@@ -13,7 +13,7 @@ static FrameBuf fb;
 
 static void save(const char *dir, const char *name)
 {
-    unsigned char h[54] = { 'B', 'M' }, row[SCREEN_W * 3];
+    unsigned char h[54] = { 'B', 'M' }, row[SCREEN_W_MAX * 3 + 4];
     char path[512];
     int x, y, size = 54 + SCREEN_W * SCREEN_H * 3;
     const u16 *v = gpu_vram();
@@ -29,7 +29,7 @@ static void save(const char *dir, const char *name)
             int r = c & 31, g = (c >> 5) & 31, b = (c >> 10) & 31;
             row[x * 3] = (unsigned char)(b << 3 | b >> 2); row[x * 3 + 1] = (unsigned char)(g << 3 | g >> 2); row[x * 3 + 2] = (unsigned char)(r << 3 | r >> 2);
         }
-        fwrite(row, 1, sizeof(row), f);
+        fwrite(row, 1, (size_t)((SCREEN_W * 3 + 3) & ~3), f);
     }
     fclose(f);
 }

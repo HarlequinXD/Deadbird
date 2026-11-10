@@ -111,7 +111,7 @@ POLY *tri_f(FrameBuf *fb, int x0, int y0, int x1, int y1, int x2, int y2, u32 c,
 void hud_health(FrameBuf *fb, int side, int hp, int trail, const char *name, int wins, int t)
 {
     /* player 1 bar drains toward the left edge, player 2 toward the right edge */
-    int x0 = side ? 320 - 14 - BAR_W : 14, x1 = x0 + BAR_W, i;
+    int x0 = side ? SCREEN_W - 14 - BAR_W : 14, x1 = x0 + BAR_W, i;
     int fill = hp * BAR_W / 1000, tr = trail * BAR_W / 1000;
     int flick = 200 + (isin(t * 150) * 40 >> 12);
     int low = hp < 250 && ((t >> 3) & 1);
@@ -166,7 +166,7 @@ void hud_timer(FrameBuf *fb, int seconds, int t)
     quad_g(fb, 145, 5, 175, 35, RGB(170, 30, 16), RGB(80, 8, 6), NO_SEMI, 5);
     tri_f(fb, 145, 5, 145, 35, 136, 20, RGB(170, 30, 16), NO_SEMI, 5);
     tri_f(fb, 175, 5, 175, 35, 184, 20, RGB(170, 30, 16), NO_SEMI, 5);
-    text_center(fb, buf, 160, 10, 2, hot ? 255 : 160, 2);
+    text_center(fb, buf, SCREEN_W / 2, 10, 2, hot ? 255 : 160, 2);
 }
 
 void hud_combo(FrameBuf *fb, int side, int hits, int life)

@@ -28,15 +28,32 @@ EdPtr ed_ptr[16]; int ed_nptr, ed_wheel;
 int ed_mouse_x, ed_mouse_y, ed_mouse_on;
 
 /* ------------------------------------------------------------------ layout */
-#define TOP_H   14
-#define BAR_Y   226
+/* laid out each frame for the frame's width (320..512) and the input: on a touch screen the map
+   sits between a tool rail (left) and an action rail (right) with big buttons and taller rows;
+   with a gamepad / mouse the map is the whole width and a prompt bar runs along the bottom */
+static int top_h = 14, bar_y = 226, map_x0, map_x1 = 320, row_h = 11, touch_lay;
+#define TOP_H   top_h
+#define BAR_Y   bar_y
 #define MAP_Y0  TOP_H
 #define MAP_Y1  BAR_Y
-#define MAP_CX  160
+#define MAP_X0  map_x0
+#define MAP_X1  map_x1
+#define MAP_CX  ((map_x0 + map_x1) / 2)
 #define MAP_CY  ((MAP_Y0 + MAP_Y1) / 2)
+#define RAIL_L  60                      /* touch: the tool rail */
+#define RAIL_R  76                      /* touch: the action rail */
 
 enum { M_LIST, M_MAP, M_3D };
 static int mode, want;                          /* want: what editor_update returns */
+static void layout(void)
+{
+    touch_lay = ed_touch && mode != M_LIST;
+    if (touch_lay) { top_h = 20; bar_y = SCREEN_H; map_x0 = mode == M_3D ? 0 : RAIL_L; map_x1 = SCREEN_W - RAIL_R; row_h = 18; }
+    else { top_h = 14; bar_y = 226; map_x0 = 0; map_x1 = SCREEN_W; row_h = 11; }
+}
+int ed_rail_r(void) { return touch_lay ? RAIL_R : 0; }
+int ed_bar_y(void) { return bar_y; }
+int ed_top_h(void) { return top_h; }
 static char file_name[32];
 static const MapDef *play_def;
 
@@ -95,6 +112,10 @@ static int fing_x[4], fing_y[4], fing_on[4];
 #define H_KEY    1700
 #define H_LIST   1800
 #define H_DPAD   1900
+#define H_TOOLR 2400
+static const int RAIL_TOOLS[] = { T_DRAW, T_RECT, T_FLOOR, T_CEIL, T_MOVE, T_DELETE, T_PLACE, -1 };
+#define NRAIL ((int)(sizeof(RAIL_TOOLS) / sizeof(RAIL_TOOLS[0])))
+
 
 /* ------------------------------------------------------------------ small helpers */
 static s32 iabs32(s32 v) { return v < 0 ? -v : v; }
@@ -374,19 +395,19 @@ static void draw_map(void)
 {
     int si, i, j, k;
     s32 lo = 32767, hi = -32768, g = grid();
-    eu_clip.x0 = 0; eu_clip.y0 = MAP_Y0; eu_clip.x1 = SCREEN_W; eu_clip.y1 = MAP_Y1;
-    eu_rect_g(0, MAP_Y0, SCREEN_W, MAP_Y1, RGB(14, 6, 7), RGB(30, 8, 6), L_BG);
+    eu_clip.x0 = MAP_X0; eu_clip.y0 = MAP_Y0; eu_clip.x1 = MAP_X1; eu_clip.y1 = MAP_Y1;
+    eu_rect_g(MAP_X0, MAP_Y0, MAP_X1, MAP_Y1, RGB(14, 6, 7), RGB(30, 8, 6), L_BG);
     /* grid: the snap grid faint, the 2 m tile grid stronger, the origin hot */
     {
-        s32 step = g, x0 = wx_of(0), x1 = wx_of(SCREEN_W), z0 = wz_of(MAP_Y1), z1 = wz_of(MAP_Y0), v;
+        s32 step = g, x0 = wx_of(MAP_X0), x1 = wx_of(MAP_X1), z0 = wz_of(MAP_Y1), z1 = wz_of(MAP_Y0), v;
         while ((step * ppm() >> 10) < 6) step *= 2;
         for (v = (x0 / step - 1) * step; v <= x1; v += step) {
             u32 c = v == 0 ? RGB(110, 40, 26) : v % 2048 == 0 ? RGB(48, 20, 16) : RGB(30, 12, 11);
-            eu_rect((int)sx_of(v), MAP_Y0, (int)sx_of(v) + 1, MAP_Y1, c, L_GRID);
+            if (sx_of(v) >= MAP_X0 && sx_of(v) < MAP_X1) eu_rect((int)sx_of(v), MAP_Y0, (int)sx_of(v) + 1, MAP_Y1, c, L_GRID);
         }
         for (v = (z0 / step - 1) * step; v <= z1; v += step) {
             u32 c = v == 0 ? RGB(110, 40, 26) : v % 2048 == 0 ? RGB(48, 20, 16) : RGB(30, 12, 11);
-            eu_rect(0, (int)sy_of(v), SCREEN_W, (int)sy_of(v) + 1, c, L_GRID);
+            eu_rect(MAP_X0, (int)sy_of(v), MAP_X1, (int)sy_of(v) + 1, c, L_GRID);
         }
     }
     for (si = 0; si < ED.nsecs; si++) { if (ED.secs[si].floor < lo) lo = ED.secs[si].floor; if (ED.secs[si].floor > hi) hi = ED.secs[si].floor; }
@@ -399,7 +420,7 @@ static void draw_map(void)
             u32 c;
             s32 bx0 = 99999, bx1 = -99999, bz0 = 99999, bz1 = -99999;
             for (i = 0; i < s->np; i++) { x[i] = s->x[i]; z[i] = s->z[i]; if (x[i] < bx0) bx0 = x[i]; if (x[i] > bx1) bx1 = x[i]; if (z[i] < bz0) bz0 = z[i]; if (z[i] > bz1) bz1 = z[i]; }
-            if (sx_of(bx1) < 0 || sx_of(bx0) > SCREEN_W || sy_of(bz0) < MAP_Y0 || sy_of(bz1) > MAP_Y1) continue;
+            if (sx_of(bx1) < MAP_X0 || sx_of(bx0) > MAP_X1 || sy_of(bz0) < MAP_Y0 || sy_of(bz1) > MAP_Y1) continue;
             sector_colour(si, &c, lo, hi);
             if (si == under && !ov) c = mix(c, RGB(255, 200, 150), 40);
             if (sel_kind == K_SECTOR && sel_i == si && ov == OV_INSPECT) c = mix(c, RGB(255, 120, 40), 90);
@@ -532,13 +553,13 @@ static void draw_info(void)
     }
     {
         int w = eu_text_w(a) > eu_text_w(b) ? eu_text_w(a) : eu_text_w(b);
-        eu_rect_semi(2, MAP_Y0 + 2, 8 + w, MAP_Y0 + (b[0] ? 26 : 15), RGB(70, 80, 80), SEMI_SUB, L_MAP_TEXT + 1);
-        eu_text(a, 5, MAP_Y0 + 4, RGB(255, 210, 160), L_MAP_TEXT);
-        if (b[0]) eu_text(b, 5, MAP_Y0 + 15, RGB(200, 170, 150), L_MAP_TEXT);
+        eu_rect_semi(MAP_X0 + 2, MAP_Y0 + 2, MAP_X0 + 8 + w, MAP_Y0 + (b[0] ? 26 : 15), RGB(70, 80, 80), SEMI_SUB, L_MAP_TEXT + 1);
+        eu_text(a, MAP_X0 + 5, MAP_Y0 + 4, RGB(255, 210, 160), L_MAP_TEXT);
+        if (b[0]) eu_text(b, MAP_X0 + 5, MAP_Y0 + 15, RGB(200, 170, 150), L_MAP_TEXT);
     }
     {   /* cursor position, bottom right */
         char c[32]; o = eu_m(c, ed_cx); o = eu_str(o, " "); o = eu_m(o, ed_cz);
-        eu_text(c, SCREEN_W - 4 - eu_text_w(c), MAP_Y1 - 11, RGB(150, 110, 90), L_MAP_TEXT);
+        eu_text(c, MAP_X1 - 4 - eu_text_w(c), MAP_Y1 - 11, RGB(150, 110, 90), L_MAP_TEXT);
     }
 }
 
@@ -885,9 +906,46 @@ static void set_tool(int t)
 static u32 pr_b[8]; static const char *pr_l[8]; static int npr;
 void ed_prompts(const u32 *b, const char *const *l, int n) { int i; npr = n > 8 ? 8 : n; for (i = 0; i < npr; i++) { pr_b[i] = b[i]; pr_l[i] = l[i]; } }
 u32 ed_prompt_taps(void) { u32 t = tap_press; return t; }
+/* touch: the prompts as a rail of big buttons down the right side; the first is the main action
+   (lit), each labelled with what it does now; held down they stay pressed (repeating changes) */
+static int rail_skip(u32 b)
+{
+    if (b & (PAD_START | PAD_SELECT)) return 1;                       /* the top bar has MENU and 3D */
+    if (b == PAD_TRIANGLE && mode == M_MAP && !ov) return 1;         /* the tool rail has the tools */
+    if ((b & (PAD_UP | PAD_DOWN)) == (PAD_UP | PAD_DOWN) || (b & (PAD_LEFT | PAD_RIGHT)) == (PAD_LEFT | PAD_RIGHT)) return 1;   /* tap the panel instead */
+    return 0;
+}
+static void draw_rail(void)
+{
+    int i, y = TOP_H + 6, x0 = SCREEN_W - RAIL_R + 4, x1 = SCREEN_W - 4, first = 1, n = 0, hb, gap = 5;
+    eu_rect_g(SCREEN_W - RAIL_R, TOP_H, SCREEN_W, SCREEN_H, RGB(30, 9, 7), RGB(12, 4, 4), L_BAR);
+    eu_rect(SCREEN_W - RAIL_R, TOP_H, SCREEN_W - RAIL_R + 1, SCREEN_H, RGB(150, 50, 18), L_BAR);
+    for (i = 0; i < npr; i++) if (!rail_skip(pr_b[i])) n++;
+    hb = n > 1 ? (SCREEN_H - y - 4 - 36 - (n - 1) * gap) / (n - 1) : 26;      /* as tall as fits, 26 at most */
+    if (hb > 26) hb = 26;
+    if (hb < 18) { gap = 3; hb = (SCREEN_H - y - 4 - 36 - (n - 1) * gap) / (n - 1); }
+    for (i = 0; i < npr; i++) {
+        int h = first ? 36 : hb, lit = (touch_hold & pr_b[i]) != 0;
+        char l[12];
+        if (rail_skip(pr_b[i])) continue;
+        if (y + h > SCREEN_H - 4) break;
+        scopy(l, pr_l[i], 10);
+        if (first) {   /* the main action: a hot plate with its badge */
+            eu_rect_g(x0, y, x1, y + h, lit ? RGB(255, 140, 40) : RGB(200, 70, 18), lit ? RGB(150, 50, 10) : RGB(110, 26, 8), L_BAR_TEXT + 2);
+            eu_frame(x0, y, x1, y + h, RGB(255, 190, 90), L_BAR_TEXT + 1);
+            eu_badge(pr_b[i], (x0 + x1) / 2 - eu_badge_w(pr_b[i], ed_pad_style) / 2, y + 5, ed_pad_style, L_BAR_TEXT);
+            eu_text_c(l, (x0 + x1) / 2 + 1, y + 22, RGB(255, 240, 210), L_BAR_TEXT);
+        } else {
+            eu_button(x0, y, x1, y + h, l, lit, L_BAR_TEXT + 1);
+        }
+        eu_hit(x0 - 3, y - 2, SCREEN_W, y + h + 2, H_PROMPT + i);
+        y += h + gap; first = 0;
+    }
+}
 static void draw_prompts(void)
 {
     int i, x = 3;
+    if (touch_lay) { draw_rail(); return; }
     eu_rect_g(0, BAR_Y, SCREEN_W, SCREEN_H, RGB(40, 12, 8), RGB(14, 4, 4), L_BAR);
     eu_rect(0, BAR_Y, SCREEN_W, BAR_Y + 1, RGB(200, 70, 24), L_BAR);
     for (i = 0; i < npr; i++) {
@@ -901,51 +959,55 @@ static void draw_prompts(void)
 }
 static void draw_toast(void)
 {
-    if (toast_t <= 0 || !toast[0]) return;
+    if (toast_t <= 0 || !toast[0] || ov != OV_NONE) return;
     {
-        int w = eu_text_w(toast) + 10, y = BAR_Y - 20, x = (SCREEN_W - w) / 2;
+        int w = eu_text_w(toast) + 10, y = BAR_Y - 20, x = (MAP_X0 + MAP_X1 - w) / 2;
         if (x < 0) x = 0;
         eu_rect_semi(x, y, x + w, y + 14, RGB(90, 100, 100), SEMI_SUB, L_POP_BG - 2);
         eu_frame(x, y, x + w, y + 14, RGB(160, 60, 24), L_POP_BG - 3);
-        eu_text_c(toast, SCREEN_W / 2, y + 3, toast_t > 20 || (toast_t >> 2) & 1 ? RGB(255, 220, 180) : RGB(120, 90, 70), L_POP_BG - 4);
+        eu_text_c(toast, x + w / 2, y + 3, toast_t > 20 || (toast_t >> 2) & 1 ? RGB(255, 220, 180) : RGB(120, 90, 70), L_POP_BG - 4);
     }
 }
 
 /* ------------------------------------------------------------------ top bar */
-enum { TB_MENU, TB_VIEW, TB_UNDO, TB_ZOUT, TB_ZIN };
+enum { TB_MENU, TB_VIEW, TB_UNDO, TB_ZOUT, TB_ZIN, TB_REDO };
 static void draw_top(const char *what)
 {
-    static const char *const L[5] = { "MENU", "3D", "UNDO", "-", "+" };
-    int i, x = SCREEN_W - 2;
+    static const char *const L[6] = { "MENU", "3D", "UNDO", "-", "+", "REDO" };
+    static const int ORDER_T[6] = { TB_ZIN, TB_ZOUT, TB_REDO, TB_UNDO, TB_VIEW, TB_MENU }, ORDER_P[5] = { TB_ZIN, TB_ZOUT, TB_UNDO, TB_VIEW, TB_MENU };
+    int i, x = SCREEN_W - 2, nb = touch_lay ? 6 : 5, used = 0;
     char b[48], *o;
     eu_rect_g(0, 0, SCREEN_W, TOP_H, RGB(46, 14, 10), RGB(20, 6, 6), L_BAR);
     eu_rect(0, TOP_H - 1, SCREEN_W, TOP_H, RGB(200, 70, 24), L_BAR);
     o = eu_str(b, what);
-    eu_text(b, 3, 2, RGB(255, 170, 70), L_BAR_TEXT);
+    eu_text(b, 3, (TOP_H - 8) / 2, RGB(255, 170, 70), L_BAR_TEXT);
     o = eu_str(b, ED.name); if (ed_dirty) eu_str(o, "*");
     upcase(b);
+    for (i = 0; i < nb; i++) {   /* the buttons, right to left */
+        int k = touch_lay ? ORDER_T[i] : ORDER_P[i];
+        int w = eu_text_w(L[k]) + (touch_lay ? 14 : 6);
+        if (touch_lay && w < 26) w = 26;
+        eu_button(x - w, 1, x, TOP_H - 1, k == TB_VIEW && mode == M_3D ? "2D" : L[k], 0, L_BAR_TEXT + 1);
+        eu_hit(x - w, 0, x, TOP_H + 4, H_TOP + k);
+        x -= w + 2; used += w + 2;
+    }
     {   /* as much of the name as fits left of the buttons */
-        int room = (SCREEN_W - 132 - (3 + eu_text_w(what) + 10)) / 7;
+        int room = (SCREEN_W - used - 8 - (3 + eu_text_w(what) + 10)) / 7;
         if (room < 0) room = 0;
         if ((int)strlen(b) > room) b[room] = 0;
     }
-    eu_text(b, 3 + eu_text_w(what) + 10, 2, RGB(190, 150, 130), L_BAR_TEXT);
-    for (i = 4; i >= 0; i--) {
-        int w = eu_text_w(L[i]) + 6;
-        if (i == TB_VIEW && mode == M_3D) { L[1] == 0 ? (void)0 : (void)0; }
-        eu_button(x - w, 1, x, TOP_H - 1, i == TB_VIEW && mode == M_3D ? "2D" : L[i], 0, L_BAR_TEXT + 1);
-        eu_hit(x - w, 0, x, TOP_H + 2, H_TOP + i);
-        x -= w + 2;
-    }
+    eu_text(b, 3 + eu_text_w(what) + 10, (TOP_H - 8) / 2, RGB(190, 150, 130), L_BAR_TEXT);
 }
 
 /* ------------------------------------------------------------------ overlays: shared list panel */
-#define PX0 156
+#define PX1 (SCREEN_W - 2 - (touch_lay ? RAIL_R : 0))
+#define PX0 (PX1 - (touch_lay ? 236 : SCREEN_W > 400 ? 200 : 162))
 #define PY0 (TOP_H + 2)
-#define PX1 (SCREEN_W - 2)
 #define PY1 (BAR_Y - 2)
-#define ROW_H 11
-static int panel_rows(void) { return (PY1 - PY0 - 18) / ROW_H; }
+#define ROW_H row_h
+#define H_ADJ 2100
+static int (*panel_adjustable)(int);     /* the inspector: rows that get - / + buttons on touch */
+static int panel_rows(void) { return (PY1 - PY0 - 18 - (touch_lay ? 10 : 0)) / ROW_H; }
 static void list_panel(const char *title, int n, const char *(*label)(int, char *), const char *(*value)(int, char *), int x0)
 {
     int i, rows = panel_rows();
@@ -959,18 +1021,25 @@ static void list_panel(const char *title, int n, const char *(*label)(int, char 
     for (i = 0; i < rows && ov_scroll + i < n; i++) {
         int k = ov_scroll + i, y = PY0 + 17 + i * ROW_H, lit = k == ov_sel;
         const char *l = label(k, a), *v = value ? value(k, b) : 0;
+        int adj = touch_lay && panel_adjustable && panel_adjustable(k), vx1 = adj ? PX1 - 54 : PX1 - 5, ty = y + (ROW_H - 8) / 2 - 1;
         if (v) {   /* the value gives way where it would run into the label */
-            int room = (PX1 - x0 - 16 - eu_text_w(l)) / 7;
+            int room = (vx1 - x0 - 12 - eu_text_w(l)) / 7;
             if (room < 1) room = 1;
             if ((int)strlen(v) > room) { b[room] = 0; if (room > 1) b[room - 1] = '.'; v = b; }
         }
         if (lit) { eu_rect_g(x0 + 2, y - 1, PX1 - 2, y + ROW_H - 1, RGB(150, 46, 14), RGB(80, 20, 8), L_POP); }
-        eu_text(l, x0 + 6, y + 1, lit ? RGB(255, 236, 200) : RGB(200, 160, 140), L_POP_TEXT);
-        if (v) eu_text(v, PX1 - 5 - eu_text_w(v), y + 1, lit ? RGB(255, 200, 120) : RGB(170, 120, 90), L_POP_TEXT);
+        eu_text(l, x0 + 6, ty, lit ? RGB(255, 236, 200) : RGB(200, 160, 140), L_POP_TEXT);
+        if (v) eu_text(v, vx1 - eu_text_w(v), ty, lit ? RGB(255, 200, 120) : RGB(170, 120, 90), L_POP_TEXT);
         eu_hit(x0 + 2, y - 1, PX1 - 2, y + ROW_H - 1, H_ROW + k);
+        if (adj) {   /* - / + (held: repeats, faster the longer) */
+            eu_button(PX1 - 50, y, PX1 - 27, y + ROW_H - 2, "-", 0, L_POP_TEXT - 1);
+            eu_button(PX1 - 25, y, PX1 - 2, y + ROW_H - 2, "+", 0, L_POP_TEXT - 1);
+            eu_hit(PX1 - 52, y - 1, PX1 - 26, y + ROW_H - 1, H_ADJ + k * 2);
+            eu_hit(PX1 - 26, y - 1, PX1, y + ROW_H - 1, H_ADJ + k * 2 + 1);
+        }
     }
     if (ov_scroll > 0) eu_text_c("+", (x0 + PX1) / 2, PY0 + 9, RGB(255, 140, 60), L_POP_TEXT);
-    if (ov_scroll + rows < n) eu_text_c("+", (x0 + PX1) / 2, PY1 - 9, RGB(255, 140, 60), L_POP_TEXT);
+    if (ov_scroll + rows < n) eu_text_c(touch_lay ? "+ DRAG FOR MORE +" : "+", (x0 + PX1) / 2, PY1 - 9, RGB(255, 140, 60), L_POP_TEXT);
 }
 static int list_nav(u32 press, int n)
 {
@@ -1089,8 +1158,8 @@ static void keys_update(u32 press)
 }
 static void keys_draw(void)
 {
-    int i, x0 = 40, y0 = 60, w = 240;
-    eu_panel(x0, y0, x0 + w, y0 + 120, L_POP_BG - 4);
+    int kw = touch_lay && SCREEN_W >= 400 ? 32 : 22, kh = touch_lay ? 22 : 15, w = KB_COLS * kw + 20, x0 = (SCREEN_W - w) / 2, y0 = touch_lay ? TOP_H + 4 : 60, i;
+    eu_panel(x0, y0, x0 + w, y0 + 40 + ((KB_N + 2 + KB_COLS - 1) / KB_COLS) * kh + 4, L_POP_BG - 4);
     eu_text(kb_title, x0 + 6, y0 + 5, RGB(255, 160, 60), L_POP_TEXT - 2);
     eu_rect(x0 + 6, y0 + 17, x0 + w - 6, y0 + 30, RGB(8, 4, 4), L_POP - 2);
     {
@@ -1099,14 +1168,14 @@ static void keys_draw(void)
         eu_text(b, x0 + 9, y0 + 19, RGB(255, 236, 200), L_POP_TEXT - 3);
     }
     for (i = 0; i < KB_N + 2; i++) {
-        int c = i % KB_COLS, r = i / KB_COLS, bx = x0 + 10 + c * 22, by = y0 + 36 + r * 15, bw = 20;
+        int c = i % KB_COLS, r = i / KB_COLS, bx = x0 + 10 + c * kw, by = y0 + 36 + r * kh, bw = kw - 2;
         char t[4] = { 0, 0, 0, 0 };
         const char *l = t;
         if (i < KB_N) { t[0] = KB[i] == ' ' ? '_' : KB[i]; }
-        else if (i == KB_N) { l = "DEL"; bw = 42; }
-        else { l = "OK"; bx += 22; bw = 42; }
-        eu_button(bx, by, bx + bw, by + 13, l, i == kb_sel, L_POP - 4);
-        eu_hit(bx, by, bx + bw, by + 13, H_KEY + i);
+        else if (i == KB_N) { l = "DEL"; bw = kw * 2 - 2; }
+        else { l = "OK"; bx += kw; bw = kw * 2 - 2; }
+        eu_button(bx, by, bx + bw, by + kh - 2, l, i == kb_sel, L_POP - 4);
+        eu_hit(bx, by, bx + bw, by + kh - 2, H_KEY + i);
     }
 }
 
@@ -1131,7 +1200,8 @@ void ed_open_tiles(int current, void (*done)(int tile))
     for (i = 0; i < tiles_n; i++) if (tiles_list[i] == current) tile_sel = i;
     tile_done = done; tile_prev_ov = ov; ov = OV_TILES;
 }
-#define TL_COLS 11
+static int tl_cols = 11;
+#define TL_COLS tl_cols
 static void tiles_update(u32 press)
 {
     if (press & PAD_LEFT) tile_sel = (tile_sel + tiles_n - 1) % tiles_n;
@@ -1143,7 +1213,11 @@ static void tiles_update(u32 press)
 }
 static void tiles_draw(void)
 {
-    int i, x0 = 6, y0 = TOP_H + 4, cell = 26;
+    int i, cell = touch_lay ? 30 : 26, x0, y0 = TOP_H + 4, avail = SCREEN_W - 12 - (touch_lay ? RAIL_R : 0);
+    tl_cols = (avail - 10) / cell;
+    if (tl_cols > 16) tl_cols = 16;
+    while (((tiles_n + tl_cols - 1) / tl_cols) * cell + 22 > SCREEN_H - y0 - 4 && cell > 18) { cell -= 2; tl_cols = (avail - 10) / cell; if (tl_cols > 20) tl_cols = 20; }
+    x0 = 6 + (avail - (TL_COLS * cell + 8)) / 2;
     char b[32];
     eu_panel(x0, y0, x0 + TL_COLS * cell + 8, y0 + ((tiles_n + TL_COLS - 1) / TL_COLS) * cell + 20, L_POP_BG - 6);
     eu_text("TEXTURES", x0 + 5, y0 + 4, RGB(255, 160, 60), L_POP_TEXT - 6);
@@ -1234,8 +1308,9 @@ static void rows_update(u32 press)
 }
 static void rows_draw(void)
 {
-    int n = rows_lines(), l, x0 = 30, y0 = TOP_H + 6, cell = 20;
-    eu_panel(x0, y0, SCREEN_W - 30, y0 + 22 + n * (cell + 4), L_POP_BG - 6);
+    int n = rows_lines(), l, cell = touch_lay ? 24 : 20, x0 = 30, y0 = TOP_H + 6, x1 = SCREEN_W - 30 - (touch_lay ? RAIL_R - 20 : 0);
+    if (y0 + 22 + n * (cell + 4) > SCREEN_H - 4) cell = (SCREEN_H - 4 - y0 - 22) / n - 4;
+    eu_panel(x0, y0, x1, y0 + 22 + n * (cell + 4), L_POP_BG - 6);
     eu_text(rows_title, x0 + 5, y0 + 5, RGB(255, 160, 60), L_POP_TEXT - 6);
     for (l = 0; l < n; l++) {
         int row = 0, kind = line_kind(l, &row), y = y0 + 18 + l * (cell + 4), k, x = x0 + 52;
@@ -1243,7 +1318,7 @@ static void rows_draw(void)
         char b[12];
         if (!lab) { char *o = eu_str(b, "ROW "); eu_int(o, row + 1); lab = b; }
         eu_text(lab, x0 + 6, y + 6, l == rows_r ? RGB(255, 230, 190) : RGB(180, 140, 120), L_POP_TEXT - 6);
-        eu_hit(x0 + 2, y, SCREEN_W - 32, y + cell, H_ROW + l * 16 + 15);
+        eu_hit(x0 + 2, y, x1 - 2, y + cell, H_ROW + l * 16 + 15);
         if (kind == 0 || kind == 1) {
             int cnt = kind == 0 ? rows_ed.n[row] : (rows_ed.top != 255);
             for (k = 0; k <= cnt && k < EM_ROWLEN; k++) {
@@ -1658,6 +1733,16 @@ static void ins_activate(int k)
     }
     ins_adjust(k, 1, 0);
 }
+static int ins_adjustable(int k)
+{
+    int r = ins_rows[k];
+    switch (r) {
+    case R_NAME: case R_ROOMNAME: case R_FTEX: case R_CTEX: case R_FRULE: case R_CRULE: case R_WALLS: case R_LOWS: case R_UPS: case R_CLEARF:
+    case R_W_MID: case R_W_LOW: case R_W_UP: case R_W_CLEAR: case R_W_SECTOR: case R_T_PATROL: return 0;
+    }
+    if (r >= R_P_FIELD) { int f = PF[r - R_P_FIELD].field; if (f == F_T0 || f == F_T1 || f == F_T2) return 0; }
+    return 1;
+}
 static int open_inspect(void)
 {
     Pick p = pick_at(ed_cx, ed_cz, 1);
@@ -1711,7 +1796,7 @@ static void help_draw(void)
         "START / MENU         SAVE  PLAY  UNDO", "", "KEYS: ARROWS SPACE ESC TAB I Q E", "PGUP PGDN  V 3D  M MENU  CTRL Z",
         "TOUCH: TAP THE MAP  DRAG  PINCH" };
     int i;
-    eu_panel(14, TOP_H + 6, SCREEN_W - 14, BAR_Y - 6, L_POP_BG);
+    eu_panel(14, TOP_H + 6, SCREEN_W - 14 - (touch_lay ? RAIL_R : 0), BAR_Y - 6, L_POP_BG);
     eu_text("CONTROLS", 20, TOP_H + 11, RGB(255, 160, 60), L_POP_TEXT);
     for (i = 0; i < (int)(sizeof(L) / sizeof(L[0])); i++) eu_text(L[i], 22, TOP_H + 26 + i * 13, RGB(220, 190, 160), L_POP_TEXT);
 }
@@ -1744,7 +1829,7 @@ static void open_level(int which)
     }
     level_reload_textures();             /* the list's backdrop borrowed the texture pages */
     mode = M_MAP; ov = OV_NONE; tool = T_DRAW; stage = 0; npend = 0; need3d = 1; sel_kind = K_NONE;
-    ed_toast("START FOR THE MENU. TRIANGLE FOR TOOLS");
+    ed_toast(ed_touch ? "TAP THE MAP TO MOVE THE CURSOR" : "START FOR THE MENU. TRIANGLE FOR TOOLS");
 }
 static int lst_rows(void) { return nlst + 2; }
 static void list_update(u32 press)
@@ -1785,29 +1870,37 @@ static void list_draw(FrameBuf *fb, int t)
     int i, first = lst_sel > 5 ? lst_sel - 5 : 0;
     ui_title_bg(fb, 50, OT_LEN - 1);
     embers_draw(fb, t, 30);
-    text_hell(fb, "LEVEL EDITOR", 160, 14, 2, t, 4);
+    int wide = SCREEN_W >= 400, pw = wide ? 240 : 200, cx = wide ? SCREEN_W / 2 - 60 : 120;
+    text_hell(fb, "LEVEL EDITOR", SCREEN_W / 2, 14, 2, t, 4);
     for (i = first; i < lst_rows() && i < first + 7; i++) {
-        int y = 52 + (i - first) * 24, lit = i == lst_sel;
+        int y = 50 + (i - first) * 25, lit = i == lst_sel;
         const char *l = i == 0 ? "NEW LEVEL" : i == 1 ? "COPY OF LEVEL 1" : lst_title[i - 2];
-        ui_plate(fb, 120, y, 200, lit, t, 12);
-        text_center(fb, l, 121, y + 7, 1, lit ? 255 : 130, 8);
-        eu_hit(20, y, 220, y + 22, H_LIST + i);
-        if (lit && i >= 2) {
+        ui_plate(fb, cx, y, pw, lit, t, 12);
+        text_center(fb, l, cx + 1, y + 7, 1, lit ? 255 : 130, 8);
+        eu_hit(cx - pw / 2 - 20, y, cx + pw / 2 + 20, y + 24, H_LIST + i);
+        if (lit && i >= 2) {   /* what to do with it */
             static const char *const A[3] = { "EDIT", "PLAY", "DELETE" };
-            int k;
+            int k, bw = wide ? 44 : 28, bx = cx + pw / 2 + (wide ? 26 : 8);
             for (k = 0; k < 3; k++) {
-                int bx = 228 + k * 30 - (k == 2 ? 0 : 0), bw = k == 2 ? 46 : 28;
-                if (k == 2) bx = 288 - 16;
-                eu_button(k == 0 ? 226 : k == 1 ? 256 : 286, y + 4, (k == 0 ? 226 : k == 1 ? 256 : 286) + (k == 2 ? 32 : 28), y + 18, A[k] , k == lst_act, 7);
-                eu_hit(k == 0 ? 226 : k == 1 ? 256 : 286, y + 2, (k == 0 ? 226 : k == 1 ? 256 : 286) + (k == 2 ? 32 : 28), y + 20, H_LIST + 500 + k);
-                (void)bx; (void)bw;
+                int w = k == 2 ? bw + (wide ? 8 : 4) : bw;
+                eu_button(bx, y + 3, bx + w, y + 21, A[k], k == lst_act, 7);
+                eu_hit(bx - 1, y, bx + w + 1, y + 24, H_LIST + 500 + k);
+                bx += w + 3;
             }
         }
     }
     if (lst_confirm) {
-        eu_panel(60, 90, 260, 140, 3);
-        eu_text_c("DELETE THIS LEVEL?", 160, 100, RGB(255, 200, 160), 2);
-        eu_text_c("X YES     O NO", 160, 120, RGB(220, 180, 150), 2);
+        int x0 = SCREEN_W / 2 - 110;
+        eu_panel(x0, 84, x0 + 220, 150, 3);
+        eu_text_c("DELETE THIS LEVEL?", SCREEN_W / 2, 94, RGB(255, 200, 160), 2);
+        eu_button(x0 + 20, 114, x0 + 100, 138, "DELETE", 1, 2);
+        eu_button(x0 + 120, 114, x0 + 200, 138, "KEEP", 0, 2);
+        eu_hit(x0 + 18, 112, x0 + 102, 140, H_LIST + 600);
+        eu_hit(x0 + 118, 112, x0 + 202, 140, H_LIST + 601);
+    }
+    if (ed_touch && !lst_confirm) {   /* back to the title */
+        eu_button(6, 6, 58, 26, "BACK", 0, 7);
+        eu_hit(0, 0, 62, 30, H_LIST + 602);
     }
     {
         char b[64]; const char *w = plat_file_where();
@@ -1853,11 +1946,12 @@ void editor_char(int ch) { if (nchars < 16) chars[nchars++] = ch; }
 static void tap_hit(int id)
 {
     if (id >= H_PROMPT && id < H_PROMPT + 8) { if (id - H_PROMPT < npr) tap_press |= pr_b[id - H_PROMPT]; return; }
-    if (id >= H_TOP && id < H_TOP + 5) {
+    if (id >= H_TOP && id < H_TOP + 6) {
         switch (id - H_TOP) {
         case TB_MENU: tap_press |= PAD_START; break;
         case TB_VIEW: tap_press |= PAD_SELECT; break;
         case TB_UNDO: do_undo(0); break;
+        case TB_REDO: do_undo(1); break;
         case TB_ZOUT: if (mode == M_MAP) zoom_by(-1, MAP_CX, MAP_CY); break;
         case TB_ZIN: if (mode == M_MAP) zoom_by(1, MAP_CX, MAP_CY); break;
         }
@@ -1870,10 +1964,18 @@ static void tap_hit(int id)
     }
     if (id >= H_TILE && id < H_TILE + 100) { if (tile_sel == id - H_TILE) tap_press |= PAD_CROSS; else tile_sel = id - H_TILE; return; }
     if (id >= H_KEY && id < H_KEY + 64) { kb_sel = id - H_KEY; tap_press |= PAD_CROSS; return; }
+    if (id >= H_TOOLR && id < H_TOOLR + NRAIL) {
+        int t = RAIL_TOOLS[id - H_TOOLR];
+        if (t >= 0 && t != T_PLACE) set_tool(t);
+        else { ov = OV_TOOLS; ov_sel = t == T_PLACE ? T_COUNT + place : tool; ov_scroll = t == T_PLACE ? T_COUNT : 0; }
+        return;
+    }
+    if (id == H_LIST + 600) { tap_press |= PAD_CROSS; return; }
+    if (id == H_LIST + 601 || id == H_LIST + 602) { tap_press |= PAD_CIRCLE; return; }
     if (id >= H_LIST + 500 && id < H_LIST + 503) { lst_act = id - H_LIST - 500; tap_press |= PAD_CROSS; return; }
     if (id >= H_LIST && id < H_LIST + 100) { if (lst_sel == id - H_LIST) tap_press |= PAD_CROSS; else { lst_sel = id - H_LIST; lst_act = 0; } return; }
 }
-static int in_map(int x, int y) { return y >= MAP_Y0 && y < MAP_Y1; }
+static int in_map(int x, int y) { return y >= MAP_Y0 && y < MAP_Y1 && x >= MAP_X0 && x < MAP_X1; }
 static void pointer_events(void)
 {
     int i;
@@ -1885,7 +1987,16 @@ static void pointer_events(void)
             if (e->ev == EP_MOVE) { fing_x[f] = e->x; fing_y[f] = e->y; }
             if (e->ev == EP_UP) fing_on[f] = 0;
         }
-        if (mode == M_3D && !ov) continue;                          /* the 3D view reads the queue itself */
+        if (mode == M_3D && !ov) {   /* the 3D view reads the queue itself; only the bars' buttons here */
+            if (e->ev == EP_DOWN && drag_id < 0 && eu_hit_at(e->x, e->y) >= 0) {
+                drag_id = e->id; drag_kind = e->kind; drag_moved = 0; drag_hit = eu_hit_at(e->x, e->y);
+                if (e->kind == EK_TOUCH && drag_hit >= H_PROMPT && drag_hit < H_PROMPT + 8 && drag_hit - H_PROMPT < npr) { touch_hold = pr_b[drag_hit - H_PROMPT]; tap_press |= touch_hold; }
+            } else if (e->ev == EP_UP && e->id == drag_id) {
+                if (touch_hold) touch_hold = 0; else tap_hit(drag_hit);
+                drag_id = -1;
+            }
+            continue;
+        }
         if (e->ev == EP_HOVER) {
             if (mode == M_MAP && !ov && in_map(e->x, e->y) && eu_hit_at(e->x, e->y) < 0 && drag_id < 0) cursor_to(wx_of(e->x), wz_of(e->y));
             continue;
@@ -1900,6 +2011,8 @@ static void pointer_events(void)
             drag_id = e->id; drag_kind = e->kind; drag_x = e->x; drag_y = e->y; drag_moved = 0;
             drag_hit = eu_hit_at(e->x, e->y);
             if (drag_hit >= H_DPAD && drag_hit < H_DPAD + 4) { touch_hold = drag_hit == H_DPAD ? PAD_UP : drag_hit == H_DPAD + 1 ? PAD_RIGHT : drag_hit == H_DPAD + 2 ? PAD_DOWN : PAD_LEFT; tap_press |= touch_hold; }
+            if (e->kind == EK_TOUCH && drag_hit >= H_PROMPT && drag_hit < H_PROMPT + 8 && drag_hit - H_PROMPT < npr) { touch_hold = pr_b[drag_hit - H_PROMPT]; tap_press |= touch_hold; }
+            if (drag_hit >= H_ADJ && drag_hit < H_ADJ + 200) { ov_sel = (drag_hit - H_ADJ) / 2; touch_hold = (drag_hit - H_ADJ) & 1 ? PAD_RIGHT : PAD_LEFT; tap_press |= touch_hold; }
             continue;
         }
         if (e->ev == EP_MOVE && e->id == drag_id) {
@@ -2022,16 +2135,35 @@ static void map_prompts(void)
 #undef P
     ed_prompts(b, l, n);
 }
+/* touch: the tool rail down the left side - the everyday tools, MORE for the rest */
+static void draw_tool_rail(void)
+{
+    static const char *const SHORT[T_COUNT] = { "DRAW", "RECT", "FLOOR", "CEIL", "EXTRUDE", "CUT", "CORNER", "MOVE", "DELETE", "JOIN", "STAIRS", "PLACE", "TURN" };
+    int i, y = TOP_H + 4, h = (SCREEN_H - TOP_H - 8) / NRAIL - 3, in_rail = 0;
+    eu_rect_g(0, TOP_H, RAIL_L, SCREEN_H, RGB(30, 9, 7), RGB(12, 4, 4), L_BAR);
+    eu_rect(RAIL_L - 1, TOP_H, RAIL_L, SCREEN_H, RGB(150, 50, 18), L_BAR);
+    for (i = 0; i < NRAIL - 1; i++) if (RAIL_TOOLS[i] == tool) in_rail = 1;
+    for (i = 0; i < NRAIL; i++) {
+        int t = RAIL_TOOLS[i];
+        const char *l = t >= 0 ? SHORT[t] : in_rail ? "MORE" : SHORT[tool];
+        eu_button(4, y, RAIL_L - 5, y + h, l, t >= 0 ? t == tool : !in_rail, L_BAR_TEXT + 1);
+        if (t < 0 && !in_rail) eu_text_c("...", (RAIL_L - 1) / 2, y + h - 8, RGB(255, 220, 160), L_BAR_TEXT - 1);
+        eu_hit(0, y - 1, RAIL_L, y + h + 2, H_TOOLR + i);
+        y += h + 3;
+    }
+}
+
 static void draw_dpad(void)
 {
-    int cx = 30, cy = BAR_Y - 30, k;
+    int cx = MAP_X0 + 32, cy = SCREEN_H - 34, k;
     static const int DX[4] = { 0, 1, 0, -1 }, DY[4] = { -1, 0, 1, 0 };
-    eu_disc(cx, cy, 24, RGB(30, 30, 30), SEMI_ADD, L_POP_BG + 2);
+    eu_disc(cx, cy, 28, RGB(26, 22, 22), SEMI_ADD, L_POP_BG + 2);
+    eu_ring(cx, cy, 28, RGB(120, 50, 24), L_POP_BG + 1);
     for (k = 0; k < 4; k++) {
-        int bx = cx + DX[k] * 14, by = cy + DY[k] * 14;
+        int bx = cx + DX[k] * 17, by = cy + DY[k] * 17;
         u32 lit = (touch_hold == (k == 0 ? PAD_UP : k == 1 ? PAD_RIGHT : k == 2 ? PAD_DOWN : PAD_LEFT));
         eu_tri(bx + DX[k] * 6, by + DY[k] * 6, bx - DY[k] * 6 - DX[k] * 2, by + DX[k] * 6 - DY[k] * 2, bx + DY[k] * 6 - DX[k] * 2, by - DX[k] * 6 - DY[k] * 2, lit ? RGB(255, 170, 60) : RGB(160, 120, 100), -1, L_POP_BG + 1);
-        eu_hit(bx - 10, by - 10, bx + 10, by + 10, H_DPAD + k);
+        eu_hit(bx - 12, by - 12, bx + 12, by + 12, H_DPAD + k);
     }
 }
 static void map_draw(void)
@@ -2048,13 +2180,14 @@ static void map_draw(void)
     switch (ov) {
     case OV_TOOLS: list_panel("TOOLS  /  PLACE", T_COUNT + P_COUNT, tools_label, 0, PX0); break;
     case OV_MENU: list_panel("EDITOR", MN_COUNT, menu_label, menu_value, PX0 + 30); break;
-    case OV_INSPECT: { char t[48]; build_rows(); list_panel(ins_title(t), ins_n, ins_label, ins_value, PX0 - 20); break; }
+    case OV_INSPECT: { char t[48]; build_rows(); panel_adjustable = ins_adjustable; list_panel(ins_title(t), ins_n, ins_label, ins_value, PX0 - (touch_lay ? 0 : 20)); panel_adjustable = 0; break; }
     case OV_ROWS: rows_draw(); break;
     case OV_TILES: tiles_draw(); break;
     case OV_KEYS: keys_draw(); break;
     case OV_HELP: help_draw(); break;
     }
-    if (ed_touch && !ov) draw_dpad();
+    if (touch_lay) draw_tool_rail();
+    if (touch_lay && !ov) draw_dpad();
     map_prompts();
     draw_prompts();
     draw_toast();
@@ -2082,6 +2215,7 @@ int editor_update(u32 pad, u32 press, int lx, int ly, int rx, int ry)
     int k;
     ed_t++;
     want = ED_STAY;
+    layout();
     ed_lx = lx; ed_ly = ly; ed_rx = rx; ed_ry = ry;
     tap_press = 0;
     pointer_events();
@@ -2115,6 +2249,7 @@ int editor_update(u32 pad, u32 press, int lx, int ly, int rx, int ry)
 void editor_draw(FrameBuf *fb, int t)
 {
     eu_begin(fb);
+    layout();
     if (mode == M_LIST) { list_draw(fb, t); draw_toast(); return; }
     if (mode == M_MAP) { map_draw(); return; }
     ed3d_draw(fb, t);

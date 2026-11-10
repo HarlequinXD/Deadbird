@@ -10,8 +10,15 @@ controller support), using a fast software model of the PS1's graphics chip.
 - **Title**: hell sky, embers, DEADBIRD logo and menu (PLAY / EDITOR / CONTROLS) over the live
   level, with Deadbird roaming on autopilot.
 - **Level editor** (EDITOR on the title; Windows and Android, not the PS1): an in-game editor for
-  the same sector maps level 1 is made of, at the PS1's 320x240 and built for a gamepad first.
-  See *Level editor* below.
+  the same sector maps level 1 is made of, at the PS1's 240-line resolution and built for a
+  gamepad first, with its own touch layout on phones. See *Level editor* below.
+- **Full screen, PS1 pixels**: the picture is always 240 lines tall; on Windows and Android the
+  width follows the screen (426 on a 16:9 monitor, about 512 on a Galaxy S23) so the game, menus,
+  HUD and editor fill the whole display. The PS1 build stays 320x240.
+- **HUD**: a hell health bar - bone frame with thorns and a horned sigil whose eye pulses, a blood
+  fill over a notched trough, an orange damage trail, a heartbeat when low, and a shine with
+  lightning sweeping left to right - plus keycard slots.
+- **Steps**: she walks up ledges up to 16 texels (0.5 m) high without jumping.
 - **Movement ported from Slayer from Hell** (`game/player.c`): Quake-style ground physics with
   friction, acceleration toward the stick direction, a stop speed, limited air control, gravity
   and jump. Floating analog stick on the left of the touch screen: half push walks, push past 70%
@@ -116,7 +123,7 @@ Almost nothing is stored: the game **builds itself at start-up** (about half a s
 | GPU + ordering tables | `engine/gpu.h`: primitives linked into a depth-sorted ordering table (OT), drawn far → near, no Z-buffer |
 | GPU rasteriser | `engine/gpu_soft.c`: integer vertices (wobble), **affine** texturing, 4/8/15-bit textures, palette lookup, texel 0 = transparent, texture × colour / 128, 15-bit output, PS1 4×4 dither, 4 semi-transparency modes |
 | textures | generated or unpacked at start-up and loaded straight into VRAM (`LoadImage`) |
-| 320×240 display | double-buffered at VRAM (0,0)/(0,240); Android scales it up with nearest filtering, 4:3 letterbox |
+| 320×240 display | PS1: double-buffered at VRAM (0,0)/(0,240). Windows / Android: 240 lines, 320-512 wide to match the screen, at VRAM x 512, scaled up with nearest filtering to fill the screen |
 
 A full game frame (level, player, HUD) takes **~1.3 ms** on a PC, so phones have lots of headroom.
 
@@ -182,6 +189,11 @@ Windows; `Android/data/<package>/files/levels` on Android (reachable over USB).
 **2D map** - the map fills the screen; the top bar has the tool, the level's name and MENU / 3D /
 UNDO / zoom buttons; the bottom bar shows what each button does right now (tap them on a touch
 screen). The box top left says what's under the cursor.
+
+**On a phone** the editor switches to a touch layout: a tool rail down the left (DRAW, RECT,
+FLOOR, CEIL, MOVE, DELETE, PLACE, MORE), the main actions as big buttons down the right, tap the
+map to move the cursor, and - / + buttons on every adjustable row of the inspector. Buttons press
+on touch and repeat while held.
 
 | | Gamepad | Keyboard / mouse |
 |---|---|---|
