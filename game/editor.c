@@ -553,7 +553,7 @@ static void draw_info(void)
     }
     {
         int w = eu_text_w(a) > eu_text_w(b) ? eu_text_w(a) : eu_text_w(b);
-        eu_rect_semi(MAP_X0 + 2, MAP_Y0 + 2, MAP_X0 + 8 + w, MAP_Y0 + (b[0] ? 26 : 15), RGB(70, 80, 80), SEMI_SUB, L_MAP_TEXT + 1);
+        eu_kit(KIT_PLAQUE, MAP_X0 + 1, MAP_Y0 + 1, MAP_X0 + 10 + w, MAP_Y0 + (b[0] ? 28 : 17), L_MAP_TEXT + 1);
         eu_text(a, MAP_X0 + 5, MAP_Y0 + 4, RGB(255, 210, 160), L_MAP_TEXT);
         if (b[0]) eu_text(b, MAP_X0 + 5, MAP_Y0 + 15, RGB(200, 170, 150), L_MAP_TEXT);
     }
@@ -918,8 +918,7 @@ static int rail_skip(u32 b)
 static void draw_rail(void)
 {
     int i, y = TOP_H + 6, x0 = SCREEN_W - RAIL_R + 4, x1 = SCREEN_W - 4, first = 1, n = 0, hb, gap = 5;
-    eu_rect_g(SCREEN_W - RAIL_R, TOP_H, SCREEN_W, SCREEN_H, RGB(30, 9, 7), RGB(12, 4, 4), L_BAR);
-    eu_rect(SCREEN_W - RAIL_R, TOP_H, SCREEN_W - RAIL_R + 1, SCREEN_H, RGB(150, 50, 18), L_BAR);
+    eu_kit(KIT_BAR, SCREEN_W - RAIL_R, TOP_H - 2, SCREEN_W, SCREEN_H, L_BAR);
     for (i = 0; i < npr; i++) if (!rail_skip(pr_b[i])) n++;
     hb = n > 1 ? (SCREEN_H - y - 4 - 36 - (n - 1) * gap) / (n - 1) : 26;      /* as tall as fits, 26 at most */
     if (hb > 26) hb = 26;
@@ -931,8 +930,7 @@ static void draw_rail(void)
         if (y + h > SCREEN_H - 4) break;
         scopy(l, pr_l[i], 10);
         if (first) {   /* the main action: a hot plate with its badge */
-            eu_rect_g(x0, y, x1, y + h, lit ? RGB(255, 140, 40) : RGB(200, 70, 18), lit ? RGB(150, 50, 10) : RGB(110, 26, 8), L_BAR_TEXT + 2);
-            eu_frame(x0, y, x1, y + h, RGB(255, 190, 90), L_BAR_TEXT + 1);
+            eu_kit(lit ? KIT_BTN_LIT : KIT_BTN_HOT, x0, y, x1, y + h, L_BAR_TEXT + 2);
             eu_badge(pr_b[i], (x0 + x1) / 2 - eu_badge_w(pr_b[i], ed_pad_style) / 2, y + 5, ed_pad_style, L_BAR_TEXT);
             eu_text_c(l, (x0 + x1) / 2 + 1, y + 22, RGB(255, 240, 210), L_BAR_TEXT);
         } else {
@@ -946,8 +944,7 @@ static void draw_prompts(void)
 {
     int i, x = 3;
     if (touch_lay) { draw_rail(); return; }
-    eu_rect_g(0, BAR_Y, SCREEN_W, SCREEN_H, RGB(40, 12, 8), RGB(14, 4, 4), L_BAR);
-    eu_rect(0, BAR_Y, SCREEN_W, BAR_Y + 1, RGB(200, 70, 24), L_BAR);
+    eu_kit(KIT_BAR, 0, BAR_Y, SCREEN_W, SCREEN_H, L_BAR);
     for (i = 0; i < npr; i++) {
         int w = eu_badge_w(pr_b[i], ed_pad_style) + 3 + eu_text_w(pr_l[i]);
         if (x + w > SCREEN_W - 2) break;
@@ -963,8 +960,7 @@ static void draw_toast(void)
     {
         int w = eu_text_w(toast) + 10, y = BAR_Y - 20, x = (MAP_X0 + MAP_X1 - w) / 2;
         if (x < 0) x = 0;
-        eu_rect_semi(x, y, x + w, y + 14, RGB(90, 100, 100), SEMI_SUB, L_POP_BG - 2);
-        eu_frame(x, y, x + w, y + 14, RGB(160, 60, 24), L_POP_BG - 3);
+        eu_kit(KIT_PLAQUE, x - 3, y - 3, x + w + 3, y + 17, L_POP_BG - 2);
         eu_text_c(toast, x + w / 2, y + 3, toast_t > 20 || (toast_t >> 2) & 1 ? RGB(255, 220, 180) : RGB(120, 90, 70), L_POP_BG - 4);
     }
 }
@@ -977,8 +973,7 @@ static void draw_top(const char *what)
     static const int ORDER_T[6] = { TB_ZIN, TB_ZOUT, TB_REDO, TB_UNDO, TB_VIEW, TB_MENU }, ORDER_P[5] = { TB_ZIN, TB_ZOUT, TB_UNDO, TB_VIEW, TB_MENU };
     int i, x = SCREEN_W - 2, nb = touch_lay ? 6 : 5, used = 0;
     char b[48], *o;
-    eu_rect_g(0, 0, SCREEN_W, TOP_H, RGB(46, 14, 10), RGB(20, 6, 6), L_BAR);
-    eu_rect(0, TOP_H - 1, SCREEN_W, TOP_H, RGB(200, 70, 24), L_BAR);
+    eu_kit(KIT_BAR, 0, 0, SCREEN_W, TOP_H, L_BAR - 1);
     o = eu_str(b, what);
     eu_text(b, 3, (TOP_H - 8) / 2, RGB(255, 170, 70), L_BAR_TEXT);
     o = eu_str(b, ED.name); if (ed_dirty) eu_str(o, "*");
@@ -1027,7 +1022,7 @@ static void list_panel(const char *title, int n, const char *(*label)(int, char 
             if (room < 1) room = 1;
             if ((int)strlen(v) > room) { b[room] = 0; if (room > 1) b[room - 1] = '.'; v = b; }
         }
-        if (lit) { eu_rect_g(x0 + 2, y - 1, PX1 - 2, y + ROW_H - 1, RGB(150, 46, 14), RGB(80, 20, 8), L_POP); }
+        if (lit) eu_kit(KIT_ROW, x0 + 3, y - 1, PX1 - 3, y + ROW_H - 1, L_POP);
         eu_text(l, x0 + 6, ty, lit ? RGB(255, 236, 200) : RGB(200, 160, 140), L_POP_TEXT);
         if (v) eu_text(v, vx1 - eu_text_w(v), ty, lit ? RGB(255, 200, 120) : RGB(170, 120, 90), L_POP_TEXT);
         eu_hit(x0 + 2, y - 1, PX1 - 2, y + ROW_H - 1, H_ROW + k);
@@ -1161,7 +1156,7 @@ static void keys_draw(void)
     int kw = touch_lay && SCREEN_W >= 400 ? 32 : 22, kh = touch_lay ? 22 : 15, w = KB_COLS * kw + 20, x0 = (SCREEN_W - w) / 2, y0 = touch_lay ? TOP_H + 4 : 60, i;
     eu_panel(x0, y0, x0 + w, y0 + 40 + ((KB_N + 2 + KB_COLS - 1) / KB_COLS) * kh + 4, L_POP_BG - 4);
     eu_text(kb_title, x0 + 6, y0 + 5, RGB(255, 160, 60), L_POP_TEXT - 2);
-    eu_rect(x0 + 6, y0 + 17, x0 + w - 6, y0 + 30, RGB(8, 4, 4), L_POP - 2);
+    eu_kit(KIT_FIELD, x0 + 6, y0 + 16, x0 + w - 6, y0 + 31, L_POP - 2);
     {
         char b[40]; char *o = eu_str(b, kb_text);
         if ((ed_t >> 4) & 1) eu_str(o, "-");
@@ -1228,7 +1223,7 @@ static void tiles_draw(void)
         u16 tp, cl; int u, v;
         ed_tile_tex(tiles_list[i], &tp, &cl, &u, &v);
         eu_tex(x + 1, y + 1, x + cell - 2, y + cell - 2, tp, cl, u, v, u + 63, v + 63, L_POP - 6);
-        if (i == tile_sel) { eu_frame(x - 1, y - 1, x + cell, y + cell, RGB(255, 200, 80), L_POP - 7); eu_frame(x, y, x + cell - 1, y + cell - 1, RGB(255, 120, 30), L_POP - 7); }
+        if (i == tile_sel) eu_kit(KIT_SEL, x - 2, y - 2, x + cell + 2, y + cell + 2, L_POP - 7);
         eu_hit(x, y, x + cell, y + cell, H_TILE + i);
     }
 }
@@ -1326,7 +1321,7 @@ static void rows_draw(void)
                 if (kind == 1 && k == 1) break;
                 if (t >= 0) { u16 tp, cl; int u, v; ed_tile_tex(t, &tp, &cl, &u, &v); eu_tex(x, y, x + cell, y + cell, tp, cl, u, v, u + 63, v + 63, L_POP - 6); }
                 else if (kind == 0 || cnt == 0) { eu_rect(x, y, x + cell, y + cell, RGB(20, 8, 8), L_POP - 6); eu_text_c("+", x + cell / 2 + 1, y + 6, RGB(200, 120, 60), L_POP - 7); }
-                if (l == rows_r && k == rows_c) eu_frame(x - 2, y - 2, x + cell + 2, y + cell + 2, RGB(255, 200, 80), L_POP - 8);
+                if (l == rows_r && k == rows_c) eu_kit(KIT_SEL, x - 3, y - 3, x + cell + 3, y + cell + 3, L_POP - 8);
                 eu_hit(x, y, x + cell, y + cell, H_ROW + l * 16 + k);
                 x += cell + 3;
             }
@@ -2140,8 +2135,7 @@ static void draw_tool_rail(void)
 {
     static const char *const SHORT[T_COUNT] = { "DRAW", "RECT", "FLOOR", "CEIL", "EXTRUDE", "CUT", "CORNER", "MOVE", "DELETE", "JOIN", "STAIRS", "PLACE", "TURN" };
     int i, y = TOP_H + 4, h = (SCREEN_H - TOP_H - 8) / NRAIL - 3, in_rail = 0;
-    eu_rect_g(0, TOP_H, RAIL_L, SCREEN_H, RGB(30, 9, 7), RGB(12, 4, 4), L_BAR);
-    eu_rect(RAIL_L - 1, TOP_H, RAIL_L, SCREEN_H, RGB(150, 50, 18), L_BAR);
+    eu_kit(KIT_BAR, 0, TOP_H - 2, RAIL_L, SCREEN_H, L_BAR);
     for (i = 0; i < NRAIL - 1; i++) if (RAIL_TOOLS[i] == tool) in_rail = 1;
     for (i = 0; i < NRAIL; i++) {
         int t = RAIL_TOOLS[i];
@@ -2157,11 +2151,13 @@ static void draw_dpad(void)
 {
     int cx = MAP_X0 + 32, cy = SCREEN_H - 34, k;
     static const int DX[4] = { 0, 1, 0, -1 }, DY[4] = { -1, 0, 1, 0 };
-    eu_disc(cx, cy, 28, RGB(26, 22, 22), SEMI_ADD, L_POP_BG + 2);
-    eu_ring(cx, cy, 28, RGB(120, 50, 24), L_POP_BG + 1);
+    /* the touch stick's forged ring (ui atlas) round a dark face */
+    eu_disc(cx, cy, 24, RGB(40, 46, 46), SEMI_SUB, L_POP_BG + 3);
+    ui_sprite(eu_fb(), cx - 31, cy - 31, 62, 62, 0, 0, 64, 64, 128, 128, 128, 0, 0, L_POP_BG + 2);
     for (k = 0; k < 4; k++) {
         int bx = cx + DX[k] * 17, by = cy + DY[k] * 17;
         u32 lit = (touch_hold == (k == 0 ? PAD_UP : k == 1 ? PAD_RIGHT : k == 2 ? PAD_DOWN : PAD_LEFT));
+        if (lit) ui_sprite(eu_fb(), bx - 11, by - 11, 22, 22, 32, 144, 32, 32, 230, 110, 50, 1, 0, L_POP_BG + 1);
         eu_tri(bx + DX[k] * 6, by + DY[k] * 6, bx - DY[k] * 6 - DX[k] * 2, by + DX[k] * 6 - DY[k] * 2, bx + DY[k] * 6 - DX[k] * 2, by - DX[k] * 6 - DY[k] * 2, lit ? RGB(255, 170, 60) : RGB(160, 120, 100), -1, L_POP_BG + 1);
         eu_hit(bx - 12, by - 12, bx + 12, by + 12, H_DPAD + k);
     }

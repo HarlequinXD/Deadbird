@@ -60,6 +60,9 @@ ui = np.array(Image.open(os.path.join(SRC, 'ui_tex.png')).convert('RGBA'))
 ui[112:144, 64:128, 3] = 0
 image('ui_tex', ui, 75)
 
+# UI kit (tools/make_kit.py): HUD, panels and buttons
+image('kit_tex', np.array(Image.open(os.path.join(SRC, 'kit_tex.png')).convert('RGBA')), 92)
+
 # title painting (opaque 320x240)
 t = np.array(Image.open(os.path.join(SRC, 'title_bg.png')).convert('RGB').resize((320, 240), Image.LANCZOS))
 image('title_tex', np.dstack([t, np.full(t.shape[:2], 255, np.uint8)]), 50)

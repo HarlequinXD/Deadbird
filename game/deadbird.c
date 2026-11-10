@@ -972,131 +972,65 @@ have_view:
    a horned bone sigil with a burning eye, an iron-and-bone frame with thorns, a blood fill in a
    dark notched trough, a draining damage trail, and a shine that sweeps left to right with a
    crackle of lightning at its head; under 35% the whole bar throbs like a heartbeat */
-#define HB_X0 34
-#define HB_X1 154
-#define HB_Y0 13
-#define HB_Y1 22
+#define HB_X 6                   /* the frame sprite (128x20) */
+#define HB_Y 6
+#define HB_FX (HB_X + 24)        /* the trough / fill (90x8) inside it */
+#define HB_FY (HB_Y + 7)
+#define HB_W 90
 static int hp_trail = 100, hp_trail_wait;
 static u32 hash3(int a, int b) { u32 h = (u32)a * 73856093u ^ (u32)b * 19349663u; h ^= h >> 13; h *= 0x5bd1e995u; return h ^ (h >> 15); }
-/* a 1-pixel segment as two thin triangles (works on the PS1 too) */
-static void seg(FrameBuf *fb, int x0, int y0, int x1, int y1, u32 c, int mode, int ot)
+/* an additive kit sprite at x..x+w (cell texels 1:1), cropped to the fill [lo, hi) */
+static void hb_glow(FrameBuf *fb, int cell, int x, int w, int h, int lo, int hi, int k, int flip, int ot)
 {
-    if ((x1 - x0) * (x1 - x0) >= (y1 - y0) * (y1 - y0)) {
-        tri_f(fb, x0, y0, x1, y1, x0, y0 + 1, c, mode, ot); tri_f(fb, x1, y1, x1, y1 + 1, x0, y0 + 1, c, mode, ot);
-    } else {
-        tri_f(fb, x0, y0, x1, y1, x0 + 1, y0, c, mode, ot); tri_f(fb, x1, y1, x1 + 1, y1, x0 + 1, y0, c, mode, ot);
-    }
-}
-/* an additive slanted band from xa to xb (bottom edge shifted left by slant), clipped to [lo, hi] */
-static void band(FrameBuf *fb, int xa, int xb, int slant, int lo, int hi, int y0, int y1, u32 c, int ot)
-{
-    int tx0 = xa, tx1 = xb, bx0 = xa - slant, bx1 = xb - slant;
-    POLY *p;
-    if (tx0 < lo) tx0 = lo;
-    if (tx1 > hi) tx1 = hi;
-    if (bx0 < lo) bx0 = lo;
-    if (bx1 > hi) bx1 = hi;
-    if (tx1 <= tx0 && bx1 <= bx0) return;
-    if (tx1 < tx0) tx1 = tx0;
-    if (bx1 < bx0) bx1 = bx0;
-    p = quad_g(fb, 0, y0, 1, y1, c, c, SEMI_ADD, ot);
-    if (!p) return;
-    p->v[0].x = (s16)tx0; p->v[1].x = (s16)tx1; p->v[2].x = (s16)bx0; p->v[3].x = (s16)bx1;
+    int x0 = x, x1 = x + w, u0 = 0, u1 = w;
+    if (x0 < lo) { u0 += lo - x0; x0 = lo; }
+    if (x1 > hi) { u1 -= x1 - hi; x1 = hi; }
+    if (x1 <= x0) return;
+    if (flip) { int t = u0; u0 = w - u1; u1 = w - t; }
+    ui_kit_part(fb, cell, x0, HB_FY, x1, HB_FY + h, u0, 0, u1, h, k, k, k, flip, ot);
 }
 static void draw_health(FrameBuf *fb, int t)
 {
-    const int W = HB_X1 - HB_X0, cx = 18, cy = 18;
-    int w = php * W / 100, wt, k, low = php > 0 && php < 35;
-    int beat = low ? (isin(t * 180) > 2600 ? 90 : isin(t * 180) > 0 ? 40 : 0) : 0;
+    int w = php * HB_W / 100, wt, low = php > 0 && php < 35;
+    int beat = low ? (isin(t * 180) > 2600 ? 60 : isin(t * 180) > 0 ? 24 : 0) : 0;
     /* the damage trail: holds a moment, then drains down to the health */
     if (php >= hp_trail) { hp_trail = php; hp_trail_wait = 0; }
     else if (++hp_trail_wait > 24) hp_trail -= 1;
-    wt = hp_trail * W / 100;
+    wt = hp_trail * HB_W / 100;
+    if (w < 0) w = 0;
 
-    /* frame: black outline, a bone bevel, the dark trough with segment notches */
-    quad_g(fb, HB_X0 - 4, HB_Y0 - 4, HB_X1 + 4, HB_Y1 + 4, RGB(4, 2, 2), RGB(4, 2, 2), NO_SEMI, 9);
-    quad_g(fb, HB_X0 - 3, HB_Y0 - 3, HB_X1 + 3, HB_Y1 + 3, RGB(196, 160, 118), RGB(78, 46, 34), NO_SEMI, 8);
-    quad_g(fb, HB_X0 - 2, HB_Y0 - 2, HB_X1 + 2, HB_Y1 + 2, RGB(60, 30, 24), RGB(26, 10, 10), NO_SEMI, 8);
-    quad_g(fb, HB_X0, HB_Y0, HB_X1, HB_Y1, RGB(10, 3, 4), RGB(30, 6, 8), NO_SEMI, 7);
-    for (k = 1; k < 10; k++) { int x = HB_X0 + k * W / 10; quad_g(fb, x, HB_Y0, x + 1, HB_Y1, RGB(4, 1, 1), RGB(4, 1, 1), NO_SEMI, 6); }
-    /* thorns along the top and bottom, a spike off the end */
-    for (k = 0; k < 6; k++) {
-        int x = HB_X0 + 8 + k * 20;
-        tri_f(fb, x - 3, HB_Y0 - 3, x + 3, HB_Y0 - 3, x + 1, HB_Y0 - 7, RGB(170, 132, 96), NO_SEMI, 8);
-        tri_f(fb, x + 7, HB_Y1 + 3, x + 13, HB_Y1 + 3, x + 9, HB_Y1 + 6, RGB(110, 76, 56), NO_SEMI, 8);
-    }
-    tri_f(fb, HB_X1 + 3, HB_Y0 - 3, HB_X1 + 3, HB_Y1 + 3, HB_X1 + 14, (HB_Y0 + HB_Y1) / 2, RGB(4, 2, 2), NO_SEMI, 9);
-    tri_f(fb, HB_X1 + 3, HB_Y0 - 1, HB_X1 + 3, HB_Y1 + 1, HB_X1 + 11, (HB_Y0 + HB_Y1) / 2, RGB(160, 124, 90), NO_SEMI, 8);
-
-    /* the damage trail and the blood */
-    if (wt > w) quad_g(fb, HB_X0 + w, HB_Y0, HB_X0 + wt, HB_Y1, RGB(255, 196, 110), RGB(190, 80, 30), NO_SEMI, 5);
+    ui_kit(fb, KIT_HB_FRAME, HB_X, HB_Y, 128, 128, 128, 7);
+    if (wt > w)   /* the trail: the blood sprite burnt orange */
+        ui_kit_part(fb, KIT_HB_FILL, HB_FX + w, HB_FY, HB_FX + wt, HB_FY + 8, w, 0, wt, 8, 255, 210, 120, 0, 6);
     if (w > 0) {
-        quad_g(fb, HB_X0, HB_Y0, HB_X0 + w, HB_Y1, RGB(255, 64 + beat / 3, 34), RGB(112, 6, 8), NO_SEMI, 5);
-        quad_g(fb, HB_X0, HB_Y0, HB_X0 + w, HB_Y0 + 2, RGB(110, 50, 30), RGB(60, 20, 10), SEMI_ADD, 4);   /* wet top edge */
-        quad_g(fb, HB_X0 + w - 1, HB_Y0, HB_X0 + w, HB_Y1, RGB(255, 170, 120), RGB(160, 40, 20), NO_SEMI, 3);   /* bright tip */
-        for (k = 1; k < 10; k++) { int x = HB_X0 + k * W / 10; if (x < HB_X0 + w - 1) quad_g(fb, x, HB_Y0 + 2, x + 1, HB_Y1, RGB(40, 20, 16), RGB(60, 24, 20), SEMI_SUB, 4); }
-        if (beat) quad_g(fb, HB_X0, HB_Y0, HB_X0 + w, HB_Y1, RGB(beat, beat / 6, beat / 8), RGB(beat / 2, 0, 0), SEMI_ADD, 3);
-        {   /* the shine: a slanted glow sweeping left to right, lightning crackling at its head */
-            int period = low ? 70 : 110, ph = t % period, head = HB_X0 - 16 + ph * (W + 40) / period, j;
-            band(fb, head - 14, head, 5, HB_X0, HB_X0 + w, HB_Y0, HB_Y1, RGB(60, 26, 12), 3);
-            band(fb, head - 6, head, 5, HB_X0, HB_X0 + w, HB_Y0, HB_Y1, RGB(110, 70, 40), 2);
-            if (head > HB_X0 && head - 4 < HB_X0 + w) {
-                /* the bolt: jagged, top to bottom through the head, flickering every few frames */
-                int px = head, py = HB_Y0;
-                for (j = 1; j <= 3; j++) {
-                    int ny = HB_Y0 + j * (HB_Y1 - HB_Y0) / 3, nx = head - j * 2 + (int)(hash3(t >> 1, j) % 5) - 2;
-                    if (nx < HB_X0) nx = HB_X0;
-                    if (nx > HB_X0 + w - 1) nx = HB_X0 + w - 1;
-                    seg(fb, px, py, nx, ny, RGB(255, 230, 170), SEMI_ADD, 1);
-                    px = nx; py = ny;
-                }
-                /* a crackle trailing back along the bar */
-                px = head; py = (HB_Y0 + HB_Y1) / 2;
-                for (j = 1; j <= 4; j++) {
-                    int nx = head - j * 6, ny = (HB_Y0 + HB_Y1) / 2 + (int)(hash3(t >> 2, j + 7) % 7) - 3;
-                    if (nx < HB_X0) break;
-                    seg(fb, px, py, nx, ny, j < 3 ? RGB(200, 150, 90) : RGB(110, 70, 40), SEMI_ADD, 2);
-                    px = nx; py = ny;
-                }
-            }
+        int k = 128 + beat, period = low ? 70 : 110, ph = t % period, head = -18 + ph * (HB_W + 36) / period;
+        ui_kit_part(fb, KIT_HB_FILL, HB_FX, HB_FY, HB_FX + w, HB_FY + 8, 0, 0, w, 8, k, k - beat / 2, k - beat / 2, 0, 5);
+        /* the shine sweeping left to right, lightning crackling just behind it */
+        hb_glow(fb, KIT_HB_SHINE, HB_FX + head, 16, 8, HB_FX, HB_FX + w, 128, 0, 4);
+        if (head > 4 && (hash3(t >> 1, 3) & 3)) {
+            int f = (int)(hash3(t >> 2, 9) & 1), kb = 90 + (int)(hash3(t, 5) % 60);
+            hb_glow(fb, KIT_HB_BOLT, HB_FX + head - 20, 22, 8, HB_FX, HB_FX + w, kb, f, 3);
         }
+        if ((hash3(t >> 3, 11) & 7) == 0)   /* a stray arc somewhere along the blood */
+            hb_glow(fb, KIT_HB_BOLT, HB_FX + (int)(hash3(t >> 3, 12) % (u32)(w + 1)) - 11, 22, 8, HB_FX, HB_FX + w, 70, (int)(hash3(t >> 3, 13) & 1), 3);
     }
-
-    /* the sigil: a horned bone diamond round a burning eye */
-    tri_f(fb, cx - 7, cy - 6, cx - 15, cy - 16, cx - 3, cy - 9, RGB(196, 160, 118), NO_SEMI, 6);     /* horns */
-    tri_f(fb, cx + 7, cy - 6, cx + 15, cy - 16, cx + 3, cy - 9, RGB(196, 160, 118), NO_SEMI, 6);
-    tri_f(fb, cx, cy - 13, cx + 13, cy, cx - 13, cy, RGB(4, 2, 2), NO_SEMI, 7);
-    tri_f(fb, cx - 13, cy, cx + 13, cy, cx, cy + 13, RGB(4, 2, 2), NO_SEMI, 7);
-    tri_f(fb, cx, cy - 11, cx + 11, cy, cx - 11, cy, RGB(206, 170, 128), NO_SEMI, 6);
-    tri_f(fb, cx - 11, cy, cx + 11, cy, cx, cy + 11, RGB(96, 60, 44), NO_SEMI, 6);
-    tri_f(fb, cx, cy - 8, cx + 8, cy, cx - 8, cy, RGB(40, 10, 10), NO_SEMI, 5);
-    tri_f(fb, cx - 8, cy, cx + 8, cy, cx, cy + 8, RGB(20, 4, 6), NO_SEMI, 5);
-    {
-        int g = 150 + (isin(t * (low ? 200 : 70)) * 100 >> 12);
-        tri_f(fb, cx - 6, cy, cx, cy - 3, cx + 6, cy, RGB(g, g / 5, g / 10), NO_SEMI, 4);            /* the eye */
-        tri_f(fb, cx - 6, cy, cx + 6, cy, cx, cy + 3, RGB(g * 3 / 4, g / 8, 0), NO_SEMI, 4);
-        quad_g(fb, cx, cy - 3, cx + 1, cy + 3, RGB(0, 0, 0), RGB(0, 0, 0), NO_SEMI, 3);              /* slit pupil */
-        tri_f(fb, cx - 10, cy, cx, cy - 6, cx + 10, cy, RGB(g / 3, g / 14, 0), SEMI_ADD, 5);          /* glow */
-        tri_f(fb, cx - 10, cy, cx + 10, cy, cx, cy + 6, RGB(g / 3, g / 14, 0), SEMI_ADD, 5);
+    {   /* the sigil's eye: a slow burn, a fast throb when she's low */
+        int g = 90 + (isin(t * (low ? 200 : 70)) * 60 >> 12);
+        ui_kit(fb, KIT_HB_EYE, HB_X + 3, HB_Y + 9, g, g, g, 4);
     }
 }
 
 static void draw_hud(FrameBuf *fb)
 {
     draw_health(fb, frame_count);
-    {   /* keycard slots under the bar: slanted bone frames, lit when carried, flashing when a door wants one */
-        static const u32 KC[4] = { 0, RGB(40, 200, 240), RGB(250, 160, 30), RGB(230, 30, 50) };
+    {   /* keycard slots under the bar: lit when carried, flashing when a door wants one */
+        static const u8 KC[4][3] = { { 0, 0, 0 }, { 60, 220, 255 }, { 255, 170, 40 }, { 240, 40, 60 } };
         int c;
         for (c = 1; c <= 3; c++) {
-            int x = HB_X0 + 2 + (c - 1) * 18, y = HB_Y1 + 8, have = (keys >> c) & 1, flash = key_flash_t && key_flash_col == c && ((key_flash_t >> 3) & 1);
-            POLY *p = quad_g(fb, x, y, x + 14, y + 8, RGB(150, 116, 86), RGB(70, 42, 32), NO_SEMI, 7);
-            if (p) { p->v[0].x += 2; p->v[1].x += 2; }
-            p = quad_g(fb, x + 1, y + 1, x + 13, y + 7, RGB(16, 6, 8), RGB(16, 6, 8), NO_SEMI, 6);
-            if (p) { p->v[0].x += 2; p->v[1].x += 2; }
-            if (have || flash) {
-                p = quad_g(fb, x + 2, y + 2, x + 12, y + 6, KC[c], flash && !have ? RGB(60, 10, 10) : KC[c] >> 1 & 0x7f7f7f, NO_SEMI, 5);
-                if (p) { p->v[0].x += 2; p->v[1].x += 2; }
-            }
+            int x = HB_FX + (c - 1) * 21, y = HB_Y + 21, have = (keys >> c) & 1, flash = key_flash_t && key_flash_col == c && ((key_flash_t >> 3) & 1);
+            ui_kit(fb, KIT_KEY_SLOT, x, y, 128, 128, 128, 7);
+            if (have) ui_kit(fb, KIT_KEY_CARD, x + 2, y + 2, KC[c][0], KC[c][1], KC[c][2], 6);
+            else if (flash) ui_kit(fb, KIT_KEY_CARD, x + 2, y + 2, KC[c][0] / 3, KC[c][1] / 3, KC[c][2] / 3, 6);
         }
     }
     if (msg && msg_t > 0) {
@@ -1133,8 +1067,10 @@ static void draw_controls(FrameBuf *fb)
     const char *(*L)[2] = touch_ui ? lines : pad_lines;
     int i;
     int ox = SCREEN_W / 2 - 160;
-    quad_g(fb, ox + 18, 34, ox + 302, 214, RGB(30, 4, 6), RGB(8, 1, 2), NO_SEMI, 8);
-    quad_g(fb, ox + 16, 32, ox + 304, 216, RGB(160, 40, 20), RGB(60, 8, 4), NO_SEMI, 9);
+    if (!ui_nine(fb, KIT_PANEL, ox + 12, 28, ox + 308, 220, 128, 9)) {   /* (PS1: no kit page) */
+        quad_g(fb, ox + 18, 34, ox + 302, 214, RGB(30, 4, 6), RGB(8, 1, 2), NO_SEMI, 8);
+        quad_g(fb, ox + 16, 32, ox + 304, 216, RGB(160, 40, 20), RGB(60, 8, 4), NO_SEMI, 9);
+    }
     text_hell(fb, "CONTROLS", SCREEN_W / 2, 42, 2, frame_count, 6);
     for (i = 0; i < 7; i++) {
         text(fb, L[i][0], ox + 28, 74 + i * 18, 1, 230, 6);
@@ -1201,7 +1137,10 @@ void game_frame(u32 pad)
         /* the score: time, kills, secrets */
         char b[32];
         int sec = play_frames / 60;
-        quad_g(fb, 0, 0, SCREEN_W, 240, RGB(120, 130, 130), RGB(150, 160, 160), SEMI_SUB, 3);
+        if (ui_nine(fb, KIT_PANEL, SCREEN_W / 2 - 130, 28, SCREEN_W / 2 + 130, 212, 128, 6)) {
+            int k;
+            for (k = 0; k < 3; k++) ui_nine(fb, KIT_FIELD, SCREEN_W / 2 - 78, 95 + k * 20, SCREEN_W / 2 + 78, 111 + k * 20, 128, 5);
+        } else quad_g(fb, 0, 0, SCREEN_W, 240, RGB(120, 130, 130), RGB(150, 160, 160), SEMI_SUB, 3);
         text_hell(fb, "PLANT DESTROYED", SCREEN_W / 2, 46, 2, frame_count, 2);
         score_line(b, "TIME      ", sec / 60, ":", sec % 60, 2);
         text(fb, b, SCREEN_W / 2 - 64, 100, 1, 220, 2);
@@ -1223,8 +1162,9 @@ void game_frame(u32 pad)
             text_center(fb, how[touch_ui ? 2 : pad_style], SCREEN_W / 2, 68, 1, 150 + (isin(frame_count * 160) * 100 >> 12), 1);
         }
         if (gs == GS_PAUSE) {
-            quad_g(fb, 0, 0, SCREEN_W, 240, RGB(90, 100, 100), RGB(90, 100, 100), SEMI_SUB, 4);
-            text_hell(fb, "PAUSED", SCREEN_W / 2, 80, 3, frame_count, 2);
+            if (!ui_nine(fb, KIT_PANEL, SCREEN_W / 2 - 140, 56, SCREEN_W / 2 + 140, 200, 128, 10))
+                quad_g(fb, 0, 0, SCREEN_W, 240, RGB(90, 100, 100), RGB(90, 100, 100), SEMI_SUB, 4);
+            text_hell(fb, "PAUSED", SCREEN_W / 2, 74, 3, frame_count, 2);
             ui_plate(fb, SCREEN_W / 2, 118, 220, 1, frame_count, 8);
             ui_plate(fb, SCREEN_W / 2, 156, 220, 0, frame_count, 8);
             text_center(fb, touch_ui ? "RESUME" : "START  RESUME", SCREEN_W / 2 + 1, 129, 1, 255, 2);

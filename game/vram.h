@@ -36,6 +36,10 @@
 #define CL_UI       85                 /* up to 16 UI cells */
 #define CL_TITLE    101                /* 20 title tiles */
 #define CL_EXTRA(n) (121 + (n))        /* tinted copies of lab tiles' CLUTs: */
+#define CL_KIT      128                /* UI kit cells (game/assets.c KCELLS), up to 24 */
+/* UI kit page (Windows / Android only, where the framebuffers sit at x 512): VRAM (0,0) */
+#define KIT_PAGE_X 0
+#define KIT_PAGE_Y 0
 enum { PAL_KEY_CYAN, PAL_KEY_AMBER, PAL_KEY_CRIMSON, PAL_DOOR_CYAN, PAL_DOOR_AMBER, PAL_DOOR_CRIMSON, PAL_COUNT };
 #define PAL_KEY(c)  (PAL_KEY_CYAN + (c) - 1)     /* key colour 1..3: the machine-panel tile tinted */
 #define PAL_DOOR(c) (PAL_DOOR_CYAN + (c) - 1)    /* the bulkhead tile tinted */

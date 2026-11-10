@@ -88,6 +88,44 @@ static const Cell CELLS[] = {
 };
 #define NCELLS ((int)(sizeof(CELLS) / sizeof(CELLS[0])))
 
+/* ---- the UI kit (tools/make_kit.py): the HUD lives in spare corners of the character page and
+   the strip (the PS1 has it too); the menu / editor panels get their own page on the PC builds */
+#define KP KIT_PAGE_X, KIT_PAGE_Y
+static const Cell KCELLS[] = {
+    { 0, 0, 128, 20, CP, 0, 224, 0 },        /* health bar frame */
+    { 0, 20, 90, 8, CP, 0, 244, 0 },         /* blood fill */
+    { 90, 20, 16, 8, CP, 92, 244, 1 },       /* shine (additive) */
+    { 106, 20, 22, 8, CP, 108, 244, 1 },     /* bolt (additive) */
+    { 0, 28, 16, 4, CP, 0, 252, 1 },         /* eye glow (additive) */
+    { 128, 0, 20, 10, S1, 168, 224, 0 },     /* keycard slot */
+    { 128, 10, 16, 6, S1, 168, 234, 0 },     /* keycard (tinted) */
+#define KIT_PS1 7                            /* cells from here on: PC / Android only */
+    { 0, 32, 32, 32, KP, 0, 32, 0 },         /* panel */
+    { 32, 32, 24, 24, KP, 32, 32, 0 },       /* button */
+    { 56, 32, 24, 24, KP, 56, 32, 0 },       /* button, lit */
+    { 80, 32, 24, 24, KP, 80, 32, 0 },       /* button, primary */
+    { 104, 32, 24, 24, KP, 104, 32, 0 },     /* bar plate */
+    { 128, 32, 24, 16, KP, 128, 32, 0 },     /* selected row */
+    { 152, 32, 16, 16, KP, 152, 32, 0 },     /* inset field */
+    { 168, 32, 16, 16, KP, 168, 32, 0 },     /* selection frame */
+    { 184, 32, 24, 24, KP, 184, 32, 0 },     /* plaque */
+};
+#define NKCELLS ((int)(sizeof(KCELLS) / sizeof(KCELLS[0])))
+
+int kit_cell(int i, u16 *tpage, u16 *clut, int *u, int *v, int *w, int *h, int *add)
+{
+    const Cell *c;
+    if (i < 0 || i >= NKCELLS) return 0;
+#ifdef GEN_BAKED
+    if (i >= KIT_PS1) return 0;
+#endif
+    c = &KCELLS[i];
+    *tpage = get_tpage(TP_4BIT, 0, c->px, c->py);
+    *clut = CLUT_ID(CL_KIT + i);
+    *u = c->u; *v = c->v; *w = c->w; *h = c->h; *add = c->add;
+    return 1;
+}
+
 int ui_cell(int u, int v, u16 *tpage, u16 *clut, int *du, int *dv)
 {
     int i;
@@ -146,6 +184,12 @@ void assets_init(void)
     for (i = 0; i < NCELLS; i++) {
         const Cell *c = &CELLS[i];
         place(&im, c->su, c->sv, c->w, c->h, c->px, c->py, c->u, c->v, CL_UI + i, 1);
+    }
+    free(im.rgb); free(im.mask);
+    pk_image(pk_kit_tex, sizeof(pk_kit_tex), &im);
+    for (i = 0; i < NKCELLS; i++) {
+        const Cell *c = &KCELLS[i];
+        place(&im, c->su, c->sv, c->w, c->h, c->px, c->py, c->u, c->v, CL_KIT + i, 1);
     }
     free(im.rgb); free(im.mask);
 }

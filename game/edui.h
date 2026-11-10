@@ -5,6 +5,7 @@
 
 #include "gpu.h"
 #include "hud.h"
+#include "ui.h"
 
 /* draw order (OT index: lower = in front) */
 enum { L_TOP = 2, L_POP_TEXT = 6, L_POP = 10, L_POP_BG = 14, L_BAR_TEXT = 20, L_BAR = 24, L_MAP_TEXT = 40,
@@ -29,7 +30,9 @@ void eu_ring(int cx, int cy, int r, u32 rgb, int ot);
 void eu_text(const char *s, int x, int y, u32 rgb, int ot);
 void eu_text_c(const char *s, int cx, int y, u32 rgb, int ot);
 int  eu_text_w(const char *s);
-/* hell panel: dark ember gradient with a glowing rim */
+/* a 9-slice kit sprite (ui.h KIT_PANEL, KIT_BTN ...) over a rectangle */
+void eu_kit(int cell, int x0, int y0, int x1, int y1, int ot);
+/* hell panel: forged iron and bone round a dark ember face */
 void eu_panel(int x0, int y0, int x1, int y1, int ot);
 /* a button (lit = selected); returns its width */
 void eu_button(int x0, int y0, int x1, int y1, const char *label, int lit, int ot);

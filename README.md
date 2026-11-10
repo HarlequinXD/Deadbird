@@ -15,9 +15,11 @@ controller support), using a fast software model of the PS1's graphics chip.
 - **Full screen, PS1 pixels**: the picture is always 240 lines tall; on Windows and Android the
   width follows the screen (426 on a 16:9 monitor, about 512 on a Galaxy S23) so the game, menus,
   HUD and editor fill the whole display. The PS1 build stays 320x240.
-- **HUD**: a hell health bar - bone frame with thorns and a horned sigil whose eye pulses, a blood
-  fill over a notched trough, an orange damage trail, a heartbeat when low, and a shine with
-  lightning sweeping left to right - plus keycard slots.
+- **UI kit** (`tools/make_kit.py`, painted like the touch controls): the HUD health bar is a
+  sprite - horned bone sigil with a burning eye, iron rails with thorns, a blood fill over a notched
+  trough, a damage trail, a heartbeat when low and a shine with lightning sweeping left to right -
+  with keycard slots under it. The pause, controls and score screens and the whole editor (bars,
+  rails, panels, buttons, selected rows, fields, toasts) use its forged 9-slice panels and buttons.
 - **Steps**: she walks up ledges up to 16 texels (0.5 m) high without jumping.
 - **Movement ported from Slayer from Hell** (`game/player.c`): Quake-style ground physics with
   friction, acceleration toward the stick direction, a stop speed, limited air control, gravity

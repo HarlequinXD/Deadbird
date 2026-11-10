@@ -99,6 +99,7 @@ int main(int argc, char **argv)
     game_set_touch_ui(1);
     run(0, 20);
     write_bmp(out, "03_idle");
+    run(PAD_START, 1); run(0, 8); write_bmp(out, "03b_pause"); run(PAD_START, 1); run(0, 4);   /* pause and resume */
     /* walk cycle: one frame every 4 for a gait strip */
     game_set_stick(1, 60, 180, 60, 162);                 /* half push forward: walk */
     for (i = 0; i < 6; i++) { run(0, 4); sprintf(name, "04_walk_%d", i); write_bmp(out, name); }

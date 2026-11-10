@@ -191,8 +191,15 @@ void eu_text(const char *s, int x, int y, u32 rgb, int ot) { text_rgb(FB, s, x, 
 int  eu_text_w(const char *s) { return (int)strlen(s) * 7; }
 void eu_text_c(const char *s, int cx, int y, u32 rgb, int ot) { text_rgb(FB, s, cx - eu_text_w(s) / 2, y, rgb, ot); }
 
+void eu_kit(int cell, int x0, int y0, int x1, int y1, int ot)
+{
+    if (ui_nine(FB, cell, x0, y0, x1, y1, 128, ot)) return;
+    eu_rect_g(x0, y0, x1, y1, RGB(46, 18, 14), RGB(22, 8, 8), ot);      /* (no kit: flat) */
+    eu_frame(x0, y0, x1, y1, RGB(96, 40, 26), ot);
+}
 void eu_panel(int x0, int y0, int x1, int y1, int ot)
 {
+    if (ui_nine(FB, KIT_PANEL, x0, y0, x1, y1, 128, ot)) return;
     eu_rect_g(x0 + 1, y0 + 1, x1 - 1, y1 - 1, RGB(34, 10, 8), RGB(12, 4, 6), ot);
     eu_frame(x0, y0, x1, y1, RGB(150, 46, 18), ot);
     eu_rect(x0 + 1, y0 + 1, x1 - 1, y0 + 2, RGB(255, 120, 40), ot);         /* hot top edge */
@@ -200,6 +207,11 @@ void eu_panel(int x0, int y0, int x1, int y1, int ot)
 }
 void eu_button(int x0, int y0, int x1, int y1, const char *label, int lit, int ot)
 {
+    /* lit (selected / held): the hot red plate with bone corners */
+    if (ui_nine(FB, lit ? KIT_BTN_HOT : KIT_BTN, x0, y0, x1, y1, lit ? 150 : 128, ot + 1)) {
+        if (label) eu_text_c(label, (x0 + x1) / 2 + 1, (y0 + y1) / 2 - 4, lit ? RGB(255, 240, 210) : RGB(225, 185, 155), ot - 1);
+        return;
+    }
     if (lit) {
         eu_rect_g(x0, y0, x1, y1, RGB(190, 60, 16), RGB(90, 18, 8), ot + 1);
         eu_frame(x0, y0, x1, y1, RGB(255, 170, 70), ot);

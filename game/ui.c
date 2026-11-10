@@ -75,6 +75,56 @@ void ui_sprite(FrameBuf *fb, int x, int y, int w, int h, int u, int v, int uw, i
     else corners(p, x, y, x + w, y + h, u, v, u + uw, v + vh, r, g, b);
 }
 
+int ui_kit_ok(int cell) { u16 tp, cl; int u, v, w, h, a; return kit_cell(cell, &tp, &cl, &u, &v, &w, &h, &a); }
+
+void ui_kit_part(FrameBuf *fb, int cell, int x0, int y0, int x1, int y1, int u0, int v0, int u1, int v1, int r, int g, int b, int flip, int ot)
+{
+    u16 tp, cl; int u, v, w, h, add;
+    POLY *p;
+    if (x1 <= x0 || y1 <= y0 || !kit_cell(cell, &tp, &cl, &u, &v, &w, &h, &add)) return;
+    p = tex_quad(fb, tp, cl, add, ot);
+    if (!p) return;
+    if (flip) corners(p, x0, y0, x1, y1, u + u1, v + v0, u + u0, v + v1, r, g, b);
+    else corners(p, x0, y0, x1, y1, u + u0, v + v0, u + u1, v + v1, r, g, b);
+}
+void ui_kit(FrameBuf *fb, int cell, int x, int y, int r, int g, int b, int ot)
+{
+    u16 tp, cl; int u, v, w, h, add;
+    if (!kit_cell(cell, &tp, &cl, &u, &v, &w, &h, &add)) return;
+    ui_kit_part(fb, cell, x, y, x + w, y + h, 0, 0, w, h, r, g, b, 0, ot);
+}
+int ui_nine(FrameBuf *fb, int cell, int x0, int y0, int x1, int y1, int bright, int ot)
+{
+    /* corner sizes (x, y) per cell */
+    static const u8 CX[KIT_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 10, 6, 6, 9, 6, 6, 5, 5, 7 };
+    static const u8 CY[KIT_COUNT] = { 0, 0, 0, 0, 0, 0, 0, 10, 6, 6, 9, 6, 7, 5, 5, 7 };
+    u16 tp, cl; int u, v, w, h, add, cx, cy, i, j;
+    int xs[4], ys[4], us[4], vs[4];
+    if (!kit_cell(cell, &tp, &cl, &u, &v, &w, &h, &add)) return 0;
+    cx = CX[cell]; cy = CY[cell];
+    if (x1 - x0 < cx * 2) cx = (x1 - x0) / 2;
+    if (y1 - y0 < cy * 2) cy = (y1 - y0) / 2;
+    xs[0] = x0; xs[1] = x0 + cx; xs[2] = x1 - cx; xs[3] = x1;
+    ys[0] = y0; ys[1] = y0 + cy; ys[2] = y1 - cy; ys[3] = y1;
+    us[0] = 0; us[1] = cx; us[2] = w - cx; us[3] = w;
+    vs[0] = 0; vs[1] = cy; vs[2] = h - cy; vs[3] = h;
+    for (j = 0; j < 3; j++) for (i = 0; i < 3; i++) {
+        if (i == 1 && j == 1 && cell != KIT_ROW) {
+            /* the face: a smooth gradient (a stretched, dithered texture would go blocky); none in the frame */
+            static const u8 FACE[KIT_COUNT][6] = { { 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 }, { 0 },
+                { 34, 10, 9, 12, 3, 5 }, { 42, 15, 13, 20, 7, 8 }, { 250, 130, 44, 168, 40, 10 }, { 190, 52, 16, 100, 16, 6 },
+                { 44, 17, 13, 24, 8, 8 }, { 0 }, { 7, 2, 3, 15, 5, 6 }, { 0 }, { 24, 8, 8, 9, 3, 3 } };
+            const u8 *f = FACE[cell];
+            if (cell != KIT_SEL && xs[2] > xs[1] && ys[2] > ys[1])
+                quad_g(fb, xs[1], ys[1], xs[2], ys[2], RGB(f[0] * bright >> 7, f[1] * bright >> 7, f[2] * bright >> 7),
+                       RGB(f[3] * bright >> 7, f[4] * bright >> 7, f[5] * bright >> 7), NO_SEMI, ot);
+            continue;
+        }
+        ui_kit_part(fb, cell, xs[i], ys[j], xs[i + 1], ys[j + 1], us[i], vs[j], us[i + 1], vs[j + 1], bright, bright, bright, 0, ot);
+    }
+    return 1;
+}
+
 void ui_sprite_rot(FrameBuf *fb, int cx, int cy, int size, int u, int v, int uw, int vh, int ang, int r, int g, int b, int add, int ot)
 {
     static const int sx[4] = { -1, 1, -1, 1 }, sy[4] = { -1, -1, 1, 1 };

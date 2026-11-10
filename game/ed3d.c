@@ -457,7 +457,7 @@ void ed3d_draw(FrameBuf *fb, int t)
     {
         char *p; for (p = b; *p; p++) if (*p >= 'a' && *p <= 'z') *p = (char)(*p - 32);
     }
-    if (b[0] && !ed_overlay_busy()) { int y = ed_top_h() + 2; eu_rect_semi(2, y, 8 + eu_text_w(b), y + 12, RGB(70, 80, 80), SEMI_SUB, 29); eu_text(b, 5, y + 2, RGB(255, 210, 160), 28); }
+    if (b[0] && !ed_overlay_busy()) { int y = ed_top_h() + 2; eu_kit(KIT_PLAQUE, 1, y - 1, 10 + eu_text_w(b), y + 14, 29); eu_text(b, 5, y + 3, RGB(255, 210, 160), 28); }
     /* the paint tile, bottom right */
     if (!ed_overlay_busy()) {   /* the paint tile, bottom right (left of the touch rail) */
         u16 tp, cl; int u, v, R = SCREEN_W - ed_rail_r(), B = ed_bar_y() - 2;
@@ -470,7 +470,7 @@ void ed3d_draw(FrameBuf *fb, int t)
             eu_tex(R - 70, B - 30, R - 52, B - 12, tp, cl, u, v, u + 63, v + 63, 28);
             eu_frame(R - 71, B - 31, R - 51, B - 11, RGB(120, 60, 30), 29);
         }
-        eu_rect_semi(2, B - 11, 6 + eu_text_w(em_tile_names[ed3d_tile]), B + 1, RGB(70, 80, 80), SEMI_SUB, 29);
+        eu_kit(KIT_PLAQUE, 1, B - 13, 9 + eu_text_w(em_tile_names[ed3d_tile]), B + 2, 29);
         eu_text(em_tile_names[ed3d_tile], 4, B - 10, RGB(220, 180, 140), 28);
     }
     if (!ed_overlay_busy()) {
