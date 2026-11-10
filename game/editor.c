@@ -1789,7 +1789,7 @@ static void help_draw(void)
         "X / A                USE THE TOOL", "O / B                CANCEL  BACK", "TRIANGLE / Y         TOOLS AND THINGS",
         "SQUARE / X           INSPECT AND EDIT", "L1  R1               SWITCH TOOL", "SELECT / VIEW        3D VIEW",
         "START / MENU         SAVE  PLAY  UNDO", "", "KEYS: ARROWS SPACE ESC TAB I Q E", "PGUP PGDN  V 3D  M MENU  CTRL Z",
-        "TOUCH: TAP THE MAP  DRAG  PINCH" };
+        "TOUCH: D-PAD  DRAG TO PAN  PINCH" };
     int i;
     eu_panel(14, TOP_H + 6, SCREEN_W - 14 - (touch_lay ? RAIL_R : 0), BAR_Y - 6, L_POP_BG);
     eu_text("CONTROLS", 20, TOP_H + 11, RGB(255, 160, 60), L_POP_TEXT);
@@ -1824,7 +1824,7 @@ static void open_level(int which)
     }
     level_reload_textures();             /* the list's backdrop borrowed the texture pages */
     mode = M_MAP; ov = OV_NONE; tool = T_DRAW; stage = 0; npend = 0; need3d = 1; sel_kind = K_NONE;
-    ed_toast(ed_touch ? "TAP THE MAP TO MOVE THE CURSOR" : "START FOR THE MENU. TRIANGLE FOR TOOLS");
+    ed_toast(ed_touch ? "USE THE D-PAD TO MOVE THE CURSOR" : "START FOR THE MENU. TRIANGLE FOR TOOLS");
 }
 static int lst_rows(void) { return nlst + 2; }
 static void list_update(u32 press)
@@ -2034,7 +2034,7 @@ static void pointer_events(void)
             drag_id = -1;
             if (drag_moved) continue;
             if (hit >= 0) { tap_hit(hit); continue; }
-            if (mode == M_MAP && !ov && in_map(e->x, e->y)) {
+            if (mode == M_MAP && !ov && in_map(e->x, e->y) && e->kind != EK_TOUCH) {   /* touch: only the d-pad moves it */
                 cursor_to(wx_of(e->x), wz_of(e->y));
                 if (e->kind == EK_MOUSE_L) tap_press |= PAD_CROSS;            /* a click uses the tool */
             } else if (ov && e->kind != EK_TOUCH) tap_press |= 0;

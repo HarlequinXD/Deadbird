@@ -193,8 +193,8 @@ UNDO / zoom buttons; the bottom bar shows what each button does right now (tap t
 screen). The box top left says what's under the cursor.
 
 **On a phone** the editor switches to a touch layout: a tool rail down the left (DRAW, RECT,
-FLOOR, CEIL, MOVE, DELETE, PLACE, MORE), the main actions as big buttons down the right, tap the
-map to move the cursor, and - / + buttons on every adjustable row of the inspector. Buttons press
+FLOOR, CEIL, MOVE, DELETE, PLACE, MORE), the main actions as big buttons down the right, the on-screen
+d-pad moves the cursor (drag the map to pan, pinch to zoom), and - / + buttons on every adjustable row of the inspector. Buttons press
 on touch and repeat while held.
 
 | | Gamepad | Keyboard / mouse |

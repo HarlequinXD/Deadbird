@@ -147,7 +147,7 @@ int main(int argc, char **argv)
     press(PAD_CIRCLE); presses(PAD_UP, 19); press(PAD_CROSS); run(0, 2);
     shot("ed_22_keyboard");
     press(PAD_CIRCLE); press(PAD_CIRCLE);
-    /* touch: a tap on the map moves the cursor; a tap on a prompt presses its button */
+    /* touch: a tap on the map does nothing (only the d-pad moves the cursor); a tap on a prompt presses its button */
     if (!getenv("TOUCH")) {
     game_set_touch_ui(1);
     tap(200, 80); run(0, 2);
