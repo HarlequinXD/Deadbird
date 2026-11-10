@@ -84,6 +84,9 @@ int main(int argc, char **argv)
     shot("ed_09_3d_looking");
     presses(PAD_R1, 3); press(PAD_CROSS); run(0, 3);
     shot("ed_10_3d_painted");
+    game_set_analog(0, 0, 0, -3600); run(0, 30); game_set_analog(0, 0, 0, 0); run(0, 2);   /* look up at the ceiling */
+    press(PAD_DOWN); press(PAD_DOWN); run(0, 3);
+    shot("ed_10b_3d_ceiling_lowered");
     press(PAD_TRIANGLE); run(0, 2);
     shot("ed_11_tile_picker");
     press(PAD_CIRCLE); press(PAD_CIRCLE); run(0, 2);
@@ -100,13 +103,25 @@ int main(int argc, char **argv)
     shot("ed_14_carved_platform");
     press(PAD_SQUARE); presses(PAD_DOWN, 4); presses(PAD_RIGHT, 4); press(PAD_CIRCLE); run(0, 2);
     shot("ed_15_platform_raised");
-    /* EXTRUDE the east wall 6 m into a corridor */
+    /* FLOOR tool: X raises the room's floor two steps, O lowers it one */
     press(PAD_R1); run(0, 1);
+    presses(PAD_LEFT, 6); press(PAD_CROSS); press(PAD_CROSS); press(PAD_CIRCLE); run(0, 2);
+    shot("ed_15b_floor_tool");
+    {
+        char buf[1 << 16]; int n;
+        press(PAD_START); press(PAD_CROSS); run(0, 2);          /* SAVE */
+        n = plat_file_load("level02.map", buf, sizeof(buf) - 1);
+        buf[n > 0 ? n : 0] = 0;
+        expect(n > 0 && strstr(buf, "floor 0.2 ceil 4") != 0, "the FLOOR tool raised the room a step (2 up, 1 down)");
+    }
+    presses(PAD_RIGHT, 6);
+    /* EXTRUDE the east wall 6 m into a corridor */
+    presses(PAD_R1, 3); run(0, 1);
     presses(PAD_DOWN, 5); presses(PAD_RIGHT, 6); press(PAD_CROSS);
     presses(PAD_RIGHT, 12); press(PAD_CROSS); run(0, 2);
     shot("ed_16_extruded");
     /* a trooper in the corridor: PLACE via the tools menu */
-    press(PAD_TRIANGLE); presses(PAD_DOWN, 9 + 2); press(PAD_CROSS); run(0, 1);   /* tools: T_COUNT (11) then START, TROOPER */
+    press(PAD_TRIANGLE); presses(PAD_DOWN, 10); press(PAD_CROSS); run(0, 1);   /* from EXTRUDE (4) to TROOPER (13 tools + 1) */
     press(PAD_CROSS); run(0, 2);
     shot("ed_17_trooper");
     /* play test from the menu */

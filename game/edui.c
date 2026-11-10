@@ -144,17 +144,43 @@ void eu_poly(const s32 *x, const s32 *y, int n, u32 rgb, int semi, int ot)
     int i;
     for (i = 1; i + 1 < n; i++) eu_tri(x[0], y[0], x[i], y[i], x[i + 1], y[i + 1], rgb, semi, ot);
 }
+/* circles are drawn as pixel rows (a true pixel circle, round on every side); only very big ones
+   as polygons */
+static void row(int x0, int x1, int y, u32 c, int semi, int ot)   /* pixels x0..x1 inclusive, clipped */
+{
+    if (y < eu_clip.y0 || y >= eu_clip.y1) return;
+    if (x0 < eu_clip.x0) x0 = eu_clip.x0;
+    if (x1 >= eu_clip.x1) x1 = eu_clip.x1 - 1;
+    if (x1 < x0) return;
+    put_quad(x0, y, x1 + 1, y, x0, y + 1, x1 + 1, y + 1, c, semi, ot);
+}
+static int half_w(int r, int dy) { int w = r; long long lim = (long long)r * r + r; if (dy < -r || dy > r) return -1; while (w >= 0 && (long long)w * w + (long long)dy * dy > lim) w--; return w; }
 void eu_disc(int cx, int cy, int r, u32 rgb, int semi, int ot)
 {
-    int i;
-    for (i = 0; i < 8; i++) {
-        int a0 = i * 512, a1 = (i + 1) * 512;
+    int i, dy;
+    if (r <= 40) {
+        for (dy = -r; dy <= r; dy++) { int w = half_w(r, dy); if (w >= 0) row(cx - w, cx + w, cy + dy, rgb, semi, ot); }
+        return;
+    }
+    for (i = 0; i < 16; i++) {
+        int a0 = i * 256, a1 = (i + 1) * 256;
         eu_tri(cx, cy, cx + (isin(a0) * r >> 12), cy - (icos(a0) * r >> 12), cx + (isin(a1) * r >> 12), cy - (icos(a1) * r >> 12), rgb, semi, ot);
     }
 }
 void eu_ring(int cx, int cy, int r, u32 rgb, int ot)
 {
-    int i, n = r > 10 ? 16 : 8, st = 4096 / n;
+    int i, n, st, dy;
+    if (r <= 40) {
+        for (dy = -r; dy <= r; dy++) {
+            int wo = half_w(r, dy), wi = half_w(r - 1, dy);
+            if (wo < 0) continue;
+            if (wi < 0) { row(cx - wo, cx + wo, cy + dy, rgb, -1, ot); continue; }
+            row(cx - wo, cx - wi - 1 < cx - wo ? cx - wo : cx - wi - 1, cy + dy, rgb, -1, ot);
+            row(cx + wi + 1 > cx + wo ? cx + wo : cx + wi + 1, cx + wo, cy + dy, rgb, -1, ot);
+        }
+        return;
+    }
+    n = 32; st = 4096 / n;
     for (i = 0; i < n; i++) {
         int a0 = i * st, a1 = (i + 1) * st;
         eu_line(cx + (isin(a0) * r >> 12), cy - (icos(a0) * r >> 12), cx + (isin(a1) * r >> 12), cy - (icos(a1) * r >> 12), rgb, 1, ot);
@@ -186,14 +212,14 @@ void eu_button(int x0, int y0, int x1, int y1, const char *label, int lit, int o
 
 int eu_badge_w(u32 b, int style)
 {
-    if (b & (PAD_CROSS | PAD_CIRCLE | PAD_TRIANGLE | PAD_SQUARE)) return 11;
+    if (b & (PAD_CROSS | PAD_CIRCLE | PAD_TRIANGLE | PAD_SQUARE)) return 13;
     if (b & (PAD_L1 | PAD_R1 | PAD_L2 | PAD_R2)) return 17;
     if (b & (PAD_START | PAD_SELECT)) return style ? 17 : (b & PAD_START ? 39 : 25);
-    return 11;                                   /* d-pad */
+    return 13;                                   /* d-pad */
 }
 void eu_badge(u32 b, int x, int y, int style, int ot)
 {
-    int cx = x + 5, cy = y + 4;
+    int cx = x + 6, cy = y + 4;
     if (b & (PAD_CROSS | PAD_CIRCLE | PAD_TRIANGLE | PAD_SQUARE)) {
         u32 col;
         if (style) {   /* Xbox: A green, B red, X blue, Y yellow (PS cross = A, circle = B, square = X, triangle = Y) */
@@ -201,14 +227,23 @@ void eu_badge(u32 b, int x, int y, int style, int ot)
             col = b & PAD_CROSS ? RGB(70, 200, 70) : b & PAD_CIRCLE ? RGB(230, 60, 50) : b & PAD_SQUARE ? RGB(60, 120, 240) : RGB(240, 200, 40);
             eu_disc(cx, cy, 6, RGB(16, 10, 10), -1, ot + 1);
             eu_ring(cx, cy, 6, col, ot);
-            eu_text(l, cx - 3, cy - 4, col, ot);
+            eu_text(l, cx - 3, cy - 3, col, ot);
             return;
         }
         eu_disc(cx, cy, 6, RGB(16, 10, 10), -1, ot + 1);
         eu_ring(cx, cy, 6, RGB(120, 110, 110), ot);
-        if (b & PAD_CROSS) { col = RGB(110, 160, 255); eu_line(cx - 3, cy - 3, cx + 3, cy + 3, col, 1, ot); eu_line(cx - 3, cy + 3, cx + 3, cy - 3, col, 1, ot); }
+        if (b & PAD_CROSS) {   /* pixel-drawn so every glyph is symmetric */
+            int k;
+            col = RGB(110, 160, 255);
+            for (k = -3; k <= 3; k++) { eu_rect(cx + k, cy + k, cx + k + 1, cy + k + 1, col, ot); eu_rect(cx + k, cy - k, cx + k + 1, cy - k + 1, col, ot); }
+        }
         else if (b & PAD_CIRCLE) { col = RGB(255, 90, 90); eu_ring(cx, cy, 3, col, ot); }
-        else if (b & PAD_TRIANGLE) { col = RGB(80, 230, 170); eu_line(cx, cy - 3, cx + 3, cy + 2, col, 1, ot); eu_line(cx + 3, cy + 2, cx - 3, cy + 2, col, 1, ot); eu_line(cx - 3, cy + 2, cx, cy - 3, col, 1, ot); }
+        else if (b & PAD_TRIANGLE) {
+            int k;
+            col = RGB(80, 230, 170);
+            for (k = 0; k <= 5; k++) { int w = k / 2 + (k & 1 ? 1 : 0); eu_rect(cx - w, cy - 3 + k, cx - w + 1, cy - 2 + k, col, ot); eu_rect(cx + w, cy - 3 + k, cx + w + 1, cy - 2 + k, col, ot); }
+            eu_rect(cx - 3, cy + 3, cx + 4, cy + 4, col, ot);
+        }
         else { col = RGB(255, 140, 220); eu_frame(cx - 3, cy - 3, cx + 4, cy + 4, col, ot); }
         return;
     }
@@ -232,9 +267,16 @@ void eu_badge(u32 b, int x, int y, int style, int ot)
         }
         return;
     }
-    /* d-pad: a little cross */
-    eu_rect(cx - 1, cy - 4, cx + 2, cy + 5, RGB(200, 190, 180), ot);
-    eu_rect(cx - 4, cy - 1, cx + 5, cy + 2, RGB(200, 190, 180), ot);
+    /* d-pad: a little cross, the arm(s) meant lit */
+    {
+        u32 dim = RGB(110, 100, 95), hot = RGB(255, 200, 120);
+        int all = (b & (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT)) == (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT);
+        eu_rect(cx - 1, cy - 1, cx + 2, cy + 2, dim, ot);
+        eu_rect(cx - 1, cy - 4, cx + 2, cy - 1, all || (b & PAD_UP) ? hot : dim, ot);
+        eu_rect(cx - 1, cy + 2, cx + 2, cy + 5, all || (b & PAD_DOWN) ? hot : dim, ot);
+        eu_rect(cx - 4, cy - 1, cx - 1, cy + 2, all || (b & PAD_LEFT) ? hot : dim, ot);
+        eu_rect(cx + 2, cy - 1, cx + 5, cy + 2, all || (b & PAD_RIGHT) ? hot : dim, ot);
+    }
 }
 
 void eu_tex(int x0, int y0, int x1, int y1, u16 tpage, u16 clut, int u0, int v0, int u1, int v1, int ot)

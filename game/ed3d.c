@@ -4,8 +4,9 @@
  * sector, which wall part (step, wall, upper, door face) and which column and row - worked out the
  * same way gen_lab's wall_part lays its tiles out - or which 2 m floor cell.
  *
- *   left stick / d-pad: fly   right stick: look   L2 / R2: down / up
- *   X: paint   []: pick up the tile you're looking at   L1 / R1: tile   /\: all tiles   O: 2D map
+ *   left stick: fly   right stick: look   L2 / R2: down / up
+ *   d-pad up / down: raise / lower the floor or ceiling you're looking at (a step's floor, a
+ *   soffit's ceiling)   X: paint   []: pick up the tile   L1 / R1: tile   /\: all tiles   O: 2D map
  */
 #ifndef GEN_BAKED
 #include "edint.h"
@@ -25,7 +26,7 @@ static int look_id = -1, move_id = -1, lx0, ly0, mx0, my0, mvx, mvy, tap_id = -1
 /* what the ray hit */
 enum { PK_NONE, PK_WALL, PK_FLOOR, PK_CEIL };
 typedef struct {
-    int what, sec, wall, part, col, row, cx, cz, tile;
+    int what, sec, wall, part, col, row, cx, cz, tile, nsec;
     s32 hx, hz, h;                      /* hit point, up-positive height */
     /* the cell's outline: along the wall from (ax,az) to (bx,bz), heights h0..h1 */
     s32 ax, az, bx, bz, h0, h1;
@@ -182,6 +183,7 @@ static void cast(int sx, int sy)
                 memset(&o, 0, sizeof(o));
                 o.what = PK_WALL; o.sec = si; o.wall = w; o.hx = hx; o.hz = hz; o.h = h;
                 ns = neighbour(si, w, &nwi);
+                o.nsec = ns;
                 if (ns < 0 || (is_solid(&ED.secs[ns]))) {
                     o.part = EM_MID;
                     wall_cell(&o, ax, az, bx, bz, fa, fb, ca, cb, 0, s->w[w].flags, part_rows(si, w, EM_MID));
@@ -321,8 +323,6 @@ void ed3d_update(u32 pad, u32 press)
     }
     if (ed_wheel) { cx_ += fx * ed_wheel * 600 >> 12; cz_ += fz * ed_wheel * 600 >> 12; }
     /* fly */
-    if (pad & PAD_UP) mvf += 4096;
-    if (pad & PAD_DOWN) mvf -= 4096;
     if (pad & PAD_RIGHT) mvs += 4096;
     if (pad & PAD_LEFT) mvs -= 4096;
     mvf += ed_ly; mvs += ed_lx;
@@ -352,6 +352,26 @@ void ed3d_update(u32 pad, u32 press)
     if (press & PAD_L1) ed3d_tile = next_tile(ed3d_tile, -1);
     if (press & PAD_R1) ed3d_tile = next_tile(ed3d_tile, 1);
     if (press & PAD_CROSS) paint();
+    /* d-pad up / down: what you're looking at goes up / down a step (held: repeats) */
+    {
+        static int hold;
+        int d = pad & PAD_UP ? 1 : pad & PAD_DOWN ? -1 : 0;
+        if (!d) { if (hold) ed_height_done(); hold = 0; }
+        else if ((press & (PAD_UP | PAD_DOWN)) || (++hold > 20 && !(hold % 10))) {
+            int sec = -1, ceil = 0;
+            if (!hold) hold = 1;
+            if (hit.what == PK_FLOOR) sec = hit.sec;
+            else if (hit.what == PK_CEIL) { sec = hit.sec; ceil = 1; }
+            else if (hit.what == PK_WALL) {
+                if (ED.secs[hit.sec].kind == SK_DOOR) { sec = hit.sec; ceil = 1; }             /* a door face: how high it opens */
+                else if (hit.part == EM_LOW && hit.nsec >= 0) sec = hit.nsec;                  /* a step: the floor it leads up to */
+                else if (hit.part == EM_UP && hit.nsec >= 0) { sec = hit.nsec; ceil = 1; }     /* a soffit: the ceiling beyond */
+                else { sec = hit.sec; ceil = hit.h > (em_floor_at(&ED, hit.sec, hit.hx, hit.hz) + em_ceil_at(&ED, hit.sec, hit.hx, hit.hz)) / 2; }
+            }
+            if (sec < 0) ed_toast("LOOK AT A FLOOR, CEILING OR WALL");
+            else if (ed_height(sec, ceil, d)) ed_rebuild3d();
+        }
+    }
     if (press & PAD_SQUARE) { if (hit.what != PK_NONE && hit.tile != 255) { ed3d_tile = hit.tile; ed_toast("TILE PICKED UP"); } }
     if (press & PAD_TRIANGLE) ed_open_tiles(ed3d_tile, tile_picked);
     if (press & (PAD_CIRCLE | PAD_SELECT)) closing = 1;
@@ -453,8 +473,8 @@ void ed3d_draw(FrameBuf *fb, int t)
         eu_text(em_tile_names[ed3d_tile], 4, 226 - 12, RGB(220, 180, 140), 28);
     }
     if (!ed_overlay_busy()) {
-        static const u32 bt[6] = { PAD_CROSS, PAD_SQUARE, PAD_TRIANGLE, PAD_L1 | PAD_R1, PAD_CIRCLE, PAD_START };
-        static const char *const lb[6] = { "PAINT", "COPY", "TILES", "TILE", "MAP", "MENU" };
+        static const u32 bt[6] = { PAD_CROSS, PAD_UP, PAD_DOWN, PAD_SQUARE, PAD_TRIANGLE, PAD_CIRCLE };
+        static const char *const lb[6] = { "PAINT", "RAISE", "LOWER", "COPY", "TILES", "MAP" };
         ed_prompts(bt, lb, 6);
     }
 }

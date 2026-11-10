@@ -51,11 +51,13 @@ static s32 stick_ax, stick_az;                  /* the left stick's sub-grid tra
 static int show_way;
 
 /* tools */
-enum { T_DRAW, T_RECT, T_EXTRUDE, T_CUT, T_ADDPT, T_MOVE, T_DELETE, T_JOIN, T_STAIRS, T_PLACE, T_TURN, T_COUNT };
-static const char *const TOOL_NAME[T_COUNT] = { "DRAW", "RECTANGLE", "EXTRUDE", "CUT", "ADD CORNER", "MOVE", "DELETE", "JOIN", "STAIRS", "PLACE", "TURN" };
+enum { T_DRAW, T_RECT, T_FLOOR, T_CEIL, T_EXTRUDE, T_CUT, T_ADDPT, T_MOVE, T_DELETE, T_JOIN, T_STAIRS, T_PLACE, T_TURN, T_COUNT };
+static const char *const TOOL_NAME[T_COUNT] = { "DRAW", "RECTANGLE", "FLOOR", "CEILING", "EXTRUDE", "CUT", "ADD CORNER", "MOVE", "DELETE", "JOIN", "STAIRS", "PLACE", "TURN" };
 static const char *const TOOL_HELP[T_COUNT] = {
     "X EACH CORNER. X THE FIRST TO CLOSE",
     "X ONE CORNER THEN THE OTHER",
+    "X RAISES THE FLOOR. O LOWERS IT",
+    "X RAISES THE CEILING. O LOWERS IT",
     "X A WALL THEN HOW FAR OUT",
     "X TWO POINTS ON A SECTOR'S WALLS",
     "X ON A WALL TO SPLIT IT",
@@ -489,8 +491,9 @@ static void draw_map(void)
         int x = (int)sx_of(ed_cx), y = (int)sy_of(ed_cz);
         u32 c = mix(RGB(255, 170, 40), RGB(255, 240, 160), 128 + (isin(ed_t * 120) >> 5));
         eu_ring(x, y, 5, c, L_CURSOR);
-        eu_line(x - 9, y, x - 6, y, c, 1, L_CURSOR); eu_line(x + 6, y, x + 9, y, c, 1, L_CURSOR);
-        eu_line(x, y - 9, x, y - 6, c, 1, L_CURSOR); eu_line(x, y + 6, x, y + 9, c, 1, L_CURSOR);
+        eu_rect(x, y, x + 1, y + 1, c, L_CURSOR);
+        eu_rect(x - 9, y, x - 6, y + 1, c, L_CURSOR); eu_rect(x + 7, y, x + 10, y + 1, c, L_CURSOR);
+        eu_rect(x, y - 9, x + 1, y - 6, c, L_CURSOR); eu_rect(x, y + 7, x + 1, y + 10, c, L_CURSOR);
     }
     eu_clip.x0 = 0; eu_clip.y0 = 0; eu_clip.x1 = SCREEN_W; eu_clip.y1 = SCREEN_H;
 }
@@ -639,6 +642,37 @@ static void place_at(s32 x, s32 z)
     ed_changed();
     snd_play(SFX_UI_OK, 2600, 0, 4600);
 }
+
+/* a sector's floor or ceiling up / down a step (0.2 m: a step she can climb); held: one undo */
+static int height_key = -1;
+int ed_height(int si, int ceil, int d)
+{
+    EmSector *s;
+    s32 step = 205;
+    if (si < 0 || si >= ED.nsecs) return 0;
+    s = &ED.secs[si];
+    if (height_key != si * 2 + ceil) { ed_undo_push(); height_key = si * 2 + ceil; }
+    if (ceil) {
+        if (s->kind == SK_DOOR) { s->ka = (s16)clampv(s->ka + d * step, 512, 16384); }
+        else { s32 c = s->ceil + d * step; if (c < s->floor) { ed_toast("THE CEILING CAN'T GO BELOW THE FLOOR"); return 0; } s->ceil = (s16)clampv(c, -30000, 30000); }
+        if (s->cslope >= 0) s->cslope_h = (s16)(s->cslope_h + d * step);
+    } else {
+        s32 f = s->floor + d * step;
+        if (s->kind != SK_DOOR && f > s->ceil) { ed_toast("THE FLOOR CAN'T GO ABOVE THE CEILING"); return 0; }
+        s->floor = (s16)clampv(f, -30000, 30000);
+        if (s->kind == SK_DOOR) s->ceil = s->floor;
+        if (s->kind == SK_LIFT) { s->ka = (s16)(s->ka + d * step); s->kb = (s16)(s->kb + d * step); }
+        if (s->fslope >= 0) s->fslope_h = (s16)(s->fslope_h + d * step);
+    }
+    ed_changed();
+    {
+        char b[48], *o = eu_str(b, ceil ? (s->kind == SK_DOOR ? "DOOR OPENS TO " : "CEILING ") : "FLOOR ");
+        eu_m(o, ceil ? (s->kind == SK_DOOR ? s->ka : s->ceil) : s->floor);
+        ed_toast(b);
+    }
+    return 1;
+}
+void ed_height_done(void) { height_key = -1; }
 
 static int pick_wall_at(s32 x, s32 z, int *si, int *wi) { return em_near_wall(&ED, x, z, pick_r(), si, wi); }
 
@@ -813,6 +847,11 @@ static void tool_apply(void)
         if (em_stairs(&ED, si, dir, to, 0) <= 0) { undo_restore_last(); err_toast(); return; }
         if (geom_ok()) ed_toast("STAIRS BUILT");
         return; }
+    case T_FLOOR: case T_CEIL: {
+        int si = em_sector_at(&ED, x, z);
+        if (si < 0) { ed_toast("PUT THE CURSOR IN A SECTOR"); return; }
+        ed_height(si, tool == T_CEIL, 1);
+        return; }
     case T_PLACE: place_at(x, z); return;
     case T_TURN: {
         Pick p = pick_at(x, z, 0);
@@ -824,6 +863,11 @@ static void tool_apply(void)
 }
 static void tool_cancel(void)
 {
+    if (tool == T_FLOOR || tool == T_CEIL) {
+        int si = em_sector_at(&ED, ed_cx, ed_cz);
+        if (si < 0) ed_toast("PUT THE CURSOR IN A SECTOR"); else ed_height(si, tool == T_CEIL, -1);
+        return;
+    }
     if (tool == T_DRAW && npend) { npend--; ed_toast(npend ? "CORNER REMOVED" : "DRAWING CANCELLED"); return; }
     if (stage) {
         if (tool == T_MOVE) undo_drop();
@@ -881,7 +925,7 @@ static void draw_top(const char *what)
     o = eu_str(b, ED.name); if (ed_dirty) eu_str(o, "*");
     upcase(b);
     {   /* as much of the name as fits left of the buttons */
-        int room = (SCREEN_W - 118 - (3 + eu_text_w(what) + 10)) / 7;
+        int room = (SCREEN_W - 132 - (3 + eu_text_w(what) + 10)) / 7;
         if (room < 0) room = 0;
         if ((int)strlen(b) > room) b[room] = 0;
     }
@@ -1938,6 +1982,7 @@ static void map_update(u32 pad, u32 press)
         patrol_pick = 0; ov = OV_INSPECT;
         return;
     }
+    if (press & (PAD_UP | PAD_DOWN | PAD_LEFT | PAD_RIGHT | PAD_TRIANGLE | PAD_SQUARE)) ed_height_done();
     if (press & PAD_CROSS) tool_apply();
     if (press & PAD_CIRCLE) tool_cancel();
     if (press & PAD_TRIANGLE) { ov = OV_TOOLS; ov_sel = tool == T_PLACE ? T_COUNT + place : tool; ov_scroll = 0; }
@@ -1961,14 +2006,15 @@ static void map_prompts(void)
     case OV_KEYS: P(PAD_CROSS, "TYPE"); P(PAD_SQUARE, "DELETE"); P(PAD_START, "OK"); P(PAD_CIRCLE, "CANCEL"); break;
     case OV_HELP: P(PAD_CIRCLE, "BACK"); break;
     default: {
-        static const char *const APPLY[T_COUNT] = { "CORNER", "CORNER", "WALL", "POINT", "ADD", "PICK", "DELETE", "JOIN", "STAIRS", "PLACE", "TURN" };
+        static const char *const APPLY[T_COUNT] = { "CORNER", "CORNER", "RAISE", "RAISE", "WALL", "POINT", "ADD", "PICK", "DELETE", "JOIN", "STAIRS", "PLACE", "TURN" };
         const char *a = APPLY[tool];
         if (tool == T_DRAW && npend >= 3 && pend_x[0] == ed_cx && pend_z[0] == ed_cz) a = "CLOSE";
         if (tool == T_MOVE && stage) a = "DROP";
         if (tool == T_EXTRUDE && stage) a = "EXTRUDE";
         if (patrol_pick) a = "PATROL HERE";
         P(PAD_CROSS, a);
-        if (stage || npend || patrol_pick) P(PAD_CIRCLE, npend && tool == T_DRAW ? "UNDO CORNER" : "CANCEL");
+        if (tool == T_FLOOR || tool == T_CEIL) P(PAD_CIRCLE, "LOWER");
+        else if (stage || npend || patrol_pick) P(PAD_CIRCLE, npend && tool == T_DRAW ? "UNDO CORNER" : "CANCEL");
         P(PAD_TRIANGLE, "TOOLS"); P(PAD_SQUARE, "INSPECT"); P(PAD_START, "MENU");
         if (!(stage || npend)) P(PAD_SELECT, "3D");
         break; }

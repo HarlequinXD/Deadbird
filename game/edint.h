@@ -28,6 +28,8 @@ u32  ed_prompt_taps(void);          /* buttons tapped on the prompt bar (touch /
 void ed_open_tiles(int current, void (*done)(int tile));
 void ed_tile_tex(int tile, u16 *tpage, u16 *clut, int *u, int *v);
 int  ed_overlay_busy(void);
+int  ed_height(int sec, int ceil, int d);   /* floor / ceiling a step up (d 1) or down (-1) */
+void ed_height_done(void);                   /* the next height change is a new undo step */
 
 /* 3D view (ed3d.c) */
 void ed3d_enter(s32 x, s32 z);

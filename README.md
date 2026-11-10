@@ -195,7 +195,8 @@ screen). The box top left says what's under the cursor.
 | 3D view | SELECT (VIEW) | V |
 | menu: save, play test, undo / redo, rename, grid, check | START (MENU) | M (CTRL+Z / Y, CTRL+S) |
 
-Tools: **DRAW** (corner by corner; inside a room a convex shape is cut out of it as a new sector,
+Tools: **FLOOR** and **CEILING** (✕ raises the sector under the cursor a step, 0.2 m - one she
+can climb - ○ lowers it), **DRAW** (corner by corner; inside a room a convex shape is cut out of it as a new sector,
 Build-style - a platform, a pit, a pillar), **RECTANGLE**, **EXTRUDE** (a new sector out from a
 wall), **CUT** (split a sector along a line), **ADD CORNER**, **MOVE** (things, props, lights,
 corners, walls or whole sectors - shared corners move together), **DELETE**, **JOIN** (two
@@ -214,7 +215,9 @@ bars, tile alignment and shadow; a thing's type, facing, key colour, secret flag
 patrol point; a light's colour, height and radius; every prop's sizes, tiles and facing.
 
 **3D view** (SELECT) - fly through the level as the game draws it and **paint single 2 m tiles**:
-left stick / d-pad fly, right stick look (right drag with the mouse), L2 / R2 down / up, ✕ paint
+left stick fly (WASD), right stick look (right drag with the mouse), L2 / R2 down / up,
+**d-pad up / down raise / lower what you're looking at** (a floor or ceiling; on a step, the floor
+it leads up to; on a door, how high it opens), ✕ paint
 the tile under the crosshair (or the mouse), □ pick up the tile you're looking at, L1 / R1 change
 the tile, △ all textures, ○ back to the map. It paints walls (wall, step and upper parts, door
 faces), floors and ceilings, one tile at a time (`wall I cell` / `fcell` lines in the file).
