@@ -1,9 +1,10 @@
 #define _POSIX_C_SOURCE 199309L
 /*
- * Deadbird - Android platform layer (NativeActivity, no Java).
- * The engine renders a 320x240 PS1 frame into its emulated VRAM; this file only
- * converts that frame to RGB565, uploads it as a GL texture and scales it to the
- * screen with nearest filtering (crisp pixels, 4:3 letterbox). Touch -> PS1 pad bits.
+ * Android platform layer (NativeActivity, no Java), for any game on the engine.
+ * The engine renders a 240-line PS1 frame (as wide as the screen's shape) into its emulated
+ * VRAM; this file converts it to RGB565, uploads it as a GL texture and scales it to fill the
+ * screen with nearest filtering (crisp pixels). Touches, Bluetooth / USB gamepads and the back
+ * key go to the engine (engine/engine.h), which runs the game's touch controls.
  */
 #include <android_native_app_glue.h>
 #include <android/log.h>
@@ -17,12 +18,12 @@
 #include <android/keycodes.h>
 #include <SLES/OpenSLES.h>
 #include <SLES/OpenSLES_Android.h>
-#include "deadbird.h"
+#include "engine.h"
+#include "files.h"
 #include "gpu.h"
 #include "snd.h"
-#include "editor.h"
 
-#define LOG(...) __android_log_print(ANDROID_LOG_INFO, "Deadbird", __VA_ARGS__)
+#define LOG(...) __android_log_print(ANDROID_LOG_INFO, "engine", __VA_ARGS__)
 #define TEX_W 512
 #define TEX_H 256
 
@@ -37,14 +38,6 @@ static struct {
 
 static u16 pixels[SCREEN_W_MAX * SCREEN_H];
 static int game_started;
-
-/* active touches */
-#define MAX_TOUCH 10
-static struct { int id, x, y, down; } touches[MAX_TOUCH];
-/* floating stick: the first finger that lands on the left side of the screen away from buttons */
-static int stick_id = -1, stick_ox, stick_oy, stick_x, stick_y;
-/* look finger: lands on the right side away from buttons and drags the camera round (Slayer style) */
-static int look_id = -1, look_x;
 
 /* ------------------------------------------------------------------ sound: OpenSL ES buffer queue */
 #define AUD_FRAMES 512
@@ -209,7 +202,7 @@ static void present(void)
 {
     const u16 *v = gpu_vram();
     int dx, dy, x, y;
-    game_display_area(&dx, &dy);
+    eng_display_area(&dx, &dy);
     if (G.quad_w != SCREEN_W) quad_for_width();
     for (y = 0; y < SCREEN_H; y++) {
         const u16 *src = &v[(dy + y) * VRAM_W + dx];
@@ -242,30 +235,6 @@ static void to_frame(float px, float py, int *x, int *y)
     /* window pixels (top-left origin) -> frame coordinates (SCREEN_W x 240) */
     *x = (int)((px - G.vx) * SCREEN_W / (G.vw ? G.vw : 1));
     *y = (int)((py - (G.h - G.vy - G.vh)) * SCREEN_H / (G.vh ? G.vh : 1));
-}
-
-static void touch_set(int id, float px, float py, int down)
-{
-    int i, free_slot = -1, fx, fy;
-    to_frame(px, py, &fx, &fy);
-    if (id == stick_id) {
-        if (down) { stick_x = fx; stick_y = fy; }
-        else stick_id = -1;
-        return;
-    }
-    if (id == look_id) {
-        if (down) { game_cam_drag(fx - look_x); look_x = fx; }
-        else look_id = -1;
-        return;
-    }
-    for (i = 0; i < MAX_TOUCH; i++) {
-        if (touches[i].down && touches[i].id == id) break;
-        if (!touches[i].down && free_slot < 0) free_slot = i;
-    }
-    if (i == MAX_TOUCH) { if (!down || free_slot < 0) return; i = free_slot; }
-    touches[i].id = id;
-    touches[i].down = down;
-    to_frame(px, py, &touches[i].x, &touches[i].y);
 }
 
 /* a Bluetooth / USB gamepad: buttons as PS1 pad bits, sticks as analog */
@@ -301,15 +270,15 @@ static int axis(AInputEvent *ev, int a, float dead)
     return (int)(v * 4096);
 }
 
-/* touches straight to the level editor (it draws its own buttons) */
-static void pointer_all(AInputEvent *ev, int ev_kind, int only)
+/* every finger of a motion event (or just one) to the engine, in frame pixels */
+static void touch_each(AInputEvent *ev, int ev_kind, int only)
 {
     size_t i, n = AMotionEvent_getPointerCount(ev);
     for (i = 0; i < n; i++) {
         int x, y;
         if (only >= 0 && (int)i != only) continue;
         to_frame(AMotionEvent_getX(ev, i), AMotionEvent_getY(ev, i), &x, &y);
-        game_pointer(AMotionEvent_getPointerId(ev, i), ev_kind, x, y, 0);
+        eng_touch(AMotionEvent_getPointerId(ev, i), ev_kind, x, y);
     }
 }
 
@@ -319,7 +288,7 @@ static int32_t on_input(struct android_app *app, AInputEvent *ev)
     if (AInputEvent_getType(ev) == AINPUT_EVENT_TYPE_KEY) {
         int32_t k = AKeyEvent_getKeyCode(ev), act = AKeyEvent_getAction(ev);
         u32 b = key_bit(k);
-        if (k == AKEYCODE_BACK && game_wants_pointer()) b = PAD_CIRCLE;      /* the phone's back: cancel / back */
+        if (k == AKEYCODE_BACK && eng_pointer_mode()) b = PAD_CIRCLE;      /* the phone's back: cancel / back */
         if (!b) return 0;
         if (act == AKEY_EVENT_ACTION_DOWN) gp_bits |= b; else if (act == AKEY_EVENT_ACTION_UP) gp_bits &= ~b;
         return 1;
@@ -339,54 +308,16 @@ static int32_t on_input(struct android_app *app, AInputEvent *ev)
         gp_on = 1;
         return 1;
     }
-    if (AInputEvent_getType(ev) == AINPUT_EVENT_TYPE_MOTION && game_wants_pointer()) {
-        int32_t a = AMotionEvent_getAction(ev);
-        int act = a & AMOTION_EVENT_ACTION_MASK;
-        int idx = (a & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
-        memset(touches, 0, sizeof(touches));
-        stick_id = -1; look_id = -1;
-        switch (act) {
-        case AMOTION_EVENT_ACTION_DOWN: case AMOTION_EVENT_ACTION_POINTER_DOWN: pointer_all(ev, EP_DOWN, idx); break;
-        case AMOTION_EVENT_ACTION_MOVE: pointer_all(ev, EP_MOVE, -1); break;
-        case AMOTION_EVENT_ACTION_UP: case AMOTION_EVENT_ACTION_POINTER_UP: case AMOTION_EVENT_ACTION_CANCEL: pointer_all(ev, EP_UP, act == AMOTION_EVENT_ACTION_CANCEL ? -1 : idx); break;
-        }
-        return 1;
-    }
     if (AInputEvent_getType(ev) == AINPUT_EVENT_TYPE_MOTION) {
         int32_t a = AMotionEvent_getAction(ev);
         int act = a & AMOTION_EVENT_ACTION_MASK;
         int idx = (a & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >> AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
-        size_t i, n = AMotionEvent_getPointerCount(ev);
         switch (act) {
-        case AMOTION_EVENT_ACTION_DOWN:
-        case AMOTION_EVENT_ACTION_POINTER_DOWN: {
-            int tx, ty, pid = AMotionEvent_getPointerId(ev, idx);
-            to_frame(AMotionEvent_getX(ev, idx), AMotionEvent_getY(ev, idx), &tx, &ty);
-            if (stick_id < 0 && tx < SCREEN_W * 45 / 100 && ty > 40 && !touch_hit(tx, ty)) {
-                stick_id = pid; stick_ox = stick_x = tx; stick_oy = stick_y = ty;
-                game_touch_tap(tx, ty);
-                break;
-            }
-            if (look_id < 0 && tx >= SCREEN_W * 45 / 100 && ty > 40 && !touch_hit(tx, ty)) {
-                look_id = pid; look_x = tx;
-                game_touch_tap(tx, ty);
-                break;
-            }
-            touch_set(pid, AMotionEvent_getX(ev, idx), AMotionEvent_getY(ev, idx), 1);
-            game_touch_tap(tx, ty);
-            break;
-        }
-        case AMOTION_EVENT_ACTION_MOVE:
-            for (i = 0; i < n; i++)
-                touch_set(AMotionEvent_getPointerId(ev, i), AMotionEvent_getX(ev, i), AMotionEvent_getY(ev, i), 1);
-            break;
-        case AMOTION_EVENT_ACTION_UP:
-        case AMOTION_EVENT_ACTION_POINTER_UP:
-            touch_set(AMotionEvent_getPointerId(ev, idx), AMotionEvent_getX(ev, idx), AMotionEvent_getY(ev, idx), 0);
-            break;
+        case AMOTION_EVENT_ACTION_DOWN: case AMOTION_EVENT_ACTION_POINTER_DOWN: touch_each(ev, EV_DOWN, idx); break;
+        case AMOTION_EVENT_ACTION_MOVE: touch_each(ev, EV_MOVE, -1); break;
+        case AMOTION_EVENT_ACTION_UP: case AMOTION_EVENT_ACTION_POINTER_UP: touch_each(ev, EV_UP, idx); break;
         case AMOTION_EVENT_ACTION_CANCEL:
-            memset(touches, 0, sizeof(touches));
-            stick_id = -1; look_id = -1;
+            if (eng_pointer_mode()) touch_each(ev, EV_UP, -1); else eng_touch_cancel();
             break;
         }
         return 1;
@@ -396,12 +327,8 @@ static int32_t on_input(struct android_app *app, AInputEvent *ev)
 
 static u32 read_pad(void)
 {
-    u32 bits = gp_bits;
-    int i;
-    if (gp_on) game_set_analog(gp_lx, gp_ly, gp_rx, gp_ry);
-    for (i = 0; i < MAX_TOUCH; i++)
-        if (touches[i].down) bits |= touch_hit(touches[i].x, touches[i].y);
-    return bits;
+    if (gp_on) eng_set_analog(gp_lx, gp_ly, gp_rx, gp_ry);
+    return gp_bits;                              /* the engine adds the touch buttons */
 }
 
 static void on_cmd(struct android_app *app, int32_t cmd)
@@ -414,8 +341,7 @@ static void on_cmd(struct android_app *app, int32_t cmd)
         display_term();
         break;
     case APP_CMD_LOST_FOCUS:
-        memset(touches, 0, sizeof(touches));
-        stick_id = -1; look_id = -1;
+        eng_touch_cancel();
         audio_pause(1);                          /* no hum or chainsaw while she's in the background */
         break;
     case APP_CMD_GAINED_FOCUS:
@@ -427,15 +353,15 @@ static void on_cmd(struct android_app *app, int32_t cmd)
     }
 }
 
-/* ---------------------------------------------------------------- level files (the editor): the app's
-   external files folder, reachable over USB at Android/data/<package>/files/levels */
+/* ---------------------------------------------------------------- user files: the app's external files
+   folder, reachable over USB at Android/data/<package>/files/<files_dir> */
 static char lvl_dir[512], lvl_where[64];
 static void lvl_init(struct android_app *app)
 {
     const char *base = app->activity->externalDataPath ? app->activity->externalDataPath : app->activity->internalDataPath;
     const char *a;
     int i;
-    snprintf(lvl_dir, sizeof(lvl_dir), "%s/levels", base ? base : ".");
+    snprintf(lvl_dir, sizeof(lvl_dir), "%s/%s", base ? base : ".", eng_files_dir());
     a = strstr(lvl_dir, "Android/");
     snprintf(lvl_where, sizeof(lvl_where), "%s", a ? a : "THE APP'S FILES");
     for (i = 0; lvl_where[i]; i++) if (lvl_where[i] >= 'a' && lvl_where[i] <= 'z') lvl_where[i] -= 32;
@@ -470,7 +396,8 @@ int plat_file_list(char (*names)[32], int max)
     if (!d) return 0;
     while ((e = readdir(d)) && n < max) {
         size_t l = strlen(e->d_name);
-        if (l > 4 && l < 31 && !strcmp(e->d_name + l - 4, ".map")) { strcpy(names[n], e->d_name); n++; }
+        size_t el = strlen(eng_files_ext());
+        if (l > el && l < 31 && !strcmp(e->d_name + l - el, eng_files_ext())) { strcpy(names[n], e->d_name); n++; }
     }
     closedir(d);
     for (i = 1; i < n; i++) for (j = i; j > 0 && strcmp(names[j - 1], names[j]) > 0; j--) { char t[32]; strcpy(t, names[j]); strcpy(names[j], names[j - 1]); strcpy(names[j - 1], t); }
@@ -494,11 +421,11 @@ void android_main(struct android_app *app)
 
     lvl_init(app);
     if (!game_started) {
-        game_init();
-        game_set_touch_ui(1);
+        eng_init();
+        eng_set_touch_ui(1);
         audio_open();
         game_started = 1;
-        LOG("static game RAM %d / %d bytes", game_ram_used(), RAM_BUDGET);
+        LOG("%s: static RAM %d / %d bytes", eng_app()->name, eng_ram_used(), RAM_BUDGET);
     }
 
     for (;;) {
@@ -515,8 +442,7 @@ void android_main(struct android_app *app)
             int steps = 0;
             if (next == 0 || t - next > 0.25) next = t;
             while (t >= next && steps < 4) {
-                game_set_stick(stick_id >= 0, stick_ox, stick_oy, stick_x, stick_y);
-                game_frame(read_pad()); next += 1.0 / 60.0; steps++;
+                eng_frame(read_pad()); next += 1.0 / 60.0; steps++;
             }
         }
         present();

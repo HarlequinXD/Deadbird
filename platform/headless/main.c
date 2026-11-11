@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include "deadbird.h"
+#include "engine.h"
 #include "snd.h"
 #include "player.h"
 #include "enemy.h"
@@ -21,7 +22,7 @@ static void write_bmp(const char *dir, const char *name)
     sprintf(path, "%s/%s.bmp", dir, name);
     f = fopen(path, "wb");
     if (!f) return;
-    game_display_area(&dx, &dy);
+    eng_display_area(&dx, &dy);
     h[2] = size & 255; h[3] = (size >> 8) & 255; h[4] = (size >> 16) & 255;
     h[10] = 54; h[14] = 40;
     h[18] = SCREEN_W & 255; h[19] = SCREEN_W >> 8;
@@ -49,7 +50,7 @@ static int audio_n, audio_acc;
 static void frame(u32 pad)
 {
     int n;
-    game_frame(pad);
+    eng_frame(pad);
     frames_run++;
     audio_acc += SND_RATE;
     n = audio_acc / 60; audio_acc -= n * 60;
@@ -84,8 +85,8 @@ int main(int argc, char **argv)
     int i;
 
     if (getenv("WIDE")) screen_w = atoi(getenv("WIDE"));   /* WIDE=512: a phone's frame width */
-    game_init();
-    printf("static game RAM: %d bytes of %d (PS1 main RAM)\n", game_ram_used(), RAM_BUDGET);
+    eng_init();
+    printf("static game RAM: %d bytes of %d (PS1 main RAM)\n", eng_ram_used(), RAM_BUDGET);
     printf("VRAM: %d bytes\n", VRAM_W * VRAM_H * 2);
 
     t0 = clock();
@@ -96,17 +97,17 @@ int main(int argc, char **argv)
     run(PAD_CROSS, 1); run(0, 10);
     run(PAD_CROSS, 1); run(0, 40);                                      /* PLAY (menu resets to the top) */
     if (game_phase() != GS_PLAY) { printf("FAIL: not in play mode\n"); return 1; }
-    game_set_touch_ui(1);
+    eng_set_touch_ui(1);
     run(0, 20);
     write_bmp(out, "03_idle");
     run(PAD_START, 1); run(0, 8); write_bmp(out, "03b_pause"); run(PAD_START, 1); run(0, 4);   /* pause and resume */
     /* walk cycle: one frame every 4 for a gait strip */
-    game_set_stick(1, 60, 180, 60, 162);                 /* half push forward: walk */
+    eng_set_stick(1, 60, 180, 60, 162);                 /* half push forward: walk */
     for (i = 0; i < 6; i++) { run(0, 4); sprintf(name, "04_walk_%d", i); write_bmp(out, name); }
-    game_set_stick(1, 60, 180, 60, 140);                 /* full push: run */
+    eng_set_stick(1, 60, 180, 60, 140);                 /* full push: run */
     run(0, 40);
     for (i = 0; i < 4; i++) { run(0, 3); sprintf(name, "05_run_%d", i); write_bmp(out, name); }
-    game_set_stick(0, 0, 0, 0, 0);
+    eng_set_stick(0, 0, 0, 0, 0);
     run(PAD_UP | PAD_RIGHT, 14);
     write_bmp(out, "06_run_turn_lean");
     run(PAD_RIGHT, 30);
@@ -145,43 +146,43 @@ int main(int argc, char **argv)
         game_debug_side_cam(0);
     }
     /* side-on gait strips (walk, then run) for checking stride vs speed */
-    game_set_touch_ui(0);
+    eng_set_touch_ui(0);
     game_debug_side_cam(1);
     run(0, 40);
-    game_set_stick(1, 60, 180, 60, 162);
+    eng_set_stick(1, 60, 180, 60, 162);
     run(0, 30);
     for (i = 0; i < 8; i++) { run(0, 3); sprintf(name, "12_side_walk_%d", i); write_bmp(out, name); }
-    game_set_stick(1, 60, 180, 60, 140);
+    eng_set_stick(1, 60, 180, 60, 140);
     run(0, 40);
     for (i = 0; i < 8; i++) { run(0, 2); sprintf(name, "13_side_run_%d", i); write_bmp(out, name); }
-    game_set_stick(0, 0, 0, 0, 0);
+    eng_set_stick(0, 0, 0, 0, 0);
     game_debug_side_cam(0);
     {   /* hold the stick fully right: the camera follows, so she should keep curving round */
         int total = 0, last = game_debug_player_yaw(), y;
-        game_set_stick(1, 60, 180, 94, 180);
+        eng_set_stick(1, 60, 180, 94, 180);
         for (i = 0; i < 150; i++) {
             run(0, 1);
             y = game_debug_player_yaw();
             total += ((y - last + 2048) & 4095) - 2048; last = y;
         }
-        game_set_stick(0, 0, 0, 0, 0);
+        eng_set_stick(0, 0, 0, 0, 0);
         printf("stick held right for 150 frames: turned %d degrees\n", total * 360 / 4096);
         if (total < 1024) { printf("FAIL: holding the stick sideways doesn't keep turning\n"); return 1; }
     }
     {   /* sprint (a long flat-out run turns into one), a dodge roll, then the plant-and-turn */
-        game_set_stick(1, 60, 180, 60, 140);
+        eng_set_stick(1, 60, 180, 60, 140);
         run(0, 90);
         for (i = 0; i < 6; i++) { run(0, 2); sprintf(name, "17_sprint_%d", i); write_bmp(out, name); }
         for (i = 0; i < 10; i++) { run(i == 0 ? PAD_CIRCLE : 0, 3); sprintf(name, "18_roll_%d", i); write_bmp(out, name); }
         run(0, 40);
-        game_set_stick(1, 60, 180, 60, 220);
+        eng_set_stick(1, 60, 180, 60, 220);
         for (i = 0; i < 6; i++) { run(0, 3); sprintf(name, "19_pivot_%d", i); write_bmp(out, name); }
-        game_set_stick(0, 0, 0, 0, 0);
+        eng_set_stick(0, 0, 0, 0, 0);
         run(0, 20);
     }
     {   /* enemy + FATALITY: walk up to the first trooper, chainsaw him until he reels, finish him */
         int k, st = 0, shots = 0;
-        game_set_touch_ui(1);
+        eng_set_touch_ui(1);
         game_debug_near_enemy(0, 3800);
         run(0, 70);
         write_bmp(out, "20_trooper_fight");

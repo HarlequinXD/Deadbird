@@ -1,11 +1,10 @@
 /*
  * Software sound mixer (Android, Windows, headless). The game thread posts commands into a
  * single-producer / single-consumer ring; the audio callback (which may run on another thread)
- * applies them and mixes up to 16 voices of 8-bit PCM (synthesised at start-up by gen/gen_sfx.c) with linear interpolation into 16-bit
+ * applies them and mixes up to 16 voices of 8-bit PCM (the game's bank) with linear interpolation into 16-bit
  * stereo at SND_RATE. Loop slots glide their volume and pitch so changes never click.
  */
 #include "snd.h"
-#include "gen.h"
 
 #define NVOICE  16
 #define NCMD    64
@@ -42,11 +41,12 @@ static void push(int kind, int slot, int id, int vol, int pan, int pitch)
     cmd_head = n;
 }
 
-void snd_init(void) { gen_sfx(); memset(voice, 0, sizeof(voice)); cmd_head = cmd_tail = 0; }
+static const SndSample *bank; static int nbank;
+void snd_init(const SndSample *b, int n) { bank = b; nbank = n > SND_MAX ? SND_MAX : n; memset(voice, 0, sizeof(voice)); cmd_head = cmd_tail = 0; }
 
-void snd_play(int id, int vol, int pan, int pitch) { if (id >= 0 && id < SFX_COUNT && vol > 0) push(0, 0, id, vol, pan, pitch); }
+void snd_play(int id, int vol, int pan, int pitch) { if (id >= 0 && id < nbank && vol > 0) push(0, 0, id, vol, pan, pitch); }
 
-void snd_loop(int slot, int id, int vol, int pan, int pitch) { if (slot >= 0 && slot < SND_LOOPS) push(1, slot, id, vol, pan, pitch); }
+void snd_loop(int slot, int id, int vol, int pan, int pitch) { if (slot >= 0 && slot < SND_LOOPS && id >= 0 && id < 256) push(1, slot, id, vol, pan, pitch); }
 
 static void gains(int vol, int pan, s32 *l, s32 *r)
 {
@@ -60,8 +60,10 @@ static u32 step_for(s32 rate, s32 pitch) { if (pitch < 64) pitch = 64; return (u
 
 static void apply(const Cmd *c)
 {
-    const SfxPcm *s = &sfx_pcm[c->id];
+    const SndSample *s;
     Voice *v;
+    if (c->id >= nbank) return;
+    s = &bank[c->id];
     if (c->kind == 0) {                            /* one-shot: take the next free voice (or the oldest) */
         int i, k = -1;
         for (i = 0; i < NVOICE - SND_LOOPS; i++) {

@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "deadbird.h"
+#include "engine.h"
 #include "editor.h"
 #include "gpu.h"
 
@@ -23,7 +24,7 @@ static void shot(const char *name)
     sprintf(path, "%s/%s.bmp", out, name);
     f = fopen(path, "wb");
     if (!f) return;
-    game_display_area(&dx, &dy);
+    eng_display_area(&dx, &dy);
     h[2] = size & 255; h[3] = (size >> 8) & 255; h[4] = (size >> 16) & 255;
     h[10] = 54; h[14] = 40; h[18] = SCREEN_W & 255; h[19] = SCREEN_W >> 8; h[22] = SCREEN_H & 255; h[23] = SCREEN_H >> 8; h[26] = 1; h[28] = 24;
     fwrite(h, 1, 54, f);
@@ -37,11 +38,11 @@ static void shot(const char *name)
     }
     fclose(f);
 }
-static void run(u32 pad, int n) { int i; for (i = 0; i < n; i++) game_frame(pad); }
-static void press(u32 b) { game_frame(b); game_frame(0); game_frame(0); }
+static void run(u32 pad, int n) { int i; for (i = 0; i < n; i++) eng_frame(pad); }
+static void press(u32 b) { eng_frame(b); eng_frame(0); eng_frame(0); }
 static void presses(u32 b, int n) { int i; for (i = 0; i < n; i++) press(b); }
 static void expect(int cond, const char *what) { printf("%s %s\n", cond ? "  ok  " : "  FAIL", what); if (!cond) fails++; }
-static void tap(int x, int y) { game_pointer(0, 0, x, y, 0); game_frame(0); game_pointer(0, 2, x, y, 0); game_frame(0); game_frame(0); }
+static void tap(int x, int y) { eng_pointer(0, 0, x, y, 0); eng_frame(0); eng_pointer(0, 2, x, y, 0); eng_frame(0); eng_frame(0); }
 
 int main(int argc, char **argv)
 {
@@ -49,9 +50,9 @@ int main(int argc, char **argv)
     setenv("DEADBIRD_LEVELS", "/tmp/deadbird_levels_test", 1);
     if (system("rm -rf /tmp/deadbird_levels_test")) {}
     if (getenv("WIDE")) screen_w = atoi(getenv("WIDE"));   /* WIDE=512: a phone's frame width */
-    game_init();
-    game_set_touch_ui(getenv("TOUCH") != 0);
-    game_set_pad_style(0);
+    eng_init();
+    eng_set_touch_ui(getenv("TOUCH") != 0);
+    eng_set_pad_style(0);
     run(0, 40);
     /* title: EDITOR is the second item */
     press(PAD_DOWN); press(PAD_CROSS); run(0, 40);
@@ -79,13 +80,13 @@ int main(int argc, char **argv)
     press(PAD_SELECT); run(0, 3);
     expect(editor_in_3d(), "SELECT opens the 3D view");
     shot("ed_08_3d");
-    game_set_analog(0, 0, 0, 2400); run(0, 20); game_set_analog(0, 0, 0, 0);   /* look down a bit */
-    game_set_analog(0, 3000, 0, 0); run(0, 25); game_set_analog(0, 0, 0, 0);
+    eng_set_analog(0, 0, 0, 2400); run(0, 20); eng_set_analog(0, 0, 0, 0);   /* look down a bit */
+    eng_set_analog(0, 3000, 0, 0); run(0, 25); eng_set_analog(0, 0, 0, 0);
     run(0, 2);
     shot("ed_09_3d_looking");
     presses(PAD_R1, 3); press(PAD_CROSS); run(0, 3);
     shot("ed_10_3d_painted");
-    game_set_analog(0, 0, 0, -3600); run(0, 30); game_set_analog(0, 0, 0, 0); run(0, 2);   /* look up at the ceiling */
+    eng_set_analog(0, 0, 0, -3600); run(0, 30); eng_set_analog(0, 0, 0, 0); run(0, 2);   /* look up at the ceiling */
     press(PAD_DOWN); press(PAD_DOWN); run(0, 3);
     shot("ed_10b_3d_ceiling_lowered");
     press(PAD_TRIANGLE); run(0, 2);
@@ -149,12 +150,12 @@ int main(int argc, char **argv)
     press(PAD_CIRCLE); press(PAD_CIRCLE);
     /* touch: a tap on the map does nothing (only the d-pad moves the cursor); a tap on a prompt presses its button */
     if (!getenv("TOUCH")) {
-    game_set_touch_ui(1);
+    eng_set_touch_ui(1);
     tap(200, 80); run(0, 2);
     shot("ed_20_touch");
     tap(16, 232); run(0, 2);                                  /* the first prompt: X (place) */
     shot("ed_23_touch_prompt");
-    game_set_touch_ui(0);
+    eng_set_touch_ui(0);
     }
     /* back to the title restores level 1 */
     press(PAD_START); presses(PAD_UP, 1); press(PAD_CROSS); run(0, 4);

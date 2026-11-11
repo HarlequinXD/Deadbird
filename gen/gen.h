@@ -9,7 +9,8 @@
 #include "sfx_ids.h"
 
 /* ---- sounds */
-typedef struct { const signed char *data; int len, rate, loop; } SfxPcm;
+#include "snd.h"
+typedef SndSample SfxPcm;           /* 8-bit PCM, ready for snd_init */
 extern SfxPcm sfx_pcm[SFX_COUNT];
 typedef void (*GenSfxFn)(void *user, int id, const float *y, int n, int sr, int loop);
 void gen_sfx_each(GenSfxFn fn, void *user);     /* every sound as floats -1..1 */

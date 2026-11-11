@@ -110,7 +110,7 @@ Almost nothing is stored: the game **builds itself at start-up** (about half a s
   JPEG-like codec and context-modelled meshes (`gen/pack.c`), re-quantised to 16-colour CLUTs
   with the PS1 dither as they load.
 - **VRAM: 512 KB** instead of 1 MB, all textures 4bpp.
-- **Windows** links no C runtime (`platform/windows/tinycrt.c`); **Android** ships arm64 only.
+- **Windows** links no C runtime (`engine/platform/windows/tinycrt.c`); **Android** ships arm64 only.
 - **PS1**: the same generators run on the build machine (`tools/gen_dump.c`) and the results
   are linked in, because the PlayStation has no FPU to run them at boot.
 
@@ -132,12 +132,16 @@ A full game frame (level, player, HUD) takes **~1.3 ms** on a PC, so phones have
 ## Layout
 
 ```
-engine/            portable PS1 engine (C99, fixed point, no malloc)
+engine/            the reusable PS1-style engine (C99, fixed point, no malloc) - see engine/README.md
+  app.h            the contract a game implements (init / tick / draw + optional touch, pointer, keys)
+  engine.[ch]      the runtime: frame loop, Input (pad, sticks, keyboard, touch controls), rumble
   psx.h            types, PS1 memory constants, pad bits
   gte.[ch]         GTE-style matrix/vector maths + perspective
   gpu.h            primitives, ordering table, VRAM/GPU API
   gpu_soft.c       software PS1 GPU (Android/PC only; PS1 uses the real GPU)
-  model.[ch]       rigid hierarchical models (one GTE matrix per body part)
+  model.[ch], ik.[ch], draw2d.[ch], snd.h + snd_mix.c, files.h
+  platform/        android, windows, psx and headless layers, shared by every game on the engine
+examples/hello/    the engine's sample game: a spinning cube, a sound, touch / pad / keyboard input
 game/              Deadbird itself (platform independent): flow, player movement + keyframed animation, level, HUD, fx, title;
                    the level editor: edmap.[ch] (the .map format in memory: parse, write, check,
                    compile, edit), editor.c (2D map, panels, level list), ed3d.c (3D view), edui.c
@@ -145,10 +149,10 @@ gen/               procedural assets: the sector-map builder + lighting bake (ge
                    maps (map_*.c), level textures, sounds, 4-bit palettes, the image / mesh codec
 maps/              the levels as text sector maps (e1.map = level 1, test.map for the tests)
 assets/            packed.h (skins, meshes, UI, font, title painting, ~56 KB), mesh headers, src/ (their sources)
-platform/android/  NativeActivity + GLES2 present + touch pad (Gradle project)
-platform/windows/  Win32 + GDI present, XInput (Xbox controller) + keyboard
-platform/psx/      real PS1 build (PSn00bSDK): GPU packet output, DualShock pad, CD image
-platform/headless/ PC test build that renders frames to BMP (used by CI)
+platform/android/  Deadbird's Android project (Gradle; builds engine/platform/android + the game)
+platform/windows/  Deadbird's Windows build (MinGW Makefile, MSVC script, icon)
+platform/psx/      Deadbird's PS1 build (PSn00bSDK CMake, CD image)
+platform/headless/ Deadbird's tests: scripted play-through, editor, combat, movement (used by CI)
 tools/             make_map.py (maps -> gen/map_*.c + docs/maps/*.png), pack_assets.py + packer.c
                    (assets/src -> packed.h), gen_dump.c (PS1 baking),
                    model builders (build_demon.py, ...) + import_authored.py, viewers
@@ -261,6 +265,7 @@ send to a console with a loader). The disc has no Sony licence data, so it boots
 ```
 make -C platform/headless
 ./platform/headless/deadbird_headless out_dir   # scripted play-through: frames, timing, RAM use
+make -C platform/headless hello_headless && ./platform/headless/hello_headless out_dir   # the engine's sample game
 make -C platform/headless gaittest && ./platform/headless/gaittest gait.bmp   # side-on walk/run sheet
 ```
 
@@ -296,7 +301,7 @@ and revving (pitch follows her speed), hellish menu chimes and a pause gong; amb
 hum, a throbbing reactor drone that swells near the great tank, steam bursts, distant clanks,
 alarms and the moans of captive shinigami. Android (OpenSL ES), Windows (waveOut) and the
 headless test mix 8-bit PCM in software (`engine/snd_mix.c`); the PS1 build plays the same sounds
-as SPU ADPCM on the SPU's hardware voices (`platform/psx/snd_psx.c`).
+as SPU ADPCM on the SPU's hardware voices (`engine/platform/psx/snd_psx.c`).
 
 **Title and UI** (`tools/make_title_bg.py`, `tools/make_ui.py`): the title screen is a painted
 backdrop (`assets/src/title_bg.png`, 256 colours + PS1 dither) with forged menu plates; the touch

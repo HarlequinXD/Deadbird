@@ -37,10 +37,11 @@ static void put_clut(int slot, const u16 *c)
 /* decode an image, quantise the region (sx,sy,w,h) to one CLUT and put it at page texel (u,v) */
 static void place(const PkImage *im, int sx, int sy, int w, int h, int px, int py, int u, int v, int slot, int stp)
 {
-    u8 *idx = (u8 *)malloc((size_t)(w * h));
+    int w4 = (w + 3) & ~3;                  /* 4 texels a halfword: pad the row with index 0 (clear) */
+    u8 *idx = (u8 *)calloc((size_t)(w4 * h), 1);
     u16 clut[16];
-    quant16(im->rgb + (sy * im->w + sx) * 3, im->mask ? im->mask + sy * im->w + sx : 0, w, h, im->w, clut, idx, w, 4.0f, stp);
-    put4(idx, w, h, w, px + u / 4, py + v);
+    quant16(im->rgb + (sy * im->w + sx) * 3, im->mask ? im->mask + sy * im->w + sx : 0, w, h, im->w, clut, idx, w4, 4.0f, stp);
+    put4(idx, w4, h, w4, px + u / 4, py + v);
     put_clut(slot, clut);
     free(idx);
 }

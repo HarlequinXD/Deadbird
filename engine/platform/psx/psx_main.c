@@ -1,16 +1,16 @@
 /*
- * Deadbird - PlayStation platform layer (PSn00bSDK).
+ * PlayStation platform layer (PSn00bSDK), for any game on the engine.
  *
- * Same game and engine code as Android / Windows; only this file and gpu_psx.c are PS1
- * specific. NTSC 320x240, double buffered in VRAM at (0,0) / (0,240) exactly as the engine
- * already lays it out, controller in port 1 (digital pad or DualShock - press ANALOG for the
- * sticks: left stick moves, right stick turns the camera).
+ * Same game and engine code as Android / Windows; only this file, gpu_psx.c and snd_psx.c are
+ * PS1 specific. NTSC 320x240, double buffered in VRAM at (0,0) / (0,240) exactly as the engine
+ * lays it out, controller in port 1 (digital pad or DualShock - press ANALOG for the sticks).
+ * SELECT toggles a frame-rate readout (Input.fps).
  */
 #include <stdint.h>
 #include <psxapi.h>
 #include <psxgpu.h>
 #include <psxgte.h>
-#include "deadbird.h"
+#include "engine.h"
 
 void gpu_psx_submit(void);
 
@@ -37,15 +37,9 @@ static u32 read_pad(void)
         if (type == 5 || type == 7) {                     /* analog: sticks */
             rx = axis(b[4]); ry = -axis(b[5]);
             lx = axis(b[6]); ly = -axis(b[7]);
-            if (game_phase() != GS_PLAY) {                /* menus: left stick as a d-pad */
-                if (ly > 2400) pad |= PAD_UP;
-                if (ly < -2400) pad |= PAD_DOWN;
-                if (lx > 2400) pad |= PAD_RIGHT;
-                if (lx < -2400) pad |= PAD_LEFT;
-            }
         }
     }
-    game_set_analog(lx, ly, rx, ry);
+    eng_set_analog(lx, ly, rx, ry);
     return pad;
 }
 
@@ -63,8 +57,8 @@ int main(int argc, const char **argv)
     ChangeClearPAD(0);
 
     InitGeom();                                       /* turn on the GTE (vertex transforms) */
-    game_init();
-    game_set_touch_ui(0);
+    eng_init();
+    eng_set_touch_ui(0);
     SetDispMask(1);
 
     last = VSync(-1);
@@ -72,10 +66,10 @@ int main(int argc, const char **argv)
         u32 pad = read_pad();
         int now, ticks;
         /* CPU: simulate and build this frame's display list (the GPU is still drawing the last one) */
-        game_frame(pad);
+        eng_frame(pad);
         DrawSync(0);                                    /* last frame finished drawing ... */
         VSync(0);
-        game_display_area(&dx, &dy);                    /* ... so show it: it's the other buffer */
+        eng_display_area(&dx, &dy);                    /* ... so show it: it's the other buffer */
         disp.disp.x = (int16_t)dx;
         disp.disp.y = (int16_t)(dy ^ SCREEN_H);
         PutDispEnv(&disp);
@@ -89,10 +83,10 @@ int main(int argc, const char **argv)
         if ((pad & PAD_SELECT) && !(prev & PAD_SELECT)) show_fps ^= 1;
         prev = pad;
         fps_acc += ticks + 1; fps_frames++;
-        if (fps_acc >= 60) { game_show_fps(show_fps ? (fps_frames * 60 + fps_acc / 2) / fps_acc : 0); fps_acc = fps_frames = 0; }
-        if (!show_fps) game_show_fps(0);
+        if (fps_acc >= 60) { eng_show_fps(show_fps ? (fps_frames * 60 + fps_acc / 2) / fps_acc : 0); fps_acc = fps_frames = 0; }
+        if (!show_fps) eng_show_fps(0);
         if (ticks > 5) ticks = 5;
-        while (ticks-- > 0) game_step(pad);
+        while (ticks-- > 0) eng_step(pad);
     }
     return 0;
 }

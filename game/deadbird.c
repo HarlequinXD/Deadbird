@@ -4,6 +4,7 @@
  * Pure fixed-point C, no floats, no malloc: PS1-portable.
  */
 #include "deadbird.h"
+#include "engine.h"
 #include "gte.h"
 #include "gpu.h"
 #include "model.h"
@@ -11,6 +12,7 @@
 #include "level.h"
 #include "ui.h"
 #include "snd.h"
+#include "sfx_ids.h"
 #include "combat.h"
 #include "enemy.h"
 #include "ik.h"
@@ -25,11 +27,12 @@
 #include "assets.h"
 #ifndef GEN_BAKED
 #include "editor.h"
+#include "gen.h"                      /* gen_sfx: the sounds, synthesised at start-up */
+#else
+#include "sfx_adpcm.h"                /* the PS1: the same sounds, baked as SPU ADPCM */
 #endif
 
 
-static FrameBuf frames[2];
-static int cur, disp_x, disp_y;
 static Model demon, saw_body, saw_chain[SAW_CHAIN_FRAMES];
 static int chain_ph;                   /* chainsaw chain: strip frame = chain_ph >> 4 */
 static int land_shake_t = 99, land_shake_amp;   /* camera jolt: landings and blade hits */
@@ -64,14 +67,15 @@ static int touch_ui;
 /* ------------------------------------------------------------------ touch layout */
 /* the stick runs / walks by how far it's pushed and swiping the right half turns the camera,
    so the pad only needs: chainsaw attack (big, under the thumb), jump, pause */
-TouchButton touch_buttons[] = {                        /* placed by touch_layout */
+typedef struct { s16 x, y, r; u32 button; } TouchButton;
+static TouchButton touch_buttons[] = {                        /* placed by touch_layout */
     { 0, 0, 25, BTN_ATTACK },
     { 0, 0, 17, BTN_JUMP },
     { 0, 0, 12, PAD_START },
     { 0, 0, 26, PAD_TRIANGLE | PAD_SQUARE },               /* FATALITY: only while one is possible */
     { 0, 0, 15, BTN_DODGE },                               /* dodge roll */
 };
-const int touch_button_count = (int)(sizeof(touch_buttons) / sizeof(touch_buttons[0]));
+static const int touch_button_count = (int)(sizeof(touch_buttons) / sizeof(touch_buttons[0]));
 /* thumb-sized and anchored to the screen's corners, however wide the frame is: the chainsaw
    under the right thumb, jump and dodge round it, pause in the top corner */
 static void touch_layout(void)
@@ -86,7 +90,7 @@ static void touch_layout(void)
 #define STICK_HOME_X 74
 #define STICK_HOME_Y 172
 
-u32 touch_hit(int x, int y)
+static u32 touch_hit(int x, int y)
 {
     int i;
     u32 bits = 0;
@@ -100,40 +104,24 @@ u32 touch_hit(int x, int y)
     return bits;
 }
 
-void game_set_stick(int active, int ox, int oy, int x, int y)
-{
-    stick_on = active; stick_ox = ox; stick_oy = oy; stick_x = x; stick_y = y;
-}
-
-void game_cam_drag(int dx) { if (gs == GS_PLAY) { cam_yaw = (cam_yaw + dx * 12) & 4095; } }
-static u32 tap_press;                     /* a tap on a menu, as a button press next frame */
-void game_touch_tap(int x, int y)
+static void touch_look(int dx) { if (gs == GS_PLAY) { cam_yaw = (cam_yaw + dx * 12) & 4095; } }
+static void touch_tap(int x, int y)
 {
     int cx = SCREEN_W / 2;
     if (gs == GS_TITLE) title_tap(x, y);
     else if (gs == GS_PAUSE) {   /* the plates are buttons */
-        if (x > cx - 110 && x < cx + 110 && y >= 112 && y < 150) tap_press |= PAD_START;
-        else if (x > cx - 110 && x < cx + 110 && y >= 150 && y < 190) tap_press |= BTN_JUMP;
-    } else if (gs == GS_CONTROLS || gs == GS_END) tap_press |= PAD_CROSS;
+        if (x > cx - 110 && x < cx + 110 && y >= 112 && y < 150) eng_tap(PAD_START);
+        else if (x > cx - 110 && x < cx + 110 && y >= 150 && y < 190) eng_tap(BTN_JUMP);
+    } else if (gs == GS_CONTROLS || gs == GS_END) eng_tap(PAD_CROSS);
 }
-void game_set_touch_ui(int on) { touch_ui = on; }
-void game_set_pad_style(int style) { pad_style = style; }
-int  game_rumble(void) { return rumble; }
-void game_set_analog(int lx, int ly, int rx, int ry) { an_lx = lx; an_ly = ly; an_rx = rx; an_ry = ry; }
+static int stick_as_dpad(void) { return gs != GS_PLAY && gs != GS_EDITOR; }
 #ifndef GEN_BAKED
-int  game_wants_pointer(void) { return gs == GS_EDITOR; }
-void game_pointer(int id, int ev, int x, int y, int kind) { if (gs == GS_EDITOR) editor_pointer(id, ev, x, y, kind); }
-void game_wheel(int steps) { if (gs == GS_EDITOR) editor_wheel(steps); }
-void game_char(int ch) { if (gs == GS_EDITOR) editor_char(ch); }
-#else
-int  game_wants_pointer(void) { return 0; }
-void game_pointer(int id, int ev, int x, int y, int kind) { (void)id; (void)ev; (void)x; (void)y; (void)kind; }
-void game_wheel(int steps) { (void)steps; }
-void game_char(int ch) { (void)ch; }
+static int  pointer_mode(void) { return gs == GS_EDITOR; }
+static void pointer(int id, int ev, int x, int y, int kind) { if (gs == GS_EDITOR) editor_pointer(id, ev, x, y, kind); }
+static void wheel(int steps) { if (gs == GS_EDITOR) editor_wheel(steps); }
+static void typed(int ch) { if (gs == GS_EDITOR) editor_char(ch); }
 #endif
 static int fps_shown;
-void game_show_fps(int fps) { fps_shown = fps; }
-void game_display_area(int *x, int *y) { *x = disp_x; *y = disp_y; }
 int  game_phase(void) { return gs; }
 void game_debug_side_cam(int on) { debug_side_cam = on; }
 int  game_debug_player_yaw(void) { return pl.yaw; }
@@ -258,10 +246,9 @@ static void enemy_sound(int id, int vol, s32 x, s32 z, int pitch)
     snd_play(id, vol, pan_of(x, z), pitch);
 }
 
-void game_init(void)
+static void app_init(void)
 {
     int b;
-    gpu_init();
     assets_init();
     demon = asset_demon;
     demon.bones = (const DBONE *)demon_bones; demon.nbones = DEMON_NBONES;
@@ -275,7 +262,12 @@ void game_init(void)
     player_init(&demon);
     hud_init();
     ui_init();
-    snd_init();
+#ifndef GEN_BAKED
+    gen_sfx();
+    snd_init(sfx_pcm, SFX_COUNT);
+#else
+    snd_init(sfx_adpcm, SFX_COUNT);
+#endif
     {
         EnemyHooks hk;
         memset(&hk, 0, sizeof(hk));
@@ -285,7 +277,6 @@ void game_init(void)
     title_init();
     cam_dist = 2700; cam_h = 1650;
     go_title();
-    cur = 0;
 }
 
 /* ------------------------------------------------------------------ simulation */
@@ -1079,28 +1070,26 @@ static void draw_controls(FrameBuf *fb)
     if ((frame_count >> 4) & 1) text_center(fb, touch_ui ? "TAP TO GO BACK" : "PRESS ANY BUTTON", SCREEN_W / 2, 200, 1, 160, 6);
 }
 
-void game_step(u32 pad)
+static void app_tick(void)
 {
-    u32 press = (pad & ~prev_pad) | tap_press;
-    tap_press = 0;
+    const Input *in = eng_in();
+    u32 pad = in->pad, press = in->press;
+    an_lx = in->lx; an_ly = in->ly; an_rx = in->rx; an_ry = in->ry;
+    stick_on = in->stick_on; stick_ox = in->stick_ox; stick_oy = in->stick_oy; stick_x = in->stick_x; stick_y = in->stick_y;
+    touch_ui = in->touch_ui; pad_style = in->pad_style; fps_shown = in->fps;
     cur_pad = pad;
     prev_pad = pad;
     frame_count++;
     rumble = rumble * 3 / 4;
     flow(pad, press);
     audio_update();
+    eng_rumble(rumble);
 }
 
-void game_frame(u32 pad)
+static void app_draw(FrameBuf *fb)
 {
-    FrameBuf *fb = &frames[cur];
-    int by = cur * SCREEN_H;
     PROJ pr;
 
-    game_step(pad);
-
-    ot_clear(fb);
-    gpu_set_draw_env(FB_X, by, SCREEN_W, SCREEN_H, FB_X, by, 1);
     if (gs == GS_TITLE) {
         title_draw(fb, frame_count);
 #ifndef GEN_BAKED
@@ -1172,16 +1161,49 @@ void game_frame(u32 pad)
         }
         if (touch_ui) draw_touch(fb);
     }
-
-    gpu_draw_ot(fb);
-    disp_x = FB_X; disp_y = by;
-    cur ^= 1;
 }
 
-int game_ram_used(void)
+static int ram_used(void)
 {
-    return (int)(sizeof(frames) + sizeof(pl) + sizeof(DVERT) * (size_t)demon.nverts + sizeof(DPRIM) * (size_t)demon.nprims
+    return (int)(sizeof(pl) + sizeof(DVERT) * (size_t)demon.nverts + sizeof(DPRIM) * (size_t)demon.nprims
                  + sizeof(demon_bones));
 }
 
-PSX_STATIC_ASSERT(ram_budget, sizeof(frames) + sizeof(pl) < RAM_BUDGET);
+PSX_STATIC_ASSERT(ram_budget, sizeof(pl) < RAM_BUDGET);
+
+/* ------------------------------------------------------------------ the game, as the engine sees it */
+static const KeyBind KEYS[] = {          /* Windows: playing */
+    { 'W', 0, 0, PAD_UP }, { KEY_UP, 0, 0, PAD_UP }, { 'S', 0, 0, PAD_DOWN }, { KEY_DOWN, 0, 0, PAD_DOWN },
+    { 'A', 0, 0, PAD_LEFT }, { KEY_LEFT, 0, 0, PAD_LEFT }, { 'D', 0, 0, PAD_RIGHT }, { KEY_RIGHT, 0, 0, PAD_RIGHT },
+    { ' ', 0, 0, PAD_CROSS }, { KEY_SHIFT, 0, 0, PAD_R2 },              /* jump, sprint */
+    { 'C', 0, 0, PAD_CIRCLE },                                             /* dodge roll */
+    { 'F', 0, 0, PAD_SQUARE }, { 'J', 0, 0, PAD_SQUARE }, { KEY_CTRL, 0, 0, PAD_SQUARE }, { KEY_MOUSE_L, 0, 0, PAD_SQUARE },   /* chainsaw */
+    { 'R', 0, 0, PAD_TRIANGLE },                                           /* R + F = fatality */
+    { 'Q', 0, 0, PAD_L1 }, { 'E', 0, 0, PAD_R1 },
+    { KEY_ENTER, 0, 0, PAD_START }, { KEY_ESC, 0, 0, PAD_START }, { KEY_BACKSPACE, 0, 0, PAD_SELECT },
+    { 0, 0, 0, 0 }
+};
+static const KeyBind KEYS_EDITOR[] = {   /* Windows: the level editor (letters also type into its name box) */
+    { KEY_UP, 0, 0, PAD_UP }, { KEY_DOWN, 0, 0, PAD_DOWN }, { KEY_LEFT, 0, 0, PAD_LEFT }, { KEY_RIGHT, 0, 0, PAD_RIGHT },
+    { 'W', KB_LY_POS, 1, 0 }, { 'S', KB_LY_NEG, 1, 0 }, { 'A', KB_LX_NEG, 1, 0 }, { 'D', KB_LX_POS, 1, 0 },   /* fly in 3D */
+    { ' ', 0, 1, PAD_CROSS }, { KEY_ENTER, 0, 1, PAD_CROSS }, { KEY_ESC, 0, 1, PAD_CIRCLE }, { KEY_BACKSPACE, 0, 1, PAD_CIRCLE },
+    { KEY_TAB, 0, 1, PAD_TRIANGLE }, { 'I', 0, 1, PAD_SQUARE }, { 'Q', 0, 1, PAD_L1 }, { 'E', 0, 1, PAD_R1 },
+    { KEY_PGDN, 0, 1, PAD_L2 }, { '-', 0, 1, PAD_L2 }, { KEY_PGUP, 0, 1, PAD_R2 }, { '+', 0, 1, PAD_R2 },
+    { 'V', 0, 1, PAD_SELECT }, { KEY_F1, 0, 1, PAD_SELECT }, { 'M', 0, 1, PAD_START }, { KEY_F10, 0, 1, PAD_START },
+    { 0, 0, 0, 0 }
+};
+
+const App game_app = {
+    "DEADBIRD",
+    app_init, app_tick, app_draw,
+    touch_hit, touch_tap, touch_look, 45,
+#ifndef GEN_BAKED
+    pointer_mode, pointer, wheel, typed,
+#else
+    0, 0, 0, 0,
+#endif
+    stick_as_dpad,
+    KEYS, KEYS_EDITOR,
+    "levels", ".map",
+    ram_used,
+};

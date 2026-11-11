@@ -13,6 +13,7 @@
 #include "level.h"
 #include "ik.h"
 #include "snd.h"
+#include "sfx_ids.h"
 #include "vram.h"
 #include "gen_lab.h"
 

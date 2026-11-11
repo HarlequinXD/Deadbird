@@ -26,11 +26,7 @@ void editor_pointer(int id, int ev, int x, int y, int kind);
 void editor_wheel(int steps);
 void editor_char(int ch);
 
-/* storage, supplied by the platform layer: plain .map text files in the levels folder */
-int  plat_file_save(const char *name, const char *data, int len);    /* 1 = saved */
-int  plat_file_load(const char *name, char *buf, int cap);           /* bytes read, -1 = none */
-int  plat_file_list(char (*names)[32], int max);                     /* *.map names */
-int  plat_file_delete(const char *name);
-const char *plat_file_where(void);                                   /* the folder, to show the player */
+/* storage: engine/files.h (plain .map text files in the levels folder) */
+#include "files.h"
 
 #endif

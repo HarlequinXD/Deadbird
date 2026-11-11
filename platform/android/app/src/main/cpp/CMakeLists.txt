@@ -11,7 +11,8 @@ file(GLOB ENGINE_SRC ${ROOT}/engine/*.c)
 file(GLOB GAME_SRC ${ROOT}/game/*.c)
 file(GLOB GEN_SRC ${ROOT}/gen/*.c)
 
-add_library(deadbird SHARED android_main.c ${ENGINE_SRC} ${GAME_SRC} ${GEN_SRC})
+# the engine and its Android platform layer, then the game
+add_library(deadbird SHARED ${ROOT}/engine/platform/android/android_main.c ${ENGINE_SRC} ${GAME_SRC} ${GEN_SRC})
 target_include_directories(deadbird PRIVATE ${ROOT}/engine ${ROOT}/game ${ROOT}/gen ${ROOT}/assets)
 set_target_properties(deadbird PROPERTIES C_STANDARD 99)
 # built for size: the level, sounds and textures are generated at start-up (gen/)

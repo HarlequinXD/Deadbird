@@ -5,6 +5,7 @@
 #include "gte.h"
 #include "ui.h"
 #include "snd.h"
+#include "sfx_ids.h"
 
 static int sel, confirm_t = -1, fade_in, choice = -1, tap_item = -1;
 #ifdef GEN_BAKED

@@ -1,13 +1,18 @@
-/* Level files for the headless build: plain files in ./levels (or $DEADBIRD_LEVELS). */
+/* User files for the headless runner: plain files in ./<files_dir> (or $ENGINE_FILES). */
 #define _DEFAULT_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
 #include <sys/stat.h>
-#include "editor.h"
+#include "files.h"
 
-static const char *dir(void) { const char *d = getenv("DEADBIRD_LEVELS"); return d ? d : "levels"; }
+static const char *dir(void)
+{
+    const char *d = getenv("ENGINE_FILES");
+    if (!d) d = getenv("DEADBIRD_LEVELS");
+    return d ? d : eng_files_dir();
+}
 static void path(char *o, const char *name) { snprintf(o, 512, "%s/%s", dir(), name); }
 const char *plat_file_where(void) { return dir(); }
 int plat_file_save(const char *name, const char *data, int len)
@@ -39,7 +44,8 @@ int plat_file_list(char (*names)[32], int max)
     if (!d) return 0;
     while ((e = readdir(d)) && n < max) {
         size_t l = strlen(e->d_name);
-        if (l > 4 && l < 31 && !strcmp(e->d_name + l - 4, ".map")) { strcpy(names[n], e->d_name); n++; }
+        size_t el = strlen(eng_files_ext());
+        if (l > el && l < 31 && !strcmp(e->d_name + l - el, eng_files_ext())) { strcpy(names[n], e->d_name); n++; }
     }
     closedir(d);
     /* sorted by name */

@@ -1,5 +1,6 @@
-# Deadbird for Windows (64-bit). Builds with MinGW-w64, natively (MSYS2) or cross-compiled
-# from Linux:  make -C platform/windows        ->  platform/windows/Deadbird.exe
+# Deadbird for Windows (64-bit): the engine's Windows layer (engine/platform/windows) + the game.
+# Builds with MinGW-w64, natively (MSYS2) or cross-compiled from Linux:
+#   make -C platform/windows        ->  platform/windows/Deadbird.exe
 ROOT := ../..
 CC ?= x86_64-w64-mingw32-gcc
 ifeq ($(CC),cc)
@@ -9,7 +10,8 @@ CFLAGS ?= -Os -std=c99 -Wall -Wextra -Wno-unused-parameter
 # small: unused functions dropped, no unwind tables, symbols stripped
 SIZE := -ffunction-sections -fdata-sections -fno-asynchronous-unwind-tables -fno-ident -s -Wl,--gc-sections
 INC := -I$(ROOT)/engine -I$(ROOT)/game -I$(ROOT)/gen -I$(ROOT)/assets
-SRC := win_main.c $(wildcard $(ROOT)/engine/*.c) $(wildcard $(ROOT)/game/*.c) $(wildcard $(ROOT)/gen/*.c)
+PLAT := $(ROOT)/engine/platform/windows
+SRC := $(PLAT)/win_main.c $(wildcard $(ROOT)/engine/*.c) $(wildcard $(ROOT)/game/*.c) $(wildcard $(ROOT)/gen/*.c)
 
 WINDRES ?= $(patsubst %gcc,%windres,$(CC))
 

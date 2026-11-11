@@ -4,6 +4,7 @@
 #include "fk.h"
 #include "fkclips.h"
 #include "snd.h"
+#include "sfx_ids.h"
 #include "soldier_mesh.h"
 #include "assets.h"
 #include "pistol_mesh.h"

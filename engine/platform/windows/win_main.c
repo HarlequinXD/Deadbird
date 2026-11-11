@@ -1,26 +1,17 @@
 /*
- * Deadbird - Windows platform layer (Win32 + GDI + XInput, no other dependencies).
+ * Windows platform layer (Win32 + GDI + XInput + waveOut, no other dependencies), for any game
+ * on the engine.
  *
- * The engine renders a 320x240 PS1 frame into its emulated VRAM exactly as on Android; this
- * file converts that frame to 32-bit pixels and scales it to the window (nearest filtering,
- * 4:3 letterbox), runs the game at a fixed 60 Hz, and feeds it input:
- *
- *   Xbox controller (XInput, any of the 4 slots, hot-plug):
- *     left stick  move (push far to run)      right stick  turn the camera
- *     A           jump / confirm              X            chainsaw (again: combo)
- *     B, RT       sprint
- *     LB / RB     swing the camera            D-pad        move / menus
- *     START       pause                       BACK         quit to title (from pause)
- *     Y           confirm (menus)             rumble on hard landings
- *   Keyboard:
- *     WASD / arrows move, SHIFT sprint, SPACE jump, F / J / CTRL / left click chainsaw,
- *     Q / E camera, ENTER / ESC pause,
- *     F11 or ALT+ENTER fullscreen
- *   Level editor (from the title's EDITOR): the mouse moves its cursor and clicks the tool, right
- *     drag pans (looks, in 3D), the wheel zooms; arrows move the cursor, SPACE / ENTER use the
- *     tool, ESC / BACKSPACE cancel, TAB tools, I inspect, Q / E switch tool, PGUP / PGDN zoom
- *     (fly up / down in 3D), V 3D view, M menu, CTRL+Z / CTRL+Y undo / redo, CTRL+S save, WASD
- *     fly in 3D. Levels are .map files in the "levels" folder next to Deadbird.exe.
+ * The engine renders a 240-line PS1 frame (as wide as the window's shape) into its emulated
+ * VRAM; this file converts it to 32-bit pixels and scales it to fill the window (nearest
+ * filtering), runs the game at a fixed 60 Hz and feeds the engine input:
+ *   - Xbox controllers (XInput, any of the 4 slots, hot-plug): the PS1 pad layout
+ *     (A cross, B circle, X square, Y triangle, LB/RB L1/R1, LT/RT L2/R2, START, BACK select),
+ *     both sticks, rumble
+ *   - the keyboard through the game's KeyBind tables (app.h), typed text in pointer mode
+ *   - the mouse as a pointer (pointer mode) and as KEY_MOUSE_L
+ *   - F11 or ALT+ENTER fullscreen
+ * User files live in a folder named by the game (App.files_dir) next to the exe.
  */
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -28,12 +19,11 @@
 #include <xinput.h>
 #include <math.h>
 #include <string.h>
-#include "deadbird.h"
 #include "snd.h"
 /* the engine names its VRAM rectangle RECT like libgpu does; keep it apart from Win32's RECT */
 #define RECT PSX_RECT
-#include "gpu.h"
-#include "editor.h"
+#include "engine.h"
+#include "files.h"
 #undef RECT
 
 /* ------------------------------------------------------------------ XInput (xinput9_1_0.dll, ships with Windows) */
@@ -89,7 +79,6 @@ static BITMAPINFO bmi;
 static unsigned int frame32[SCREEN_W_MAX * SCREEN_H];
 static int fullscreen;
 static WINDOWPLACEMENT prev_place;
-static BYTE keys[256];
 static int running = 1;
 static int view_x, view_y, view_w = 320, view_h = SCREEN_H;   /* where the picture is in the window */
 
@@ -142,7 +131,7 @@ static void present(HDC dc)
     RECT rc;
     int w, h, vw, vh, vx, vy, x, y, dx, dy;
     const u16 *v = gpu_vram();
-    game_display_area(&dx, &dy);
+    eng_display_area(&dx, &dy);
     for (y = 0; y < SCREEN_H; y++) {
         const u16 *src = v + (dy + y) * VRAM_W + dx;
         unsigned int *dst = frame32 + y * SCREEN_W;
@@ -167,6 +156,31 @@ static void present(HDC dc)
     StretchDIBits(dc, vx, vy, vw, vh, 0, 0, SCREEN_W, SCREEN_H, frame32, &bmi, DIB_RGB_COLORS, SRCCOPY);
 }
 
+/* a Windows virtual key -> the engine's key codes (app.h) */
+static int key_of(WPARAM vk)
+{
+    if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9') || vk == VK_SPACE) return (int)vk;
+    switch (vk) {
+    case VK_RETURN: return KEY_ENTER;
+    case VK_ESCAPE: return KEY_ESC;
+    case VK_BACK: return KEY_BACKSPACE;
+    case VK_TAB: return KEY_TAB;
+    case VK_UP: return KEY_UP;
+    case VK_DOWN: return KEY_DOWN;
+    case VK_LEFT: return KEY_LEFT;
+    case VK_RIGHT: return KEY_RIGHT;
+    case VK_SHIFT: case VK_LSHIFT: case VK_RSHIFT: return KEY_SHIFT;
+    case VK_CONTROL: case VK_LCONTROL: case VK_RCONTROL: return KEY_CTRL;
+    case VK_PRIOR: return KEY_PGUP;
+    case VK_NEXT: return KEY_PGDN;
+    case VK_OEM_MINUS: case VK_SUBTRACT: return '-';
+    case VK_OEM_PLUS: case VK_ADD: return '+';
+    case VK_F1: return KEY_F1;
+    case VK_F10: return KEY_F10;
+    }
+    return 0;
+}
+
 static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
 {
     switch (msg) {
@@ -174,37 +188,39 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_DESTROY: PostQuitMessage(0); return 0;
     case WM_KEYDOWN: case WM_SYSKEYDOWN:
         if (wp == VK_F11 || (wp == VK_RETURN && (lp & (1 << 29)))) { if (!(lp & (1 << 30))) toggle_fullscreen(); return 0; }
-        keys[wp & 255] = 1;
+        eng_key(key_of(wp), 1);
         if (msg == WM_SYSKEYDOWN && wp != VK_F4) return 0;
         break;
     case WM_KEYUP: case WM_SYSKEYUP:
-        keys[wp & 255] = 0;
+        eng_key(key_of(wp), 0);
         break;
     case WM_KILLFOCUS:
-        memset(keys, 0, sizeof(keys));
+        eng_keys_clear();
         break;
-    /* the level editor's mouse and typing */
+    /* the mouse: a pointer (pointer mode) and a button */
     case WM_MOUSEMOVE: {
         int x, y; to_screen(lp, &x, &y);
-        if (wp & MK_RBUTTON) game_pointer(0, 1, x, y, 2);
-        else if (wp & MK_LBUTTON) game_pointer(0, 1, x, y, 1);
-        else game_pointer(0, 3, x, y, 1);
+        if (wp & MK_RBUTTON) eng_pointer(0, EV_MOVE, x, y, PK_MOUSE_R);
+        else if (wp & MK_LBUTTON) eng_pointer(0, EV_MOVE, x, y, PK_MOUSE_L);
+        else eng_pointer(0, EV_HOVER, x, y, PK_MOUSE_L);
         return 0;
     }
     case WM_LBUTTONDOWN: case WM_RBUTTONDOWN: {
         int x, y; to_screen(lp, &x, &y);
         SetCapture(h);
-        game_pointer(0, 0, x, y, msg == WM_LBUTTONDOWN ? 1 : 2);
+        if (msg == WM_LBUTTONDOWN) eng_key(KEY_MOUSE_L, 1);
+        eng_pointer(0, EV_DOWN, x, y, msg == WM_LBUTTONDOWN ? PK_MOUSE_L : PK_MOUSE_R);
         return 0;
     }
     case WM_LBUTTONUP: case WM_RBUTTONUP: {
         int x, y; to_screen(lp, &x, &y);
         ReleaseCapture();
-        game_pointer(0, 2, x, y, msg == WM_LBUTTONUP ? 1 : 2);
+        if (msg == WM_LBUTTONUP) eng_key(KEY_MOUSE_L, 0);
+        eng_pointer(0, EV_UP, x, y, msg == WM_LBUTTONUP ? PK_MOUSE_L : PK_MOUSE_R);
         return 0;
     }
-    case WM_MOUSEWHEEL: game_wheel((short)HIWORD(wp) > 0 ? 1 : -1); return 0;
-    case WM_CHAR: if (game_wants_pointer()) game_char((int)wp); return 0;
+    case WM_MOUSEWHEEL: eng_wheel((short)HIWORD(wp) > 0 ? 1 : -1); return 0;
+    case WM_CHAR: eng_char((int)wp); return 0;
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC dc = BeginPaint(h, &ps);
@@ -217,52 +233,12 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     return DefWindowProcA(h, msg, wp, lp);
 }
 
-/* ------------------------------------------------------------------ input -> PS1 pad bits */
+/* ------------------------------------------------------------------ the controller -> PS1 pad bits
+   (the keyboard goes through eng_key and the game's KeyBinds) */
 static u32 read_input(void)
 {
     u32 pad = 0;
     int lx = 0, ly = 0, rx = 0, ry = 0;
-    int editor = game_wants_pointer();
-    if (editor) {   /* the level editor's keys (letters are also typed into its name box) */
-        int ctrl = keys[VK_CONTROL] != 0;
-        if (keys[VK_UP]) pad |= PAD_UP;
-        if (keys[VK_DOWN]) pad |= PAD_DOWN;
-        if (keys[VK_LEFT]) pad |= PAD_LEFT;
-        if (keys[VK_RIGHT]) pad |= PAD_RIGHT;
-        if (!ctrl) {
-            if (keys['W']) ly += 4096;
-            if (keys['S']) ly -= 4096;
-            if (keys['A']) lx -= 4096;
-            if (keys['D']) lx += 4096;
-            if (keys[VK_SPACE] || keys[VK_RETURN]) pad |= PAD_CROSS;
-            if (keys[VK_ESCAPE] || keys[VK_BACK]) pad |= PAD_CIRCLE;
-            if (keys[VK_TAB]) pad |= PAD_TRIANGLE;
-            if (keys['I']) pad |= PAD_SQUARE;
-            if (keys['Q']) pad |= PAD_L1;
-            if (keys['E']) pad |= PAD_R1;
-            if (keys[VK_NEXT] || keys[VK_OEM_MINUS] || keys[VK_SUBTRACT]) pad |= PAD_L2;
-            if (keys[VK_PRIOR] || keys[VK_OEM_PLUS] || keys[VK_ADD]) pad |= PAD_R2;
-            if (keys['V'] || keys[VK_F1]) pad |= PAD_SELECT;
-            if (keys['M'] || keys[VK_F10]) pad |= PAD_START;
-        }
-    } else {
-    /* keyboard */
-    if (keys['W'] || keys[VK_UP]) pad |= PAD_UP;
-    if (keys['S'] || keys[VK_DOWN]) pad |= PAD_DOWN;
-    if (keys['A'] || keys[VK_LEFT]) pad |= PAD_LEFT;
-    if (keys['D'] || keys[VK_RIGHT]) pad |= PAD_RIGHT;
-    if (keys[VK_SPACE]) pad |= PAD_CROSS;
-    if (keys[VK_SHIFT] || keys[VK_LSHIFT] || keys[VK_RSHIFT]) pad |= PAD_R2;      /* sprint */
-    if (keys['C']) pad |= PAD_CIRCLE;                                            /* dodge roll */
-    if (keys['F'] || keys['J'] || keys[VK_CONTROL] || (GetForegroundWindow() == wnd && (GetAsyncKeyState(VK_LBUTTON) & 0x8000)))
-        pad |= PAD_SQUARE;                                     /* chainsaw: F, J, CTRL or left click */
-    if (keys['R']) pad |= PAD_TRIANGLE;                        /* R + F = fatality */
-    if (keys['Q']) pad |= PAD_L1;
-    if (keys['E']) pad |= PAD_R1;
-    if (keys[VK_RETURN] || keys[VK_ESCAPE]) pad |= PAD_START;
-    if (keys[VK_BACK]) pad |= PAD_SELECT;
-    }
-
     /* Xbox controller: use the first connected slot; look for one once a second if none */
     if (x_get) {
         XState st;
@@ -281,26 +257,19 @@ static u32 read_input(void)
                 if (b & XB_DRIGHT) pad |= PAD_RIGHT;
                 if (b & XB_A) pad |= PAD_CROSS;
                 if (b & XB_B) pad |= PAD_CIRCLE;
-                if (b & XB_X) pad |= PAD_SQUARE;                 /* chainsaw */
+                if (b & XB_X) pad |= PAD_SQUARE;
                 if (b & XB_Y) pad |= PAD_TRIANGLE;
                 if (b & XB_LB) pad |= PAD_L1;
                 if (b & XB_RB) pad |= PAD_R1;
                 if (b & XB_START) pad |= PAD_START;
                 if (b & XB_BACK) pad |= PAD_SELECT;
-                if (st.pad.rt > 60) pad |= PAD_R2;               /* right trigger: sprint (B: dodge roll) */
+                if (st.pad.rt > 60) pad |= PAD_R2;
                 if (st.pad.lt > 60) pad |= PAD_L2;
                 stick(st.pad.lx, st.pad.ly, 7849, &lx, &ly);
                 stick(st.pad.rx, st.pad.ry, 8689, &rx, &ry);
-                /* menus: the left stick also works as a d-pad */
-                if (game_phase() != GS_PLAY && !editor) {
-                    if (ly > 2400) pad |= PAD_UP;
-                    if (ly < -2400) pad |= PAD_DOWN;
-                    if (lx > 2400) pad |= PAD_RIGHT;
-                    if (lx < -2400) pad |= PAD_LEFT;
-                }
                 if (x_set) {
                     XVibe vb;
-                    int r = game_rumble();
+                    int r = eng_rumble_level();
                     if (r > 255) r = 255;
                     vb.left = (WORD)(r * 200); vb.right = (WORD)(r * 120);
                     x_set((DWORD)pad_slot, &vb);
@@ -308,23 +277,21 @@ static u32 read_input(void)
             }
         }
     }
-    if (lx > 4096) lx = 4096;
-    if (lx < -4096) lx = -4096;
-    if (ly > 4096) ly = 4096;
-    if (ly < -4096) ly = -4096;
-    game_set_analog(lx, ly, rx, ry);
+    eng_set_analog(lx, ly, rx, ry);
     return pad;
 }
 
-/* ------------------------------------------------------------------ level files (the editor): the
-   "levels" folder next to Deadbird.exe */
-static char lvl_dir[MAX_PATH];
+/* ------------------------------------------------------------------ user files: the game's folder
+   (App.files_dir) next to the exe */
+static char lvl_dir[MAX_PATH], lvl_where[MAX_PATH];
 static void lvl_init(void)
 {
     int n = (int)GetModuleFileNameA(NULL, lvl_dir, MAX_PATH - 16), i;
     for (i = n - 1; i >= 0 && lvl_dir[i] != '\\' && lvl_dir[i] != '/'; i--) {}
     lvl_dir[i + 1] = 0;
-    lstrcatA(lvl_dir, "levels");
+    lstrcatA(lvl_dir, eng_files_dir());
+    wsprintfA(lvl_where, "%s NEXT TO THE EXE", eng_files_dir());
+    CharUpperA(lvl_where);
 }
 static void lvl_path(char *o, const char *name)
 {
@@ -332,7 +299,7 @@ static void lvl_path(char *o, const char *name)
     lstrcatA(o, "\\");
     lstrcatA(o, name);
 }
-const char *plat_file_where(void) { return "LEVELS NEXT TO DEADBIRD.EXE"; }
+const char *plat_file_where(void) { return lvl_where; }
 int plat_file_save(const char *name, const char *data, int len)
 {
     char p[MAX_PATH]; HANDLE f; DWORD w = 0;
@@ -357,7 +324,10 @@ int plat_file_load(const char *name, char *buf, int cap)
 int plat_file_list(char (*names)[32], int max)
 {
     char p[MAX_PATH]; WIN32_FIND_DATAA fd; HANDLE h; int n = 0, i, j;
-    lvl_path(p, "*.map");
+    char pat[40];
+    lstrcpyA(pat, "*");
+    lstrcatA(pat, eng_files_ext());
+    lvl_path(p, pat);
     h = FindFirstFileA(p, &fd);
     if (h == INVALID_HANDLE_VALUE) return 0;
     do {
@@ -420,11 +390,11 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
     wc.lpfnWndProc = wndproc;
     wc.hInstance = inst;
     wc.hCursor = LoadCursor(NULL, IDC_ARROW);
-    wc.hIcon = LoadIcon(inst, MAKEINTRESOURCE(1));          /* the Deadbird skull (deadbird.rc) */
-    wc.lpszClassName = "Deadbird";
+    wc.hIcon = LoadIcon(inst, MAKEINTRESOURCE(1));          /* the game's icon (its .rc, resource 1) */
+    wc.lpszClassName = "PS1Engine";
     RegisterClassA(&wc);
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
-    wnd = CreateWindowA("Deadbird", "DEADBIRD", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+    wnd = CreateWindowA("PS1Engine", eng_app()->name, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
                         r.right - r.left, r.bottom - r.top, NULL, NULL, inst, NULL);
     ShowWindow(wnd, show);
 
@@ -438,9 +408,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
 
     xinput_load();
     lvl_init();
-    game_init();
-    game_set_touch_ui(0);
-    game_set_pad_style(1);
+    eng_init();
+    eng_set_touch_ui(0);
+    eng_set_pad_style(1);
     audio_open();
 
     QueryPerformanceFrequency(&freq);
@@ -460,7 +430,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
         if (acc > 0.25) acc = 0.25;                            /* after a stall, don't fast-forward */
         fit_width();
         while (acc >= step && ticks < 4) {                     /* fixed 60 Hz game logic */
-            game_frame(read_input());
+            eng_frame(read_input());
             acc -= step;
             ticks++;
         }

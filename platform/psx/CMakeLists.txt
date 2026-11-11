@@ -39,7 +39,9 @@ add_custom_command(
 # psxgte only for InitGeom(): the hot vertex loops drive the GTE directly (engine/gte_hw.h)
 set(PSN00BSDK_EXECUTABLE_LINK_LIBRARIES psxgte psxgpu psxspu psxetc psxapi c)
 
-psn00bsdk_add_executable(deadbird STATIC main.c gpu_psx.c snd_psx.c ${_engine} ${_game} ${BAKED}/baked.c)
+# the engine's PS1 layer (engine/platform/psx) + the engine + the game
+set(PLAT ${ROOT}/engine/platform/psx)
+psn00bsdk_add_executable(deadbird STATIC ${PLAT}/psx_main.c ${PLAT}/gpu_psx.c ${PLAT}/snd_psx.c ${_engine} ${_game} ${BAKED}/baked.c)
 target_include_directories(deadbird PRIVATE ${ROOT}/engine ${ROOT}/game ${ROOT}/gen ${ROOT}/assets ${BAKED})
 # PSX_GTE: use the real GTE; shorter fog = fewer polygons for the 33 MHz CPU
 target_compile_definitions(deadbird PRIVATE PRIM_MAX=2200 PSX_GTE=1 FOG_NEAR=7000 FOG_FAR=14500 GEN_BAKED=1)

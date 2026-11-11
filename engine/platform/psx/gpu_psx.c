@@ -25,7 +25,7 @@ static uint32_t *pending;
 
 void gpu_init(void)
 {
-    /* ResetGraph / video mode are done by the platform layer before game_init() */
+    /* ResetGraph / video mode are done by the platform layer before eng_init() */
 }
 
 u16 *gpu_vram(void) { return 0; }            /* VRAM is not CPU-visible on the real console */

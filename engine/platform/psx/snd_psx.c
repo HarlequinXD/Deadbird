@@ -1,17 +1,17 @@
 /*
- * Deadbird - PS1 sound on the SPU (replaces engine/snd_mix.c in the PS1 build).
- * At start-up every sound (SPU ADPCM made by tools/make_sounds.py) is DMA'd into SPU RAM once.
- * Voices 0-3 are the persistent loops (ambience hum, reactor drone, chainsaw idle / rev: the
- * ADPCM loop flags make the SPU repeat them by itself); voices 4-23 take one-shots round-robin.
+ * PS1 sound on the SPU (replaces engine/snd_mix.c in the PS1 build).
+ * snd_init DMAs every sound of the game's bank (SPU ADPCM) into SPU RAM once.
+ * Voices 0-3 are the persistent loops (the ADPCM loop flags make the SPU repeat them by itself);
+ * voices 4-23 take one-shots round-robin.
  */
 #include <stdint.h>
 #include <psxspu.h>
 #include <hwregs_c.h>
 #include "snd.h"
-#include "sfx_adpcm.h"
 
 #define SPU_BASE 0x1010                    /* first free byte after the SPU's capture buffers */
-static uint32_t addr[SFX_COUNT];          /* sound start, in SPU RAM bytes */
+static uint32_t addr[SND_MAX];
+static const SndSample *bank; static int nbank;          /* sound start, in SPU RAM bytes */
 static int loop_id[SND_LOOPS] = { -1, -1, -1, -1 }, next_voice = SND_LOOPS;
 
 static uint16_t pitch_reg(int rate, int pitch)
@@ -36,24 +36,25 @@ static void key_on(int v)
     if (v < 16) SPU_KEY_ON1 = (uint16_t)(1 << v); else SPU_KEY_ON2 = (uint16_t)(1 << (v - 16));
 }
 
-void snd_init(void)
+void snd_init(const SndSample *b, int n)
 {
     uint32_t a = SPU_BASE;
     int i;
+    bank = b; nbank = n > SND_MAX ? SND_MAX : n;
     SpuInit();
-    for (i = 0; i < SFX_COUNT; i++) {
+    for (i = 0; i < nbank; i++) {
         addr[i] = a;
         SpuSetTransferStartAddr(a);
-        SpuWrite((const uint32_t *)sfx_adpcm[i].data, (size_t)sfx_adpcm[i].len);
+        SpuWrite((const uint32_t *)bank[i].data, (size_t)bank[i].len);
         SpuIsTransferCompleted(SPU_TRANSFER_WAIT);
-        a += (uint32_t)((sfx_adpcm[i].len + 63) & ~63);
+        a += (uint32_t)((bank[i].len + 63) & ~63);
     }
 }
 
 static void start(int v, int id, int vol, int pan, int pitch)
 {
     set_vol(v, vol, pan);
-    SPU_CH_FREQ(v) = pitch_reg(sfx_adpcm[id].rate, pitch);
+    SPU_CH_FREQ(v) = pitch_reg(bank[id].rate, pitch);
     SPU_CH_ADDR(v) = (uint16_t)getSPUAddr(addr[id]);
     SPU_CH_ADSR1(v) = 0x00ff;               /* instant attack, hold full level */
     SPU_CH_ADSR2(v) = 0x0000;
@@ -62,21 +63,21 @@ static void start(int v, int id, int vol, int pan, int pitch)
 
 void snd_play(int id, int vol, int pan, int pitch)
 {
-    if (id < 0 || id >= SFX_COUNT || vol <= 0) return;
+    if (id < 0 || id >= nbank || vol <= 0) return;
     start(next_voice, id, vol, pan, pitch);
     next_voice = next_voice + 1 >= 24 ? SND_LOOPS : next_voice + 1;
 }
 
 void snd_loop(int slot, int id, int vol, int pan, int pitch)
 {
-    if (slot < 0 || slot >= SND_LOOPS) return;
+    if (slot < 0 || slot >= SND_LOOPS || id < 0 || id >= nbank) return;
     if (vol <= 0) {
         if (loop_id[slot] >= 0) { set_vol(slot, 0, 0); }
         return;
     }
     if (loop_id[slot] != id) { start(slot, id, vol, pan, pitch); loop_id[slot] = id; return; }
     set_vol(slot, vol, pan);
-    SPU_CH_FREQ(slot) = pitch_reg(sfx_adpcm[id].rate, pitch);
+    SPU_CH_FREQ(slot) = pitch_reg(bank[id].rate, pitch);
 }
 
 void snd_mix(s16 *stereo, int frames) { (void)stereo; (void)frames; }   /* the SPU mixes */

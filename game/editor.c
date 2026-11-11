@@ -15,6 +15,7 @@
 #include "fx.h"
 #include "ui.h"
 #include "snd.h"
+#include "sfx_ids.h"
 #include "level.h"
 #include "vram.h"
 #include "gen_lab.h"
