@@ -10,7 +10,10 @@
 #include <psxapi.h>
 #include <psxgpu.h>
 #include <psxgte.h>
+/* the engine's RECT has the same layout as libgpu's; keep the names apart */
+#define RECT ENGINE_RECT
 #include "engine.h"
+#undef RECT
 
 void gpu_psx_submit(void);
 
