@@ -191,14 +191,16 @@ int main(int argc, char **argv)
         tap(FX(314), FY(9)); run(3);                          /* MENU: the editor's panels in the Studio's look */
         shot("st_11_menu");
         expect(eu_ncmd > 40, "the editor's UI is drawn in high resolution");
-        ptr(EV_DOWN, FX(SCREEN_W - 200), FY(180)); frame();   /* drag the menu's list up: later rows come in */
-        for (k = 1; k <= 8; k++) { ptr(EV_MOVE, FX(SCREEN_W - 200), FY(180 - k * 12)); frame(); }
-        ptr(EV_UP, FX(SCREEN_W - 200), FY(84)); run(2);
-        printf("      menu scrolled to row %d\n", editor_panel_scroll());
-        expect(editor_panel_scroll() > 0, "a drag scrolls the menu (DRAG FOR MORE)");
-        shot("st_11b_menu_dragged");
         game_app.hires_back(); run(2);                        /* back closes the menu, the tab stays */
         expect(studio_tab_now() == 1, "back closes the editor's menu first");
+        tap(FX(30), FY(216)); run(3);                         /* MORE: the tools and things to place */
+        ptr(EV_DOWN, FX(SCREEN_W - 200), FY(180)); frame();   /* drag the list up: later rows come in */
+        for (k = 1; k <= 8; k++) { ptr(EV_MOVE, FX(SCREEN_W - 200), FY(180 - k * 12)); frame(); }
+        ptr(EV_UP, FX(SCREEN_W - 200), FY(84)); run(2);
+        printf("      tools scrolled to row %d\n", editor_panel_scroll());
+        expect(editor_panel_scroll() > 0, "a drag scrolls the tools list (DRAG FOR MORE)");
+        shot("st_11b_tools_dragged");
+        game_app.hires_back(); run(2);
         tap(FX(SCREEN_W - 38), FY(80)); run(3);               /* INSPECT */
         shot("st_12_inspect");
         game_app.hires_back(); run(2);

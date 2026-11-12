@@ -1081,10 +1081,11 @@ static void tools_update(u32 press)
 
 /* ------------------------------------------------------------------ start menu */
 enum { MN_SAVE, MN_PLAY, MN_3D, MN_UNDO, MN_REDO, MN_RENAME, MN_GRID, MN_WAY, MN_CHECK, MN_HELP, MN_EXIT, MN_COUNT };
+#define MN_ROWS (ed_embedded ? MN_EXIT : MN_COUNT)     /* in the Studio its own bar leaves the editor */
 static const char *menu_label(int i, char *b)
 {
     static const char *const L[MN_COUNT] = { "SAVE", "PLAY TEST", "3D VIEW", "UNDO", "REDO", "RENAME LEVEL", "GRID", "ROUTES", "CHECK THE MAP", "CONTROLS", "EXIT EDITOR" };
-    eu_str(b, i == MN_EXIT && ed_embedded ? "BACK TO THE STUDIO" : L[i]); return b;
+    eu_str(b, L[i]); return b;
 }
 static const char *menu_value(int i, char *b)
 {
@@ -1110,7 +1111,7 @@ static int try_playtest(void)
 static void go_3d(void);
 static void menu_update(u32 press)
 {
-    list_nav(press, MN_COUNT);
+    list_nav(press, MN_ROWS);
     if (press & PAD_CIRCLE) { ov = OV_NONE; return; }
     if (press & PAD_START) { ov = OV_NONE; return; }
     if ((press & (PAD_LEFT | PAD_RIGHT)) && ov_sel == MN_GRID) { gi = clampv(gi + (press & PAD_RIGHT ? 1 : -1), 0, 3); cursor_to(ed_cx, ed_cz); return; }
@@ -2229,7 +2230,7 @@ static void map_draw(void)
     }
     switch (ov) {
     case OV_TOOLS: list_panel("TOOLS  /  PLACE", T_COUNT + P_COUNT, tools_label, 0, PX0); break;
-    case OV_MENU: list_panel("EDITOR", MN_COUNT, menu_label, menu_value, PX0 + 30); break;
+    case OV_MENU: list_panel("EDITOR", MN_ROWS, menu_label, menu_value, PX0 + 30); break;
     case OV_INSPECT: { char t[48]; build_rows(); panel_adjustable = ins_adjustable; list_panel(ins_title(t), ins_n, ins_label, ins_value, PX0 - (touch_lay ? 0 : 20)); panel_adjustable = 0; break; }
     case OV_ROWS: rows_draw(); break;
     case OV_TILES: tiles_draw(); break;
@@ -2328,7 +2329,7 @@ void editor_draw(FrameBuf *fb, int t)
     if (mode == M_MAP) { map_draw(); return; }
     ed3d_draw(fb, t);
     draw_top("3D VIEW");
-    if (ov == OV_MENU) list_panel("EDITOR", MN_COUNT, menu_label, menu_value, PX0 + 30);
+    if (ov == OV_MENU) list_panel("EDITOR", MN_ROWS, menu_label, menu_value, PX0 + 30);
     if (ov == OV_TILES) tiles_draw();
     if (ov == OV_KEYS) keys_draw();
     if (ov == OV_HELP) help_draw();
