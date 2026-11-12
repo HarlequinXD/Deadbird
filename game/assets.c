@@ -169,8 +169,9 @@ void assets_init(void)
     u16 clut[16];
     if (done) return;
     done = 1;
-    skin(pk_demon_tex, sizeof(pk_demon_tex), pk_demon_mesh, sizeof(pk_demon_mesh), CP, CHR_DEMON_U, CHR_DEMON_V, CL_DEMON, &asset_demon);
-    skin(pk_soldier_tex, sizeof(pk_soldier_tex), pk_soldier_mesh, sizeof(pk_soldier_mesh), CP, CHR_SOLDIER_U, CHR_SOLDIER_V, CL_SOLDIER, &asset_soldier);
+    /* the characters: 256 x 256 skins, a texture page each */
+    skin(pk_demon_tex, sizeof(pk_demon_tex), pk_demon_mesh, sizeof(pk_demon_mesh), CHR_DEMON_PX, CHR256_Y, 0, 0, CL_DEMON, &asset_demon);
+    skin(pk_soldier_tex, sizeof(pk_soldier_tex), pk_soldier_mesh, sizeof(pk_soldier_mesh), CHR_SOLDIER_PX, CHR256_Y, 0, 0, CL_SOLDIER, &asset_soldier);
     skin(pk_chainsaw_tex, sizeof(pk_chainsaw_tex), pk_chainsaw_mesh, sizeof(pk_chainsaw_mesh), CP, CHR_SAW_U, CHR_SAW_V, CL_SAW, &asset_saw);
     skin(pk_pistol_tex, sizeof(pk_pistol_tex), pk_pistol_mesh, sizeof(pk_pistol_mesh), LAB_PAGE_X(1), LAB_PAGE_Y(1), 192, 0, CL_PISTOL, &asset_pistol);
     /* font: 4-bit as authored, at the start of the strip */

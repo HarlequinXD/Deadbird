@@ -9,6 +9,8 @@
  *                read through texture pages (0,256) / (64,256) at v 224..255
  *   rows 480..511, x 112..319: CLUT slots of 16 colours (13 per row, 416 in all)
  * The title painting borrows the lab pages (320..399, 0..239) while the menu is up.
+ * The characters' 256 x 256 skins sit outside it, a page each (CHR256_X below): x 512..639 on the
+ * PS1 (its VRAM is 1024 wide), x 64..191 on Android / PC (their frame buffers are at x 512).
  */
 #ifndef GAME_VRAM_H
 #define GAME_VRAM_H
@@ -44,11 +46,19 @@ enum { PAL_KEY_CYAN, PAL_KEY_AMBER, PAL_KEY_CRIMSON, PAL_DOOR_CYAN, PAL_DOOR_AMB
 #define PAL_KEY(c)  (PAL_KEY_CYAN + (c) - 1)     /* key colour 1..3: the machine-panel tile tinted */
 #define PAL_DOOR(c) (PAL_DOOR_CYAN + (c) - 1)    /* the bulkhead tile tinted */
 
-/* character page layout (texels within the page at CHR_PAGE_X/Y) */
-#define CHR_DEMON_U    0
-#define CHR_DEMON_V    0               /* 128x128 */
-#define CHR_SOLDIER_U  128
-#define CHR_SOLDIER_V  0               /* 128x128 */
+/* the characters' 256x256 skins (Deadbird, the trooper): a whole 4-bit texture page each.
+   PS1: right of the 512 x 512 the rest of the game uses (the console's VRAM is 1024 wide);
+   Android / PC: left of the frame buffers, beside the UI kit page */
+#if defined(GEN_BAKED) || defined(CHR256_PS1)
+#define CHR256_X 512
+#else
+#define CHR256_X 64
+#endif
+#define CHR256_Y 0
+#define CHR_DEMON_PX   CHR256_X
+#define CHR_SOLDIER_PX (CHR256_X + 64)
+
+/* character page layout (texels within the page at CHR_PAGE_X/Y): the weapons */
 #define CHR_SAW_U      0
 #define CHR_SAW_V      128             /* 128x96 */
 #define CHR_PISTOL_U   128

@@ -27,7 +27,7 @@ set(HOST_CC cc CACHE STRING "host C compiler for tools/gen_dump")
 add_custom_command(
 	OUTPUT  ${BAKED}/baked.c ${BAKED}/sfx_adpcm.h
 	COMMAND ${CMAKE_COMMAND} -E make_directory ${BAKED}
-	COMMAND ${HOST_CC} -B/usr/bin/ -O2 -std=c99 -I${ROOT}/engine -I${ROOT}/game -I${ROOT}/gen -I${ROOT}/assets
+	COMMAND ${HOST_CC} -B/usr/bin/ -O2 -std=c99 -DCHR256_PS1 -I${ROOT}/engine -I${ROOT}/game -I${ROOT}/gen -I${ROOT}/assets
 	        ${ROOT}/tools/gen_dump.c ${ROOT}/engine/gpu_soft.c ${ROOT}/engine/gte.c ${ROOT}/game/assets.c ${_gen_src}
 	        -o ${BAKED}/gen_dump -lm
 	COMMAND ${BAKED}/gen_dump ${BAKED}

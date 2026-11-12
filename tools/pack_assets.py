@@ -5,7 +5,8 @@
 
 Sources (assets/src/): demon_tex.png soldier_tex.png chainsaw_tex.png pistol_tex.png (RGBA, alpha =
 opaque texels), ui_tex.png, font.png (palette image), title_bg.png, *_mesh.json (vertices + prims
-with UVs in the 256-texel space of the original sheets; halved here and moved into the VRAM page
+with UVs in the 256-texel space of the sheets; the characters keep it (a 256 x 256 page each), the
+weapons are halved and moved into the VRAM page
 given by game/vram.h).
 """
 import os, json, subprocess, numpy as np
@@ -35,9 +36,10 @@ def image(name, rgba, quality):
     blobs.append((name, open(out, 'rb').read()))
 
 
-# UV placement: (u shift, v shift) after halving - see game/vram.h (CHR_* and the pistol's PROPS tile)
-SKINS = {'demon': (0, 0, '86f'), 'soldier': (128, 0, '82f'), 'chainsaw': (0, 128, '80f'), 'pistol': (192, 0, '82f')}
-for name, (du, dv, q) in SKINS.items():
+# UV placement: (u shift, v shift, halve?) - see game/vram.h. The characters keep their full
+# 256 x 256 sheets (a texture page each); the weapons are halved into the character / PROPS pages.
+SKINS = {'demon': (0, 0, '86f', 0), 'soldier': (0, 0, '82f', 0), 'chainsaw': (0, 128, '80f', 1), 'pistol': (192, 0, '82f', 1)}
+for name, (du, dv, q, sh) in SKINS.items():
     image(name + '_tex', np.array(Image.open(os.path.join(SRC, name + '_tex.png')).convert('RGBA')), q)
     m = json.load(open(os.path.join(SRC, name + '_mesh.json')))
     txt = os.path.join(TMP, name + '_mesh.txt')
@@ -47,8 +49,8 @@ for name, (du, dv, q) in SKINS.items():
             f.write(' '.join(map(str, v)) + '\n')
         for p in m['prims']:
             n = p[0]
-            u = [(x >> 1) + du if k < n else 0 for k, x in enumerate(p[5:9])]
-            t = [(x >> 1) + dv if k < n else 0 for k, x in enumerate(p[9:13])]
+            u = [(x >> sh) + du if k < n else 0 for k, x in enumerate(p[5:9])]
+            t = [(x >> sh) + dv if k < n else 0 for k, x in enumerate(p[9:13])]
             vv = [x if k < n else 0 for k, x in enumerate(p[1:5])]
             f.write(' '.join(map(str, [n] + vv + u + t)) + '\n')
     out = os.path.join(TMP, name + '_mesh.pk')

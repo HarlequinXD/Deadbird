@@ -124,6 +124,7 @@ int main(int argc, char **argv)
     rect_dump("vram_top", 320, 0, 192, 256);
     rect_dump("vram_bot", 320, 256, 192, 256);
     rect_dump("vram_strip", 0, STRIP_Y, 320, 32);
+    rect_dump("vram_chr", CHR256_X, CHR256_Y, 128, 256);      /* the characters' 256 x 256 skins */
     model_dump("demon", &asset_demon); model_dump("soldier", &asset_soldier);
     model_dump("saw", &asset_saw); model_dump("pistol", &asset_pistol);
     /* level */
@@ -197,7 +198,7 @@ int main(int argc, char **argv)
         "    lab.spawn_x = %d; lab.spawn_z = %d; lab.spawn_yaw = %d; lab.has_spawn = 1;\n}\n"
         "static void put(const u16 *d, const short *r) { RECT q; q.x = r[0]; q.y = r[1]; q.w = r[2]; q.h = r[3]; gpu_load_image(&q, d); }\n"
         "void lab_upload_textures(void) { put(vram_top, vram_top_rect); put(vram_bot, vram_bot_rect); }\n"
-        "void baked_upload(void) { lab_upload_textures(); put(vram_strip, vram_strip_rect); }\n"
+        "void baked_upload(void) { lab_upload_textures(); put(vram_strip, vram_strip_rect); put(vram_chr, vram_chr_rect); }\n"
         "void baked_title(void) { put(title_px, title_px_rect); }\n"
         "static void mdl(Model *m, const DVERT *v, int nv, const DPRIM *p, int np, u16 tpage, u16 clut)\n"
         "{ m->verts = v; m->nverts = nv; m->prims = p; m->nprims = np; m->tpage = tpage; m->clut = clut; }\n"
