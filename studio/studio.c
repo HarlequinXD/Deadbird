@@ -852,8 +852,18 @@ static void init(void)
     refresh_files();
     (void)back_tab;
 }
+/* the Geometry tab sizes the engine's frame to its area so the editor's pixels stay square;
+   play-tests and the other tabs get the platform's width back */
+static int base_w, set_w;
+static void frame_width(int want)
+{
+    if (screen_w != set_w) base_w = screen_w;       /* the platform changed it (rotation, start) */
+    set_w = want > 0 ? want : base_w;
+    screen_w = set_w;
+}
 static void tick(void)
 {
+    frame_width(screen == SCR_EDIT && tab == TAB_GEOMETRY ? geom_frame_w() : 0);
     if (screen == SCR_PLAY && play_ok && !paused) fw_rt_tick();
     else if (screen == SCR_EDIT && tab == TAB_GEOMETRY) {
         int r = geom_tick();

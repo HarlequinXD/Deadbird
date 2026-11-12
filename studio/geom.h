@@ -14,6 +14,8 @@ int  geom_loaded(void);
 const char *geom_file(void);
 /* draw the tab in x,y,w,h (canvas units); *wants_create: 1 copy level 1, 2 empty room */
 void geom_tab(float x, float y, float w, float h, int *wants_create);
+int  geom_frame_w(void);                             /* the frame width the tab wants (0: any) */
+void geom_view(float *x, float *y, float *w, float *h);   /* where the frame is shown */
 int  geom_tick(void);                                /* each engine tick on the tab: GEOM_* */
 void geom_draw(FrameBuf *fb, int t);                 /* the editor's picture (the App's draw) */
 int  geom_pointer(int id, int ev, float x, float y, int kind);   /* canvas units; 1: the editor took it */

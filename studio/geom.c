@@ -17,6 +17,7 @@
 static char mapfile[32];
 static int loaded, last_kind = EK_TOUCH;          /* the Studio is touch first; a mouse switches it */
 static float ix, iy, iw, ih;                 /* where the frame is shown (canvas units) */
+static int want_w;                           /* the frame width that keeps its pixels square */
 static u32 ptr_mask;                         /* pointers that went down on the editor */
 static void (*say_)(const char *);
 
@@ -118,6 +119,16 @@ void geom_tab(float x, float y, float w, float h, int *wants_create)
         if (sui_button("mk0", cx + 10, y + 160, 210, 40, "Empty room", BTN_PLAIN)) *wants_create = 2;
         return;
     }
-    ix = x; iy = y; iw = w; ih = h;                      /* the whole area, edge to edge */
+    /* square pixels: the frame takes the area's shape (as wide as VRAM allows), fills its
+       height, and sits in the middle; a screen wider than that gets thin dark sides */
+    want_w = (int)(SCREEN_H * w / h) & ~1;
+    if (want_w < 320) want_w = 320;
+    if (want_w > SCREEN_W_MAX) want_w = SCREEN_W_MAX;
+    ih = h; iw = h * SCREEN_W / SCREEN_H;
+    if (iw > w) { iw = w; ih = w * SCREEN_H / SCREEN_W; }
+    ix = x + (w - iw) / 2; iy = y + (h - ih) / 2;
+    if (iw < w || ih < h) sui_rect(x, y, w, h, 0xff0a0606u);
     sui_frame_image(ix, iy, iw, ih);
 }
+int geom_frame_w(void) { return loaded ? want_w : 0; }
+void geom_view(float *x, float *y, float *w, float *h) { *x = ix; *y = iy; *w = iw; *h = ih; }

@@ -6,12 +6,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 #include "engine.h"
 #include "hr_soft.h"
 #include "gpu.h"
 #include "snd.h"
 #include "doc.h"
 #include "edmap.h"
+#include "geom.h"
 
 Doc *studio_doc(void);
 int  studio_screen(void);
@@ -154,7 +156,11 @@ int main(int argc, char **argv)
     run(3);
     shot("st_08_geometry");
     {   /* Deadbird's own level editor, on the project's level: the d-pad, the tool rail, X */
-        float iw = last->vw, ih = last->vh - 45, ix = 0, iy = 45;  /* the editor fills everything under the bar */
+        float ix, iy, iw, ih;
+        run(2);
+        geom_view(&ix, &iy, &iw, &ih);                       /* canvas units, as the pointers are */
+        printf("      frame %dx%d shown %.0fx%.0f at %.0f,%.0f (pixel aspect %.3f)\n", SCREEN_W, SCREEN_H, iw, ih, ix, iy, (iw / SCREEN_W) / (ih / SCREEN_H));
+        expect(fabsf((iw / SCREEN_W) / (ih / SCREEN_H) - 1) < 0.01f, "the level editor's pixels are square");
 #define FX(x) (ix + (x) * iw / SCREEN_W)
 #define FY(y) (iy + (y) * ih / SCREEN_H)
         int ns = ED.nsecs, k;
