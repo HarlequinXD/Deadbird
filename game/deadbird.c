@@ -63,6 +63,7 @@ static int custom_map;                    /* the level built is the editor's, no
 #define STICK_R 38
 static int debug_side_cam;
 static int touch_ui;
+static int pause_sel, pause_tap = -1;          /* the pause menu: 0 resume, 1 quit / back to the editor */
 
 /* ------------------------------------------------------------------ touch layout */
 /* the stick runs / walks by how far it's pushed and swiping the right half turns the camera,
@@ -110,8 +111,8 @@ static void touch_tap(int x, int y)
     int cx = SCREEN_W / 2;
     if (gs == GS_TITLE) title_tap(x, y);
     else if (gs == GS_PAUSE) {   /* the plates are buttons */
-        if (x > cx - 110 && x < cx + 110 && y >= 112 && y < 150) eng_tap(PAD_START);
-        else if (x > cx - 110 && x < cx + 110 && y >= 150 && y < 190) eng_tap(BTN_JUMP);
+        if (x > cx - 110 && x < cx + 110 && y >= 112 && y < 150) pause_tap = 0;      /* like the title: tap to pick, */
+        else if (x > cx - 110 && x < cx + 110 && y >= 150 && y < 190) pause_tap = 1; /* tap again to choose */
     } else if (gs == GS_CONTROLS || gs == GS_END) eng_tap(PAD_CROSS);
 }
 static int stick_as_dpad(void) { return gs != GS_PLAY && gs != GS_EDITOR; }
@@ -766,7 +767,7 @@ static void flow(u32 pad, u32 press)
         }
         break;
     case GS_PLAY:
-        if ((press & PAD_START) && !cine.active) { gs = GS_PAUSE; gs_t = 0; snd_play(SFX_PAUSE, 3600, 0, 4096); break; }
+        if ((press & PAD_START) && !cine.active) { gs = GS_PAUSE; gs_t = 0; pause_sel = 0; pause_tap = -1; snd_play(SFX_PAUSE, 3600, 0, 4096); break; }
         if (cine.active) cine_step();
         else simulate(pad);
         break;
@@ -778,8 +779,16 @@ static void flow(u32 pad, u32 press)
         }
         break;
     case GS_PAUSE:
-        if (press & PAD_START) { gs = GS_PLAY; gs_t = 0; snd_play(SFX_PAUSE, 2600, 0, 5200); }
-        if (press & (PAD_SELECT | BTN_JUMP)) { snd_play(SFX_UI_OK, 3600, 0, 3400); if (playtest) back_to_editor(); else go_title(); }
+        /* like the main menu: up / down picks a plate, A chooses it; START or B resumes */
+        {
+            int choose = -1;
+            if (pause_tap >= 0) { if (pause_tap == pause_sel) choose = pause_sel; else { pause_sel = pause_tap; snd_play(SFX_UI_MOVE, 3000, 0, 4096); } pause_tap = -1; }
+            if (press & (PAD_UP | PAD_DOWN)) { pause_sel ^= 1; snd_play(SFX_UI_MOVE, 3000, 0, 4096); }
+            if (press & PAD_CROSS) choose = pause_sel;
+            if (press & (PAD_START | PAD_CIRCLE)) choose = 0;
+            if (choose == 0) { gs = GS_PLAY; gs_t = 0; snd_play(SFX_PAUSE, 2600, 0, 5200); }
+            else if (choose == 1) { snd_play(SFX_UI_OK, 3600, 0, 3400); if (playtest) back_to_editor(); else go_title(); }
+        }
         break;
     }
 }
@@ -1154,10 +1163,10 @@ static void app_draw(FrameBuf *fb)
             if (!ui_nine(fb, KIT_PANEL, SCREEN_W / 2 - 140, 56, SCREEN_W / 2 + 140, 200, 128, 10))
                 quad_g(fb, 0, 0, SCREEN_W, 240, RGB(90, 100, 100), RGB(90, 100, 100), SEMI_SUB, 4);
             text_hell(fb, "PAUSED", SCREEN_W / 2, 74, 3, frame_count, 2);
-            ui_plate(fb, SCREEN_W / 2, 118, 220, 1, frame_count, 8);
-            ui_plate(fb, SCREEN_W / 2, 156, 220, 0, frame_count, 8);
-            text_center(fb, touch_ui ? "RESUME" : "START  RESUME", SCREEN_W / 2 + 1, 129, 1, 255, 2);
-            text_center(fb, playtest ? (touch_ui ? "BACK TO EDITOR" : "A  BACK TO EDITOR") : touch_ui ? "QUIT TO TITLE" : "A  QUIT TO TITLE", SCREEN_W / 2 + 1, 167, 1, 200, 2);
+            ui_plate(fb, SCREEN_W / 2, 118, 220, pause_sel == 0, frame_count, 8);
+            ui_plate(fb, SCREEN_W / 2, 156, 220, pause_sel == 1, frame_count, 8);
+            text_center(fb, "RESUME", SCREEN_W / 2 + 1, 129, 1, pause_sel == 0 ? 255 : 120, 2);
+            text_center(fb, playtest ? "BACK TO EDITOR" : "QUIT TO TITLE", SCREEN_W / 2 + 1, 167, 1, pause_sel == 1 ? 255 : 120, 2);
         }
         if (touch_ui) draw_touch(fb);
     }

@@ -131,7 +131,11 @@ int main(int argc, char **argv)
     expect(game_phase() == GS_PLAY, "PLAY TEST plays the level");
     shot("ed_18_playtest");
     press(PAD_START); run(0, 4); press(PAD_CROSS); run(0, 4);
-    expect(game_phase() == GS_EDITOR, "the pause menu goes back to the editor");
+    expect(game_phase() == GS_PLAY, "A on the pause menu's first plate resumes");
+    press(PAD_START); run(0, 4); press(PAD_DOWN); run(0, 2);
+    shot("ed_18b_pause_menu");
+    press(PAD_CROSS); run(0, 4);
+    expect(game_phase() == GS_EDITOR, "down then A on the pause menu goes back to the editor");
     shot("ed_19_back_in_editor");
     {
         char buf[1 << 16]; int n = plat_file_load("level01.map", buf, sizeof(buf) - 1);
