@@ -92,3 +92,16 @@ u32 isqrt(u32 x)
     }
     return r;
 }
+
+/* angle of (dx, dz): 4096 = 360, 0 = +Z, 1024 = +X */
+int ratan2(s32 dx, s32 dz)
+{
+    s32 ax = dx < 0 ? -dx : dx, az = dz < 0 ? -dz : dz, z, a;
+    if (ax == 0 && az == 0) return 0;
+    while (ax > 0x7ffff || az > 0x7ffff) { ax >>= 1; az >>= 1; }
+    if (ax <= az) { z = ax * 4096 / az; a = (512 * z >> 12) + (178 * ((z * (4096 - z)) >> 12) >> 12); }
+    else          { z = az * 4096 / ax; a = 1024 - ((512 * z >> 12) + (178 * ((z * (4096 - z)) >> 12) >> 12)); }
+    if (dz < 0) a = 2048 - a;
+    if (dx < 0) a = -a;
+    return a & 4095;
+}

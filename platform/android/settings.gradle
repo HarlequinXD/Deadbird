@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = 'Deadbird'
-include ':app'
+include ':app', ':hellgate'

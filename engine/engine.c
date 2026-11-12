@@ -36,7 +36,7 @@ void eng_init(void)
 {
     gpu_init();
     in.touch_ui = 0;
-    A()->init();
+    if (A()->init) A()->init();
     cur = 0;
 }
 

@@ -62,3 +62,16 @@ edittest: $(EDIT_SRC) $(wildcard $(ROOT)/game/*.h) $(wildcard $(ROOT)/gen/*.h)
 HELLO_SRC := $(ROOT)/engine/platform/headless/headless_main.c $(wildcard $(ROOT)/engine/*.c) $(ROOT)/examples/hello/hello.c
 hello_headless: $(HELLO_SRC) $(wildcard $(ROOT)/engine/*.h)
 	$(CC) $(CFLAGS) -I$(ROOT)/engine $(HELLO_SRC) -o $@
+
+# ---- the framework's sample FPS (examples/fps): a game made only of data, in the sector world
+FW := $(wildcard $(ROOT)/engine/fw/*.c)
+WORLD := $(ROOT)/game/level.c $(GEN)
+FPS_SRC := $(ROOT)/engine/platform/headless/headless_main.c $(FILES) $(wildcard $(ROOT)/engine/*.c) $(FW) \
+           $(ROOT)/examples/fps/fps.c $(ROOT)/examples/fps/sector_world.c $(WORLD)
+fps_headless: $(FPS_SRC) $(wildcard $(ROOT)/engine/fw/*.h) $(ROOT)/examples/fps/hellgate_game.h
+	$(CC) $(CFLAGS) -I$(ROOT)/engine -I$(ROOT)/engine/fw -I$(ROOT)/examples/fps $(INC) $(FPS_SRC) -o $@
+
+# the framework's state machines, actions and combat on HELL GATE (fails on regressions)
+FWTEST_SRC := fwtest.c $(FILES) $(wildcard $(ROOT)/engine/*.c) $(FW) $(ROOT)/examples/fps/sector_world.c $(WORLD)
+fwtest: $(FWTEST_SRC) $(wildcard $(ROOT)/engine/fw/*.h) $(ROOT)/examples/fps/hellgate_game.h
+	$(CC) $(CFLAGS) -I$(ROOT)/engine -I$(ROOT)/engine/fw -I$(ROOT)/examples/fps $(INC) $(FWTEST_SRC) -o $@

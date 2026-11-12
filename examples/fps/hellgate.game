@@ -1,0 +1,98 @@
+# HELL GATE - a first-person shooter made entirely of data: no game code.
+# The framework runtime plays it in the sector world (Deadbird's level 1 map).
+
+game "HELL GATE"
+camera first
+player walk 44 run 80 jump 72 gravity 5 eye 1450 hp 100 turn 70
+weapon hitscan 22000 damage 12 rate 10
+
+# ---- the imp: notices you, closes in, claws; hurt it and it staggers back
+type imp
+  color 210 60 30
+  shape pillar
+  size 640 radius 320 height 1600 hp 36 speed 34
+  flags solid gravity visible
+  tags enemy
+  thing trooper
+  fsm imp_ai
+end
+
+fsm imp_ai
+  state idle
+    every Wander 30
+    every IfSeePlayer 9000 SEEN
+    on SEEN alert
+    on HIT alert
+    on DIED dead
+  state alert
+    do PlaySound ALERT 3000
+    do FacePlayer 0
+    do Wait 20
+    on FINISHED chase
+    on DIED dead
+  state chase
+    every ChasePlayer 36
+    every IfPlayerNear 1300 CLOSE
+    every IfRandom 2 RANGED
+    on CLOSE claw
+    on RANGED fireball
+    on HIT hurt
+    on DIED dead
+  state claw
+    do FacePlayer 0
+    do Wait 12
+    do Melee 1200 7
+    do Wait 45
+    on FINISHED chase
+    on HIT hurt
+    on DIED dead
+  state fireball
+    do FacePlayer 0
+    do SetColor 255 140 60
+    do Wait 18
+    do ShootAtPlayer fireball 90 8
+    do SetColor 210 60 30
+    do Wait 20
+    on FINISHED chase
+    on DIED dead
+  state hurt
+    do FleePlayer 40
+    do Wait 10
+    on FINISHED chase
+    on DIED dead
+  state dead
+    do AddScore 100
+    do Wait 180
+    do Destroy
+end
+
+# ---- the imp's fireball
+type fireball
+  color 255 120 30
+  shape orb
+  size 260 radius 80 height 200 damage 8 life 200
+  flags visible projectile
+  tags shot
+end
+
+# ---- the exit: walk into it to finish the level
+type exit
+  color 60 255 120
+  shape orb
+  size 900 radius 600 height 1500
+  flags visible pickup
+  thing exit
+  fsm exit_logic
+end
+
+fsm exit_logic
+  state waiting
+    every Spin 30
+    every IfPlayerNear 900 REACHED
+    on REACHED done
+  state done
+    do Message "YOU ESCAPED THE PLANT" 300
+    do PlaySound PICKUP 4000
+    do Flash 60 255 120
+    do WinGame
+end
