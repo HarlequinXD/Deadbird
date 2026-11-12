@@ -14,6 +14,7 @@
 #include "ik.h"
 #include "snd.h"
 #include "sfx_ids.h"
+#define snd_play(i, v, p, t) do { if (!ed_quiet) (snd_play)(i, v, p, t); } while (0)   /* quiet in the Studio */
 #include "vram.h"
 #include "gen_lab.h"
 

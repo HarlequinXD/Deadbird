@@ -17,9 +17,10 @@ Doc *studio_doc(void);
 int  studio_screen(void);
 int  studio_play_ok(void);
 void studio_tab(int t);
-const EmMap *geom_map(void);
-int  geom_selected(void);
-void geom_test_view(s32 x, s32 z, float px_per_m);
+int  studio_tab_now(void);
+extern int screen_w;
+extern EmMap ED;
+extern s32 ed_cx, ed_cz;
 
 #define SW 2340
 #define SH 1080
@@ -80,6 +81,7 @@ int main(int argc, char **argv)
     Doc *d;
     int n0, i;
     out = argc > 1 ? argv[1] : ".";
+    screen_w = 512;                      /* a 19.5:9 phone, as Android sets it */
     eng_init();
     run(2);
     printf("canvas %d x %d for a %d x %d screen\n", last->vw, last->vh, SW, SH);
@@ -149,62 +151,40 @@ int main(int argc, char **argv)
 
     /* the Geometry tab: the project's own level (a copy of level 1) */
     studio_tab(1);
-    run(2);
+    run(3);
     shot("st_08_geometry");
-    {
-        const EmMap *m = geom_map();
-        float gx = 64, gy = 45, gw = last->vw - 64 - 300, gh = last->vh - 45, cx = gx + gw / 2, cy = gy + gh / 2;
-        int ns = m->nsecs, nt = m->nthings, k;
-        s32 ex = 0, ez = 0;
-        int found = 0;
-        expect(ns > 10, "the project has its own level (a copy of level 1)");
-        /* empty ground inside the map's limits: a 6 m square no sector touches */
-        for (ez = -26 * 1024; ez <= 26 * 1024 && !found; ez += 1024)
-            for (ex = -26 * 1024; ex <= 26 * 1024 && !found; ex += 1024) {
-                int a, b, clear = 1;
-                for (a = -3; a <= 3 && clear; a++) for (b = -3; b <= 3 && clear; b++) if (em_sector_at(m, ex + a * 1024, ez + b * 1024) >= 0) clear = 0;
-                if (clear) found = 1;
-            }
-        ex -= 1024;
-        geom_test_view(ex, ez - 1024, 20);
-        tap(32, 45 + 8 + 2 * 42 + 19);                  /* BOX */
-        drag(cx - 40, cy - 30, cx + 40, cy + 30);
-        run(1);
-        expect(m->nsecs == ns + 1 && m->secs[ns].np == 4, "BOX drags out a new sector");
-        shot("st_09_box");
-        /* DRAW: a triangle inside it is cut into it */
-        tap(32, 45 + 8 + 1 * 42 + 19);
-        tap(cx - 20, cy + 20); tap(cx + 20, cy + 20); tap(cx, cy - 20); tap(cx - 20, cy + 20);
-        run(1);
-        expect(m->nsecs > ns + 1, "DRAW cuts a shape into the room it's inside");
-        shot("st_10_draw");
-        /* SELECT the box (its corner, away from the triangle) and raise the floor */
-        tap(32, 45 + 8 + 0 * 42 + 19);
-        tap(cx + 34, cy - 24);
-        k = geom_selected();
-        expect(k >= 0, "SELECT picks a sector");
-        if (k >= 0) {
-            int f0 = m->secs[k].floor;
-            tap(last->vw - 300 + 300 - 28, 45 + 12 + 40 + 16);     /* floor + */
-            run(1);
-            expect(m->secs[k].floor == f0 + 205, "the inspector raises the floor");
-            shot("st_11_selected");
-        }
-        /* PLACE an enemy in the box */
-        tap(32, 45 + 8 + 4 * 42 + 19);
-        tap(cx + 30, cy + 20);
-        run(1);
-        expect(m->nthings == nt + 1 && m->things[nt].type == TH_TROOPER, "PLACE puts an enemy in the level");
-        shot("st_12_place");
-        /* UNDO takes it back */
-        tap(32, last->vh - 46 + 19);
-        expect(m->nthings == nt, "UNDO takes the last edit back");
-        /* 3D */
-        tap(64 + gw - 72 + 32, 45 + 8 + 14);
-        run(3);
-        shot("st_13_3d");
-        tap(64 + gw - 140 + 32, 45 + 8 + 14);
-        run(1);
+    {   /* Deadbird's own level editor, on the project's level: the d-pad, the tool rail, X */
+        float iw = last->vw, ih = last->vh, ix = 0, iy = 0;      /* the editor has the whole screen */
+#define FX(x) (ix + (x) * iw / SCREEN_W)
+#define FY(y) (iy + (y) * ih / SCREEN_H)
+        int ns = ED.nsecs, k;
+        s32 cx0;
+        expect(ns > 10, "the Geometry tab opens Deadbird's level editor on the project's level");
+        tap(FX(30), FY(61));                                  /* the tool rail: RECT */
+        cx0 = ed_cx;
+        ptr(EV_DOWN, FX(60 + 32), FY(SCREEN_H - 34 - 17));    /* hold the d-pad's up arrow: off the lift, into the bay */
+        run(40);
+        ptr(EV_UP, FX(60 + 32), FY(SCREEN_H - 34 - 17)); frame();
+        tap(FX(SCREEN_W - 38), FY(44));                       /* X: one corner */
+        ptr(EV_DOWN, FX(60 + 32 - 17), FY(SCREEN_H - 34));    /* left */
+        run(30);
+        ptr(EV_UP, FX(60 + 32 - 17), FY(SCREEN_H - 34)); frame();
+        expect(ed_cx < cx0, "the d-pad moves the cursor");
+        ptr(EV_DOWN, FX(60 + 32), FY(SCREEN_H - 34 + 17));    /* down */
+        run(15);
+        ptr(EV_UP, FX(60 + 32), FY(SCREEN_H - 34 + 17)); frame();
+        shot("st_09_rect");
+        tap(FX(SCREEN_W - 38), FY(44));                       /* X: the other corner */
+        run(2);
+        for (k = 0; k < 3 && ED.nsecs == ns; k++) run(1);
+        printf("      sectors %d -> %d, cursor %d,%d\n", ns, ED.nsecs, (int)ed_cx, (int)ed_cz);
+        expect(ED.nsecs > ns, "RECT and X twice makes a sector, as in the game's editor");
+        shot("st_10_after");
+        game_app.hires_back();                                /* back: nothing open, so out to the Studio's tabs */
+        run(2);
+        expect(studio_tab_now() == 0, "back leaves the level editor for the Studio's tabs");
+#undef FX
+#undef FY
     }
     /* play-test the edited level */
     tap(last->vw - 46, 22);

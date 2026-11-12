@@ -19,6 +19,13 @@ int  editor_update(u32 pad, u32 press, int lx, int ly, int rx, int ry);
 void editor_draw(FrameBuf *fb, int t);
 const MapDef *editor_playtest_map(void);       /* the compiled map after ED_PLAYTEST */
 int  editor_in_3d(void);
+/* embedded in the Studio: one map file, MENU > EXIT returns ED_EXIT instead of the level list */
+int  editor_open_file(const char *file, int pad_style, int touch);
+int  editor_save(void);                         /* saves if there are changes (0: failed) */
+int  editor_dirty(void);
+void editor_back(void);                         /* a platform back button: O on the next update */
+int  editor_idle(void);                         /* the 2D map, nothing open or half-drawn */
+extern int ed_quiet;                            /* 1: no sounds (the Studio has its own sound bank) */
 /* input from the platform (via deadbird.c) */
 enum { EP_DOWN, EP_MOVE, EP_UP, EP_HOVER };
 enum { EK_TOUCH, EK_MOUSE_L, EK_MOUSE_R };

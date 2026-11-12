@@ -16,6 +16,7 @@
 #include "ui.h"
 #include "snd.h"
 #include "sfx_ids.h"
+#define snd_play(i, v, p, t) do { if (!ed_quiet) (snd_play)(i, v, p, t); } while (0)   /* quiet in the Studio */
 #include "level.h"
 #include "vram.h"
 #include "gen_lab.h"
@@ -23,6 +24,7 @@
 #include <stddef.h>
 
 EmMap ED;
+int ed_quiet, ed_embedded;                      /* embedded: inside the Studio (one map, no level list) */
 int ed_pad_style, ed_touch, ed_t, ed_lx, ed_ly, ed_rx, ed_ry, ed_dirty;
 s32 ed_cx, ed_cz;
 EdPtr ed_ptr[16]; int ed_nptr, ed_wheel;
@@ -87,6 +89,7 @@ static const char *const TOOL_HELP[T_COUNT] = {
     "X TURNS A THING OR PROP",
 };
 static int tool = T_DRAW, stage;
+static int back_req;
 static s32 pend_x[EM_SV], pend_z[EM_SV]; static int npend;
 static s32 anc_x, anc_z; static int anc_s = -1, anc_w = -1;
 /* MOVE */
@@ -1077,7 +1080,7 @@ enum { MN_SAVE, MN_PLAY, MN_3D, MN_UNDO, MN_REDO, MN_RENAME, MN_GRID, MN_WAY, MN
 static const char *menu_label(int i, char *b)
 {
     static const char *const L[MN_COUNT] = { "SAVE", "PLAY TEST", "3D VIEW", "UNDO", "REDO", "RENAME LEVEL", "GRID", "ROUTES", "CHECK THE MAP", "CONTROLS", "EXIT EDITOR" };
-    eu_str(b, L[i]); return b;
+    eu_str(b, i == MN_EXIT && ed_embedded ? "BACK TO THE STUDIO" : L[i]); return b;
 }
 static const char *menu_value(int i, char *b)
 {
@@ -1120,7 +1123,10 @@ static void menu_update(u32 press)
     case MN_WAY: show_way ^= 1; break;
     case MN_CHECK: { int s, w; if (em_check(&ED, &s, &w)) err_toast(); else ed_toast("THE MAP CHECKS OUT"); ov = OV_NONE; break; }
     case MN_HELP: ov = OV_HELP; break;
-    case MN_EXIT: if (ed_dirty) save_now(); ov = OV_NONE; mode = M_LIST; list_refresh(); ui_title_bg_upload(); ov_sel = 0; lst_sel = 0; lst_act = 0; break;
+    case MN_EXIT:
+        if (ed_embedded) { if (ed_dirty) save_now(); ov = OV_NONE; want = ED_EXIT; break; }
+        if (ed_dirty) save_now();
+        ov = OV_NONE; mode = M_LIST; list_refresh(); ui_title_bg_upload(); ov_sel = 0; lst_sel = 0; lst_act = 0; break;
     }
 }
 
@@ -1825,6 +1831,16 @@ static void help_draw(void)
 }
 
 /* ------------------------------------------------------------------ the level list */
+static int load_named(const char *name)
+{
+    int n = big ? plat_file_load(name, big, BIG_CAP - 1) : -1;
+    if (n < 0) { ed_toast("COULDN'T READ IT"); return 0; }
+    big[n] = 0;
+    ED.name[0] = 0;
+    if (!em_parse(&ED, big)) { err_toast(); return 0; }
+    scopy(file_name, name, 32); ed_dirty = 0;
+    return 1;
+}
 static void open_level(int which)
 {
     /* which: -1 new, -2 copy of level 1, else a saved file */
@@ -1835,14 +1851,7 @@ static void open_level(int which)
         if (!em_parse(&ED, em_src_e1)) { err_toast(); em_new_level(&ED, "NEW LEVEL"); }
         scopy(ED.name, "EXTRACTION PLANT COPY", 24);
         new_file_name(file_name); ed_dirty = 1;
-    } else {
-        int n = big ? plat_file_load(lst[which], big, BIG_CAP - 1) : -1;
-        if (n < 0) { ed_toast("COULDN'T READ IT"); return; }
-        big[n] = 0;
-        ED.name[0] = 0;
-        if (!em_parse(&ED, big)) { err_toast(); return; }
-        scopy(file_name, lst[which], 32); ed_dirty = 0;
-    }
+    } else if (!load_named(lst[which])) return;
     clear_stack(undo_buf, &nundo); clear_stack(redo_buf, &nredo);
     {   /* the cursor on the start point */
         int i;
@@ -2224,6 +2233,29 @@ void editor_open(int pad_style, int touch)
     mode = M_LIST; want = ED_STAY; lst_sel = 0; lst_act = 0; lst_confirm = 0;
     list_refresh();
 }
+/* the Studio: straight into one map file (its project's level), no list */
+int editor_open_file(const char *file, int pad_style, int touch)
+{
+    ed_pad_style = pad_style; ed_touch = touch; ed_embedded = 1;
+    want = ED_STAY;
+    if (!big) big = (char *)malloc(BIG_CAP);
+    if (!big || !load_named(file)) return 0;
+    {   /* the rest of opening a level: as from the list */
+        int i;
+        clear_stack(undo_buf, &nundo); clear_stack(redo_buf, &nredo);
+        ed_cx = ed_cz = 0;
+        for (i = 0; i < ED.nthings; i++) if (ED.things[i].type == TH_START) { ed_cx = ED.things[i].x; ed_cz = ED.things[i].z; }
+        cursor_to(ed_cx, ed_cz); vx = ed_cx; vz = ed_cz;
+    }
+    level_reload_textures();
+    mode = M_MAP; ov = OV_NONE; tool = T_DRAW; stage = 0; npend = 0; need3d = 1; sel_kind = K_NONE;
+    ed_toast(ed_touch ? "USE THE D-PAD TO MOVE THE CURSOR" : "START FOR THE MENU. TRIANGLE FOR TOOLS");
+    return 1;
+}
+int editor_save(void) { return mode == M_LIST || !ed_dirty || save_now(); }
+int editor_dirty(void) { return ed_dirty; }
+void editor_back(void) { back_req = 1; }
+int editor_idle(void) { return mode == M_MAP && ov == OV_NONE && !stage && !npend; }
 void editor_resume(void)
 {
     want = ED_STAY;
@@ -2243,6 +2275,7 @@ int editor_update(u32 pad, u32 press, int lx, int ly, int rx, int ry)
     ed_lx = lx; ed_ly = ly; ed_rx = rx; ed_ry = ry;
     tap_press = 0;
     pointer_events();
+    if (back_req) { tap_press |= PAD_CIRCLE; back_req = 0; }      /* Android's back: O */
     press |= tap_press; pad |= tap_press | touch_hold;
     if (toast_t > 0) toast_t--;
     for (k = 0; k < nchars; k++) {   /* typed keys: the keyboard panel, or shortcuts */

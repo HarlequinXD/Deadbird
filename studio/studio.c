@@ -19,6 +19,7 @@
 #include "hellgate_game.h"
 #include "studio_atlas.h"
 #include "geom.h"
+#include "ui.h"
 
 extern const FwWorld sector_world;
 void sector_world_init(void);
@@ -124,7 +125,7 @@ static void play_start(void)
     screen = SCR_PLAY;
     eng_set_touch_ui(1);
 }
-static void play_stop(void) { screen = SCR_EDIT; }
+static void play_stop(void) { screen = SCR_EDIT; eng_set_touch_ui(0); if (tab == TAB_GEOMETRY) geom_resume(); }
 
 /* ------------------------------------------------------------------ shared chrome */
 static void header(const char *where)
@@ -771,11 +772,18 @@ static const HrList *hires_frame(int w, int h, int density)
         static const char *const WH[4] = { "/ Scene", "/ Geometry", "/ Behaviour", "/ Assets" };
         int modal = tab == TAB_BEHAVIOUR && (pick_open || ev_pick >= 0);
         sui_mute(modal);
-        if (tab == TAB_BEHAVIOUR) behaviour();
-        else if (tab == TAB_SCENE) scene();
-        else if (tab == TAB_GEOMETRY) { int wc; geom_tab(0, 45, W, H - 45, &wc); if (wc) make_level(wc == 1); }
-        else placeholder("Assets", "Model import (FBX, glTF, OBJ) with animation clips comes in", "milestone 4, along with textures and sounds.");
-        header(WH[tab]);
+        if (tab == TAB_GEOMETRY && geom_loaded()) {
+            /* the level editor gets the whole screen, as in the game; its MENU > EXIT EDITOR
+               (or back) returns to the Studio's tabs, MENU > PLAY TEST plays the project */
+            int wc;
+            geom_tab(0, 0, W, H, &wc);
+        } else {
+            if (tab == TAB_BEHAVIOUR) behaviour();
+            else if (tab == TAB_SCENE) scene();
+            else if (tab == TAB_GEOMETRY) { int wc; geom_tab(0, 45, W, H - 45, &wc); if (wc) make_level(wc == 1); }
+            else placeholder("Assets", "Model import (FBX, glTF, OBJ) with animation clips comes in", "milestone 4, along with textures and sounds.");
+            header(WH[tab]);
+        }
         sui_mute(0);
         if (pick_open && tab == TAB_BEHAVIOUR) picker();
         if (ev_pick >= 0 && tab == TAB_BEHAVIOUR) event_picker();
@@ -788,7 +796,8 @@ static const HrList *hires_frame(int w, int h, int density)
 /* pointers: to the UI, and during play also to the game's touch controls (under the top bar) */
 static void hires_pointer(int id, int ev, int x, int y, int kind)
 {
-    (void)kind;
+    if (screen == SCR_EDIT && tab == TAB_GEOMETRY && frame_d > 0 &&
+        geom_pointer(id, ev, x * 100.0f / frame_d, y * 100.0f / frame_d, kind)) return;   /* the level editor's */
     sui_pointer(id, ev, x, y);
     if (screen == SCR_PLAY && frame_d > 0) {
         float dx = x * 100.0f / frame_d, dy = y * 100.0f / frame_d;
@@ -801,6 +810,7 @@ static void hires_back(void)
     if (screen == SCR_PLAY) play_stop();
     else if (pick_open) pick_open = 0;
     else if (ev_pick >= 0) ev_pick = -1;
+    else if (screen == SCR_EDIT && tab == TAB_GEOMETRY && geom_loaded()) { if (geom_back()) tab = TAB_SCENE; }
     else if (screen == SCR_EDIT) { save_doc(); refresh_files(); screen = SCR_PROJECTS; }
 }
 static int hires(void) { return 1; }
@@ -835,6 +845,7 @@ static void atlas_init(void)
 static void init(void)
 {
     atlas_init();
+    ui_init();                         /* Deadbird's UI kit, font and textures: the level editor's */
     sector_world_init();
     sector_world_set_loader(geom_load_level);
     geom_set_toast(say);
@@ -843,11 +854,19 @@ static void init(void)
     refresh_files();
     (void)back_tab;
 }
-static void tick(void) { if (screen == SCR_PLAY && play_ok && !paused) fw_rt_tick(); }
+static void tick(void)
+{
+    if (screen == SCR_PLAY && play_ok && !paused) fw_rt_tick();
+    else if (screen == SCR_EDIT && tab == TAB_GEOMETRY) {
+        int r = geom_tick();
+        if (r == GEOM_PLAY) play_start();
+        else if (r == GEOM_EXIT) tab = TAB_SCENE;
+    }
+}
 static void draw(FrameBuf *fb)
 {
     if (screen == SCR_PLAY) fw_rt_draw(fb);
-    else if (screen == SCR_EDIT && tab == TAB_GEOMETRY && geom_in3d()) geom_draw3d(fb, (int)eng_in()->ticks);
+    else if (screen == SCR_EDIT && tab == TAB_GEOMETRY) geom_draw(fb, (int)eng_in()->ticks);
 }
 static int ram(void) { return (int)sizeof(doc) + fw_rt_ram(); }
 
@@ -868,3 +887,4 @@ Doc *studio_doc(void) { return &doc; }
 int  studio_screen(void) { return screen; }
 int  studio_play_ok(void) { return play_ok; }
 void studio_tab(int t) { tab = t; }
+int studio_tab_now(void) { return tab; }
