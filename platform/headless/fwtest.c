@@ -117,6 +117,40 @@ int main(int argc, char **argv)
     run(0, 200);
     expect(!fw_actor(ii) || fw_actor(ii)->proto != imp->proto || !fw_actor(ii)->used, "the body is removed (Wait, Destroy)");
 
+    /* a second imp killed the same tick it's about to claw (CLOSE and DIED together): it must
+       die, not keep fighting; and one killed mid-wind-up must not loose its fireball */
+    {
+        int k2, j2 = -1, hp_before;
+        for (k2 = 0; k2 < FW_ACTORS; k2++) { FwActor *t = fw_actor(k2); if (t && t->used && t->proto == imp->proto && !(t->flags & FA_DEAD)) { j2 = k2; break; } }
+        expect(j2 >= 0, "another imp to test dying mid-attack");
+        if (j2 >= 0) {
+            FwActor *b = fw_actor(j2);
+            pl->hp = 100; pl->flags &= (u16)~FA_DEAD; fw_game.lost = 0;
+            b->x = pl->x + 900; b->z = pl->z; b->y = pl->y;
+            fsm_enter(b, fsm_state_find(b->fsm, "chase"));
+            b->events |= 1u << fw_event_id("CLOSE");          /* as IfPlayerNear raises it */
+            fw_damage(b, 1000, FW_PLAYER);
+            hp_before = (int)pl->hp;
+            run(0, 90);
+            expect(!strcmp(state_name(b), "dead"), "an imp killed as it closes in goes to dead (DIED beats CLOSE)");
+            expect((int)pl->hp == hp_before, "and a dead imp never hurts the player");
+        }
+        for (k2 = 0; k2 < FW_ACTORS; k2++) { FwActor *t = fw_actor(k2); if (t && t->used && t->proto == imp->proto && !(t->flags & FA_DEAD)) { j2 = k2; break; } }
+        if (j2 >= 0) {
+            FwActor *b = fw_actor(j2);
+            int shots0 = 0, shots1 = 0, q;
+            pl->hp = 100;
+            b->x = pl->x + 3000; b->z = pl->z; b->y = pl->y;
+            fsm_enter(b, fsm_state_find(b->fsm, "fireball"));
+            run(0, 5);                                       /* winding up (Wait 18) */
+            for (q = 0; q < FW_ACTORS; q++) { FwActor *t = fw_actor(q); if (t && t->used && (t->flags & FA_PROJECTILE)) shots0++; }
+            fw_damage(b, 1000, FW_PLAYER);
+            run(0, 30);
+            for (q = 0; q < FW_ACTORS; q++) { FwActor *t = fw_actor(q); if (t && t->used && (t->flags & FA_PROJECTILE)) shots1++; }
+            expect(shots1 <= shots0 && !strcmp(state_name(b), "dead"), "an imp killed winding up a fireball never throws it");
+        }
+    }
+
     /* walk into the exit */
     {
         int e = find_type("exit", 0);

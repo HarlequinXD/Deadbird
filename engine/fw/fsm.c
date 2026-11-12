@@ -97,8 +97,17 @@ void fsm_tick(FwActor *a)
     int i, start;
     u32 ev;
     if (a->fsm < 0 || a->state < 0) return;
-    start = a->state;
     s = &fsm_s[a->state];
+    /* dying comes first: before this tick's actions (a shot queued behind a Wait mustn't fire
+       from a corpse) and before any other event raised the same tick (CLOSE / HIT used to win,
+       the DIED was dropped and the dead actor kept fighting) */
+    if (a->events & (1u << EV_DIED)) {
+        for (i = 0; i < s->nt; i++) {
+            const FsmTrans *t = &fsm_t[s->t0 + i];
+            if (t->event == EV_DIED) { a->events = 0; fsm_enter(a, t->to); s = &fsm_s[a->state]; break; }
+        }
+    }
+    start = a->state;
     /* the "do" sequence: as far as it gets this tick; FINISHED when the last one is done */
     if (a->step < s->na) {
         int has_do = 0;

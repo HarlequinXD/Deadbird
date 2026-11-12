@@ -173,7 +173,9 @@ int fw_shoot(FwActor *a, int proto, int speed, int damage, int at_player)
 {
     FwActor *s, *pl = &act[FW_PLAYER];
     s32 ey = a->y - a->height * 2 / 3;
-    int i = fw_spawn(proto, a->x + (isin(a->yaw) * (a->radius + 120) >> 12), ey, a->z + (icos(a->yaw) * (a->radius + 120) >> 12), a->yaw);
+    int i;
+    if (a->flags & FA_DEAD) return -1;                  /* the dead don't shoot */
+    i = fw_spawn(proto, a->x + (isin(a->yaw) * (a->radius + 120) >> 12), ey, a->z + (icos(a->yaw) * (a->radius + 120) >> 12), a->yaw);
     if (i < 0) return -1;
     s = &act[i];
     s->flags |= FA_PROJECTILE; s->flags &= (u16)~(FA_GRAVITY | FA_SOLID);
@@ -211,6 +213,7 @@ int fw_hitscan(FwActor *a, s32 range, int damage, int pitch)
         if (!fw_can_see(a, t, range, 2048)) continue;
         bd = d; best = i;
     }
+    if (a->flags & FA_DEAD) return -1;
     if (best >= 0) fw_damage(&act[best], damage, fw_actor_index(a));
     return best;
 }
@@ -218,6 +221,7 @@ int fw_hitscan(FwActor *a, s32 range, int damage, int pitch)
 int fw_melee(FwActor *a, s32 range, int damage)
 {
     int i, n = 0;
+    if (a->flags & FA_DEAD) return 0;                   /* nor claw */
     for (i = 0; i < FW_ACTORS; i++) {
         FwActor *t = &act[i];
         if (!t->used || t == a || (t->flags & (FA_DEAD | FA_PROJECTILE | FA_PICKUP))) continue;
