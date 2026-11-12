@@ -713,19 +713,20 @@ static void build_flat(const MapSector *s, int ceil)
         mnx = gmin(mnx, poly[i][0]); mxx = gmax(mxx, poly[i][0]); mnz = gmin(mnz, poly[i][1]); mxz = gmax(mxz, poly[i][1]);
     }
     const float T = MAP_TILE, sub = ceil ? MAP_TILE : MAP_TILE / 2;
+    const float OX = (ceil ? s->cox : s->fox) * 64.f, OZ = (ceil ? s->coz : s->foz) * 64.f;   /* fshift / cshift */
     V3 nd = v3(0, ceil ? 1.f : -1.f, 0);
     int gtri[64][3], ngt = -1;                      /* the whole sector's triangles, when a cell needs them */
     int flags = ceil ? 0 : F_FLOOR;
-    for (int cz = ffloor_div(mnz, T); cz * T < mxz; cz++)
-        for (int cx = ffloor_div(mnx, T); cx * T < mxx; cx++) {
+    for (int cz = ffloor_div(mnz - OZ, T); cz * T + OZ < mxz; cz++)
+        for (int cx = ffloor_div(mnx - OX, T); cx * T + OX < mxx; cx++) {
             int tile = flat_tile(ceil ? s->ctex : s->ftex, cx, cz);
-            for (float sz = cz * T; sz < (cz + 1) * T - 1; sz += sub)
-                for (float sx = cx * T; sx < (cx + 1) * T - 1; sx += sub) {
+            for (float sz = cz * T + OZ; sz < (cz + 1) * T + OZ - 1; sz += sub)
+                for (float sx = cx * T + OX; sx < (cx + 1) * T + OX - 1; sx += sub) {
                     int m = clip_rect(poly, n, sx, sz, sx + sub, sz + sub, piece);
                     if (m < 3) continue;
                     float a = area2d(piece, m);
                     if (a < 2000) continue;
-#define FUV(x, z, o) (o[0] = ((x) - cx * T) / T * 63, o[1] = ceil ? ((z) - cz * T) / T * 63 : ((cz + 1) * T - (z)) / T * 63)
+#define FUV(x, z, o) (o[0] = ((x) - cx * T - OX) / T * 63, o[1] = ceil ? ((z) - cz * T - OZ) / T * 63 : ((cz + 1) * T + OZ - (z)) / T * 63)
                     if (gabs(a - sub * sub) < 1) {
                         V3 q[4]; float uv[4][2];
                         float xs[4] = { sx, sx + sub, sx, sx + sub }, zs[4] = { sz, sz, sz + sub, sz + sub };
@@ -787,6 +788,8 @@ static void wseg(float x0, float z0, float x1, float z1, float lo, float hi)
 /* one part of a wall: between the lines bottom (Bb at b .. Ba at a) and top, tiles from a wall spec.
    t runs from b (the viewer's left, facing the wall) to a. anchor_top: rows hang from the top (upper
    walls); otherwise they stand on the bottom, with an optional pinned top row. */
+/* the wall being built's texture shift (map units: `wall I shift U,V`), set by its caller */
+static float W_OU, W_OV;
 static void wall_part(unsigned spec, V3 a, V3 b, float Ba, float Bb, float Ta, float Tb, float Fa, float Fb, int anchor_top, int wflags, V3 nd)
 {
     if (spec == MAP_NONE) return;
@@ -803,20 +806,25 @@ static void wall_part(unsigned spec, V3 a, V3 b, float Ba, float Bb, float Ta, f
     float hb = gmin(Ba, Bb), ht = gmax(Ta, Tb);
     /* bands: [h0, h1], texture anchor height (bottom of the tile if !atop, else top), row index */
     float band[24][3]; int btile_row[24], batop[24], nb = 0;
+    /* a vertical shift moves the tile edges up by OV: the first band is then a part tile */
+    float OV = W_OV - T * gfloor(W_OV / T);
     if (anchor_top) {
         for (int r = 0; nb < 24; r++) {
-            float h1 = ht - r * T, h0 = gmax(hb, h1 - T);
+            float h1r = ht + OV - r * T, h1 = gmin(ht, h1r), h0 = gmax(hb, h1r - T);
             if (h1 - h0 < 1) break;
-            band[nb][0] = h0; band[nb][1] = h1; band[nb][2] = h1; btile_row[nb] = r; batop[nb] = 1; nb++;
+            band[nb][0] = h0; band[nb][1] = h1; band[nb][2] = h1r; btile_row[nb] = r; batop[nb] = 1; nb++;
             if (h0 <= hb) break;
         }
     } else {
         float lim = ht;
         if (top != 255 && ht - hb > 1) lim = gmax(hb, ht - T);
-        for (int r = 0; nb < 23; r++) {
-            float h0 = hb + r * T, h1 = gmin(lim, h0 + T);
-            if (h1 - h0 < 1) break;
-            band[nb][0] = h0; band[nb][1] = h1; band[nb][2] = h0; btile_row[nb] = r; batop[nb] = 0; nb++;
+        /* rows sit on the world's 2 m height grid (so a flight of steps' side walls carry one
+           texture up the stairs instead of each step starting its own), shifted up by OV */
+        float base = T * gfloor((hb + 1) / T) + OV;
+        for (int r = base > hb + 1 ? -1 : 0; nb < 23; r++) {      /* (moved up: a part of row 0 shows below it) */
+            float h0r = base + r * T, h0 = gmax(hb, h0r), h1 = gmin(lim, h0r + T);
+            if (h1 - h0 < 1) { if (r < 0) continue; break; }
+            band[nb][0] = h0; band[nb][1] = h1; band[nb][2] = h0r; btile_row[nb] = r < 0 ? 0 : r; batop[nb] = 0; nb++;
         }
         if (top != 255 && ht - lim > 1) { band[nb][0] = lim; band[nb][1] = ht; band[nb][2] = ht; btile_row[nb] = -1; batop[nb] = 1; nb++; }
     }
@@ -829,6 +837,10 @@ static void wall_part(unsigned spec, V3 a, V3 b, float Ba, float Bb, float Ta, f
         V3 d = mul(sub(a, b), 1 / L);
         float s0 = b.x * d.x + b.z * d.z, m = s0 - T * gfloor(s0 / T);
         c0 = m > 1 && m < T - 1 ? -m : 0;
+    }
+    if (W_OU != 0) {                                  /* a horizontal shift slides the columns along */
+        c0 -= W_OU - T * gfloor(W_OU / T);
+        while (c0 <= -T + 1) c0 += T;
     }
     int col = 0;
     for (float cs = c0; cs < L - 1; cs += T, col++) {
@@ -909,6 +921,7 @@ static void build_walls(int si)
         const MapWall *w = &MAP->walls[s->p0 + i];
         float dx = (float)(pb->x - pa->x), dz = (float)(pb->z - pa->z), L = gsqrt(dx * dx + dz * dz);
         V3 a = v3(pa->x, 0, pa->z), b = v3(pb->x, 0, pb->z), nd = v3(-dz / L, 0, dx / L);
+        W_OU = w->ou * 64.f; W_OV = w->ov * 64.f;
         float fa = ph(&F, a.x, a.z), fb = ph(&F, b.x, b.z), ca = ph(&C, a.x, a.z), cb = ph(&C, b.x, b.z);
         int sh = !(w->flags & WF_NOSHADOW);
         if (ca - fa < 1 && cb - fb < 1) continue;                   /* a solid block: its neighbours draw it */
@@ -963,6 +976,7 @@ static void build_mover(int si)
         float dx = (float)(pb->x - pa->x), dz = (float)(pb->z - pa->z), L = gsqrt(dx * dx + dz * dz);
         V3 a = v3(pa->x, 0, pa->z), b = v3(pb->x, 0, pb->z), out = v3(dz / L, 0, -dx / L);
         unsigned spec = s->kind == SK_DOOR ? w->mid : (w->low != MAP_NONE ? w->low : w->mid);
+        W_OU = w->ou * 64.f; W_OV = w->ov * 64.f;
         wall_part(spec, b, a, lo, lo, hi, hi, lo, lo, s->kind == SK_LIFT, 0, out);   /* seen from outside: b is on the right */
     }
     if (s->kind == SK_DOOR) {                                          /* the slab's underside */
@@ -975,6 +989,7 @@ static void build_mover(int si)
         }
     } else build_flat(s, 0);                                           /* the lift's deck */
     CURDYN = CURPAL = 0;
+    W_OU = W_OV = 0;
 }
 
 static float tri_area_xz(const MapPt *a, const MapPt *b, const MapPt *c) { return ((b->x - a->x) * (float)(c->z - a->z) - (b->z - a->z) * (float)(c->x - a->x)) / 2; }
@@ -1117,7 +1132,7 @@ static void gen_map_geometry(void)
     for (int i = 0; i < MAP->nthings; i++)
         if (MAP->things[i].type == TH_START) { lab.spawn_x = MAP->things[i].x; lab.spawn_z = MAP->things[i].z; lab.spawn_yaw = MAP->things[i].yaw; lab.has_spawn = 1; break; }
     lab.nroute = 0;
-    for (int i = 0; i < MAP->nthings && lab.nroute < 48; i++)
+    for (int i = 0; i < MAP->nthings && lab.nroute < 64; i++)
         if (MAP->things[i].type == TH_START || MAP->things[i].type == TH_WAY) {
             lab.route[lab.nroute][0] = MAP->things[i].x; lab.route[lab.nroute][1] = MAP->things[i].z; lab.nroute++;
         }

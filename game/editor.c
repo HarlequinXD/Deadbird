@@ -1335,8 +1335,8 @@ static void rows_draw(void)
 /* ------------------------------------------------------------------ inspector ([]) */
 enum {
     R_NAME, R_ROOM, R_ROOMNAME, R_KIND, R_FLOOR, R_CEIL, R_OPEN, R_LOCK, R_SECRET, R_LOW, R_HIGH, R_FSLOPE, R_FSLOPEH, R_CSLOPE, R_CSLOPEH,
-    R_FTEX, R_CTEX, R_FRULE, R_FRULEN, R_CRULE, R_CRULEN, R_WALLS, R_LOWS, R_UPS, R_CLEARF,
-    R_W_MID, R_W_LOW, R_W_UP, R_W_GLASS, R_W_BARS, R_W_ALIGN, R_W_SHADOW, R_W_CLEAR, R_W_SECTOR,
+    R_FTEX, R_CTEX, R_FRULE, R_FRULEN, R_CRULE, R_CRULEN, R_FSHX, R_FSHZ, R_CSHX, R_CSHZ, R_WALLS, R_LOWS, R_UPS, R_CLEARF,
+    R_W_MID, R_W_LOW, R_W_UP, R_W_GLASS, R_W_BARS, R_W_ALIGN, R_W_SHU, R_W_SHV, R_W_SHADOW, R_W_CLEAR, R_W_SECTOR,
     R_C_X, R_C_Z,
     R_T_TYPE, R_T_X, R_T_Z, R_T_YAW, R_T_ARG, R_T_PATROL,
     R_L_X, R_L_Z, R_L_H, R_L_R, R_L_G, R_L_B, R_L_RAD, R_L_X1, R_L_Z1, R_L_STEP,
@@ -1385,9 +1385,10 @@ static void build_rows(void)
         R(R_CSLOPE); if (s->cslope >= 0) R(R_CSLOPEH);
         R(R_FTEX); R(R_FRULE); if (s->f.nrules) R(R_FRULEN);
         R(R_CTEX); R(R_CRULE); if (s->c.nrules) R(R_CRULEN);
+        R(R_FSHX); R(R_FSHZ); R(R_CSHX); R(R_CSHZ);
         R(R_WALLS); R(R_LOWS); R(R_UPS); R(R_CLEARF);
     } else if (sel_kind == K_WALL) {
-        R(R_W_MID); R(R_W_LOW); R(R_W_UP); R(R_W_GLASS); R(R_W_BARS); R(R_W_ALIGN); R(R_W_SHADOW); R(R_W_CLEAR); R(R_W_SECTOR);
+        R(R_W_MID); R(R_W_LOW); R(R_W_UP); R(R_W_GLASS); R(R_W_BARS); R(R_W_ALIGN); R(R_W_SHU); R(R_W_SHV); R(R_W_SHADOW); R(R_W_CLEAR); R(R_W_SECTOR);
     } else if (sel_kind == K_CORNER) { R(R_C_X); R(R_C_Z); }
     else if (sel_kind == K_THING) {
         const EmThing *t = &ED.things[sel_i];
@@ -1407,12 +1408,23 @@ static void build_rows(void)
     ins_n = n;
 }
 static const char *const DIRN[4] = { "NORTH", "EAST", "SOUTH", "WEST" };
+/* texture moves: 1/16 m steps within a 2 m tile, shown in metres; the inspector moves them 1/8 m a step */
+static void shift_str(char *b, int v)
+{
+    char t[16];
+    int cm = v * 625 / 100;                          /* 1/16 m = 6.25 cm */
+    if (!v) { eu_str(b, "NONE"); return; }
+    t[0] = (char)('0' + cm / 100); t[1] = '.'; t[2] = (char)('0' + cm / 10 % 10); t[3] = (char)('0' + cm % 10); t[4] = ' '; t[5] = 'M'; t[6] = 0;
+    eu_str(b, t);
+}
+static u8 shift_step(u8 v, int d) { return (u8)(((v + d * 2) % 32 + 32) % 32); }
 static const char *ins_label(int k, char *b)
 {
     static const char *const L[R_P_FIELD] = {
         "NAME", "ROOM", "ROOM NAME", "KIND", "FLOOR", "CEILING", "OPENS TO", "LOCK", "SECRET", "LIFT LOW", "LIFT HIGH", "FLOOR SLOPE", "SLOPE TO", "CEIL SLOPE", "SLOPE TO",
-        "FLOOR TILE", "CEIL TILE", "FLOOR PATTERN", "EVERY", "CEIL PATTERN", "EVERY", "WALL ROWS", "STEP ROWS", "UPPER ROWS", "CLEAR PAINT",
-        "WALL ROWS", "STEP ROWS", "UPPER ROWS", "GLASS", "BARS", "TILES LINE UP", "SHADOW", "CLEAR PAINT", "ITS SECTOR",
+        "FLOOR TILE", "CEIL TILE", "FLOOR PATTERN", "EVERY", "CEIL PATTERN", "EVERY", "FLOOR MOVE X", "FLOOR MOVE Z", "CEIL MOVE X", "CEIL MOVE Z",
+        "WALL ROWS", "STEP ROWS", "UPPER ROWS", "CLEAR PAINT",
+        "WALL ROWS", "STEP ROWS", "UPPER ROWS", "GLASS", "BARS", "TILES LINE UP", "MOVE ALONG", "MOVE UP", "SHADOW", "CLEAR PAINT", "ITS SECTOR",
         "X", "Z",
         "TYPE", "X", "Z", "FACING", "KIND", "PATROL TO",
         "X", "Z", "HEIGHT", "RED", "GREEN", "BLUE", "RADIUS", "X2", "Z2", "EVERY",
@@ -1454,6 +1466,10 @@ static const char *ins_value(int k, char *b)
         case R_CSLOPEH: eu_m(b, s->cslope_h); break;
         case R_FTEX: tile_name(b, s->f.def); break;
         case R_CTEX: tile_name(b, s->c.def); break;
+        case R_FSHX: shift_str(b, s->fox); break;
+        case R_FSHZ: shift_str(b, s->foz); break;
+        case R_CSHX: shift_str(b, s->cox); break;
+        case R_CSHZ: shift_str(b, s->coz); break;
         case R_FRULE: if (s->f.nrules) tile_name(b, s->f.r[0].tile); else eu_str(b, "NONE"); break;
         case R_CRULE: if (s->c.nrules) tile_name(b, s->c.r[0].tile); else eu_str(b, "NONE"); break;
         case R_FRULEN: o = eu_int(b, s->f.r[0].sx); o = eu_str(o, " TILES"); break;
@@ -1472,6 +1488,8 @@ static const char *ins_value(int k, char *b)
         case R_W_BARS: eu_str(b, w->flags & WF_BARS ? "YES" : "NO"); break;
         case R_W_ALIGN: eu_str(b, w->flags & WF_ALIGN_END ? "FROM END" : w->flags & WF_ALIGN_MID ? "CENTRED" : "ON GRID"); break;
         case R_W_SHADOW: eu_str(b, w->flags & WF_NOSHADOW ? "NO" : "YES"); break;
+        case R_W_SHU: shift_str(b, w->ou); break;
+        case R_W_SHV: shift_str(b, w->ov); break;
         case R_W_CLEAR: o = eu_int(b, wcells_on(sel_i, sel_j)); eu_str(o, " TILES"); break;
         case R_W_SECTOR: eu_str(b, s->name); upcase(b); break;
         }
@@ -1567,6 +1585,10 @@ static void ins_adjust(int k, int d, int big)
         case R_CSLOPE: s->cslope = (s8)(s->cslope + d < -1 ? s->np - 1 : s->cslope + d >= s->np ? -1 : s->cslope + d); if (s->cslope >= 0 && !s->cslope_h) s->cslope_h = (s16)(s->ceil + 1024); break;
         case R_FSLOPEH: s->fslope_h = (s16)(s->fslope_h + d * hstep); break;
         case R_CSLOPEH: s->cslope_h = (s16)(s->cslope_h + d * hstep); break;
+        case R_FSHX: s->fox = shift_step(s->fox, d); break;
+        case R_FSHZ: s->foz = shift_step(s->foz, d); break;
+        case R_CSHX: s->cox = shift_step(s->cox, d); break;
+        case R_CSHZ: s->coz = shift_step(s->coz, d); break;
         case R_FRULEN: case R_CRULEN: { EmRule *q = r == R_FRULEN ? &s->f.r[0] : &s->c.r[0]; int v = clampv(q->sx + d, 1, 16); q->sx = q->sz = (u8)v; q->ox %= v; q->oz %= v; break; }
         default: return;
         }
@@ -1581,6 +1603,8 @@ static void ins_adjust(int k, int d, int big)
         case R_W_BARS: w->flags ^= WF_BARS; w->flags &= (u8)~WF_GLASS; break;
         case R_W_ALIGN: { int a = w->flags & WF_ALIGN_END ? 1 : w->flags & WF_ALIGN_MID ? 2 : 0; a = (a + 3 + d) % 3; w->flags &= (u8)~(WF_ALIGN_END | WF_ALIGN_MID); w->flags |= (u8)(a == 1 ? WF_ALIGN_END : a == 2 ? WF_ALIGN_MID : 0); break; }
         case R_W_SHADOW: w->flags ^= WF_NOSHADOW; break;
+        case R_W_SHU: w->ou = shift_step(w->ou, d); break;
+        case R_W_SHV: w->ov = shift_step(w->ov, d); break;
         default: return;
         }
         ed_changed();

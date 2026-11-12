@@ -87,6 +87,8 @@ static int pair_m(const char *s, s32 *a, s32 *b)
     t[i] = 0;
     return mtr(t, a) && mtr(s + i + 1, b);
 }
+/* a texture shift in world units -> 1/16 m steps within the 2 m tile (0..31) */
+static u8 shift16(s32 v) { s32 q = (v >= 0 ? v + 32 : v - 32) / 64; return (u8)(((q % 32) + 32) % 32); }
 static int pair_i(const char *s, s32 *a, s32 *b)
 {
     char t[40]; int i = 0;
@@ -247,7 +249,7 @@ static void sector_defaults(EmSector *s)
     s->fslope = s->cslope = -1;
     s->f.def = LT_FLOOR_PLATE; s->c.def = LT_CEILING_PANEL;
     s->walls = s->lows = s->ups = -1;
-    for (i = 0; i < EM_SV; i++) { s->w[i].mid = s->w[i].low = s->w[i].up = -1; s->w[i].flags = 0; }
+    for (i = 0; i < EM_SV; i++) { s->w[i].mid = s->w[i].low = s->w[i].up = -1; s->w[i].flags = 0; s->w[i].ou = s->w[i].ov = 0; }
 }
 
 int em_insert_point(EmMap *m, int si, int at, s32 x, s32 z)
@@ -312,7 +314,7 @@ int em_add_sector(EmMap *m, const s32 *x, const s32 *z, int n, int like)
     s = &m->secs[m->nsecs];
     if (like >= 0 && like < m->nsecs) {
         *s = m->secs[like];
-        for (i = 0; i < EM_SV; i++) { s->w[i].mid = s->w[i].low = s->w[i].up = -1; s->w[i].flags = 0; }
+        for (i = 0; i < EM_SV; i++) { s->w[i].mid = s->w[i].low = s->w[i].up = -1; s->w[i].flags = 0; s->w[i].ou = s->w[i].ov = 0; }
         s->fslope = s->cslope = -1;
         if (s->kind != SK_ROOM) { s->kind = SK_ROOM; s->lock = 0; s->flags = 0; s->ceil = (s16)(s->floor + 4096); }
     } else {
@@ -711,6 +713,10 @@ int em_parse(EmMap *m, const char *text)
                 int t;
                 if (!s || ntok < 2 || !tile_tok(tok[1], &t)) { err(line, "bad tile", ntok > 1 ? tok[1] : ""); return 0; }
                 (k[0] == 'f' ? &s->f : &s->c)->def = (u8)t;
+            } else if (seq(k, "fshift") || seq(k, "cshift")) {
+                s32 a, b;
+                if (!s || ntok < 2 || !pair_m(tok[1], &a, &b)) { err(line, "expected X,Z", 0); return 0; }
+                if (k[0] == 'f') { s->fox = shift16(a); s->foz = shift16(b); } else { s->cox = shift16(a); s->coz = shift16(b); }
             } else if (seq(k, "frule") || seq(k, "crule")) {
                 EmFlat *f; int t; s32 sx, sz, ox, oz;
                 if (!s || ntok < 4 || !tile_tok(tok[1], &t) || !pair_i(tok[2], &sx, &sz) || !pair_i(tok[3], &ox, &oz) || sx <= 0 || sz <= 0) { err(line, "bad rule", 0); return 0; }
@@ -755,6 +761,10 @@ int em_parse(EmMap *m, const char *text)
                         m->wcells[m->nwcells].sec = (u16)cur; m->wcells[m->nwcells].wall = (u8)i; m->wcells[m->nwcells].part = EM_MID;
                         m->wcells[m->nwcells].col = (u8)c; m->wcells[m->nwcells].row = (u8)r; m->wcells[m->nwcells].tile = (u8)t; m->nwcells++;
                     }
+                } else if (seq(a0, "shift")) {
+                    s32 a, b;
+                    if (ntok < 4 || !pair_m(tok[3], &a, &b)) { err(line, "expected U,V", 0); return 0; }
+                    for (i = 0; i < s->np; i++) if (on[i]) { s->w[i].ou = shift16(a); s->w[i].ov = shift16(b); }
                 } else if (seq(a0, "glass") || seq(a0, "bars") || seq(a0, "end") || seq(a0, "mid") || seq(a0, "noshadow")) {
                     u8 f = (u8)(seq(a0, "glass") ? WF_GLASS : seq(a0, "bars") ? WF_BARS : seq(a0, "end") ? WF_ALIGN_END : seq(a0, "mid") ? WF_ALIGN_MID : WF_NOSHADOW);
                     for (i = 0; i < s->np; i++) if (on[i]) s->w[i].flags |= f;
@@ -963,6 +973,8 @@ int em_write(const EmMap *m, char *out, int cap)
             const EmFCell *c = &m->fcells[j];
             o_s(&o, c->ceil ? "\n    ccell " : "\n    fcell "); o_i(&o, c->cx); o_c(&o, ','); o_i(&o, c->cz); o_c(&o, ' '); o_t(&o, c->tile);
         }
+        if (s->fox || s->foz) { o_s(&o, "\n    fshift "); o_m(&o, s->fox * 64); o_c(&o, ','); o_m(&o, s->foz * 64); }
+        if (s->cox || s->coz) { o_s(&o, "\n    cshift "); o_m(&o, s->cox * 64); o_c(&o, ','); o_m(&o, s->coz * 64); }
         if (s->walls >= 0) { o_s(&o, "\n    walls"); o_rows(&o, &m->rows[s->walls]); }
         if (s->lows >= 0) { o_s(&o, "\n    lows"); o_rows(&o, &m->rows[s->lows]); }
         if (s->ups >= 0) { o_s(&o, "\n    ups"); o_rows(&o, &m->rows[s->ups]); }
@@ -998,6 +1010,7 @@ int em_write(const EmMap *m, char *out, int cap)
         for (j = 0; j < s->np; j++) {
             static const char *const FN[5] = { "glass", "bars", "end", "mid", "noshadow" };
             for (k = 0; k < 5; k++) if (s->w[j].flags & (1 << k)) { o_s(&o, "\n    wall "); o_i(&o, j); o_c(&o, ' '); o_s(&o, FN[k]); }
+            if (s->w[j].ou || s->w[j].ov) { o_s(&o, "\n    wall "); o_i(&o, j); o_s(&o, " shift "); o_m(&o, s->w[j].ou * 64); o_c(&o, ','); o_m(&o, s->w[j].ov * 64); }
         }
         o_c(&o, '\n');
     }
@@ -1398,14 +1411,14 @@ int em_cut(EmMap *m, int si, s32 ax, s32 az, s32 bx, s32 bz)
         for (k = 0; k < EM_SV; k++) { map1[k] = map2[k] = -1; }
         for (i = ia;; i = (i + 1) % n) {
             x1[n1] = s->x[i]; z1[n1] = s->z[i]; w1[n1] = s->w[i];
-            if (i == ib) { w1[n1].mid = w1[n1].low = w1[n1].up = -1; w1[n1].flags = 0; }   /* the new wall along the cut */
+            if (i == ib) { w1[n1].mid = w1[n1].low = w1[n1].up = -1; w1[n1].flags = 0; w1[n1].ou = w1[n1].ov = 0; }   /* the new wall along the cut */
             else map1[i] = n1;
             n1++;
             if (i == ib) break;
         }
         for (i = ib;; i = (i + 1) % n) {
             o->x[n2] = s->x[i]; o->z[n2] = s->z[i]; o->w[n2] = s->w[i];
-            if (i == ia) { o->w[n2].mid = o->w[n2].low = o->w[n2].up = -1; o->w[n2].flags = 0; }
+            if (i == ia) { o->w[n2].mid = o->w[n2].low = o->w[n2].up = -1; o->w[n2].flags = 0; o->w[n2].ou = o->w[n2].ov = 0; }
             else map2[i] = n2;
             n2++;
             if (i == ia) break;
@@ -1553,7 +1566,7 @@ int em_stairs(EmMap *m, int si, int dir, s32 to, int steps)
         else if (dir == 1) { r0 = LP(x0, x1, a); r1 = z0; r2 = LP(x0, x1, b); r3 = z1; }
         else { r0 = LP(x1, x0, b); r1 = z0; r2 = LP(x1, x0, a); r3 = z1; }
         *c = base;
-        for (i = 0; i < EM_SV; i++) { c->w[i].mid = c->w[i].low = c->w[i].up = -1; c->w[i].flags = 0; }
+        for (i = 0; i < EM_SV; i++) { c->w[i].mid = c->w[i].low = c->w[i].up = -1; c->w[i].flags = 0; c->w[i].ou = c->w[i].ov = 0; }
         c->fslope = c->cslope = -1;
         c->floor = (s16)LP(h0, to, b);
 #undef LP
@@ -1775,7 +1788,7 @@ const MapDef *em_compile(const EmMap *m, int strict)
                 low = lr >= 0 || has_cells(m, si, i, EM_LOW) ? spec_wall(lr >= 0 ? &m->rows[lr] : midr, m, si, i, EM_LOW) : MAP_NONE;
                 up = ur >= 0 || has_cells(m, si, i, EM_UP) ? spec_wall(ur >= 0 ? &m->rows[ur] : midr, m, si, i, EM_UP) : MAP_NONE;
             }
-            c_walls[np].next = (u16)nxt; c_walls[np].mid = (u16)mid; c_walls[np].low = (u16)low; c_walls[np].up = (u16)up; c_walls[np].flags = w->flags;
+            c_walls[np].next = (u16)nxt; c_walls[np].mid = (u16)mid; c_walls[np].low = (u16)low; c_walls[np].up = (u16)up; c_walls[np].flags = w->flags; c_walls[np].ou = w->ou; c_walls[np].ov = w->ov;
             np++;
         }
         o->p0 = (u16)p0; o->np = s->np; o->floor = s->floor; o->ceil = s->ceil;
@@ -1783,6 +1796,7 @@ const MapDef *em_compile(const EmMap *m, int strict)
         o->fslope_h = s->fslope >= 0 ? s->fslope_h : 0; o->cslope_h = s->cslope >= 0 ? s->cslope_h : 0;
         o->ftex = (u16)spec_flat(&s->f, m, si, 0); o->ctex = (u16)spec_flat(&s->c, m, si, 1);
         o->room = s->room; o->kind = s->kind; o->lock = s->lock; o->flags = (u8)(s->kind == SK_DOOR ? s->flags & SF_SECRET : 0); o->ka = s->ka; o->kb = s->kb;
+        o->fox = s->fox; o->foz = s->foz; o->cox = s->cox; o->coz = s->coz;
     }
     if (c_nspec >= 0xffff) { err0("map too big: tile specs"); return 0; }
     /* props: lights, halos, then the prop lines (compile_props) */

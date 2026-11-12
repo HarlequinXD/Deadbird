@@ -303,7 +303,19 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
         gy = level_ground(p->x, p->z, p->y);
         /* stairs and small drops: stay glued to the ground; only a real ledge makes you fall */
         if (gy > p->y + STEP_DOWN) { p->grounded = 0; p->vy = 0; p->air_t = 0; }
-        else if (gy != p->y) { p->step_off += p->y - gy; p->y = gy; p->y16 = gy * SUB; }
+        else if (gy != p->y) {
+            s32 h = p->y - gy;
+            p->step_off += h;
+            /* a flight of stairs: the rise over the run since the last step, so her body can
+               glide up at the stairs' own slope instead of popping a step at a time */
+            {
+                s32 sl = p->step_dist > 0 && p->step_dist < 1500 ? (s32)((h < 0 ? -h : h) * 4096 / p->step_dist) : 0;
+                if (sl > 8192) sl = 8192;
+                p->step_slope = sl && p->step_slope ? (p->step_slope + sl) / 2 : sl;     /* averaged over two steps */
+            }
+            p->step_dist = 0;
+            p->y = gy; p->y16 = gy * SUB;
+        }
     }
     if (!p->grounded) {
         p->vy += GRAVITY;
@@ -317,8 +329,18 @@ void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
             p->y = gy; p->y16 = gy * SUB; p->vy = 0; p->grounded = 1;
         }
     }
-    p->step_off = p->step_off * 3 / 4;
-    if (p->step_off > -4 && p->step_off < 4) p->step_off = 0;
+    {   /* her body eases up / down a step instead of popping: on a flight of stairs at the
+           stairs' own slope (a steady glide), else as fast as she walks */
+        s32 rate;
+        p->step_dist += p->speed;
+        if (p->step_dist > 4000) p->step_dist = 4000;
+        if (p->step_slope && p->step_dist < 1500) rate = (p->step_slope * p->speed >> 12) + (p->step_off < 0 ? -p->step_off : p->step_off) / 128;
+        else rate = 10 + p->speed * 3 / 4;
+        if (p->step_off > rate) p->step_off -= rate;
+        else if (p->step_off < -rate) p->step_off += rate;
+        else p->step_off = 0;
+        if (p->step_off > 700 || p->step_off < -700) p->step_off = p->step_off > 0 ? 700 : -700;
+    }
 
     /* facing: turn toward the direction of travel (Slayer: 9/s) */
     p->prev_speed16 = p->speed16;

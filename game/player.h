@@ -39,6 +39,7 @@ typedef struct {
     int grounded, air_t, pushing;  /* pushing = touching a wall this frame */
     int land_t, land_amp;      /* landing dip */
     s32 step_off;              /* visual offset after stepping up/down a ledge */
+    s32 step_dist, step_slope; /* stairs: distance since the last step, its rise per unit run (4096 = 1) */
     int phase;                 /* gait clock, 65536 per cycle (right foot lands at 0, left at 32768) */
     int stance;                /* share of the cycle a foot is planted, 4096 = all */
     s32 exc;                   /* how far a foot travels ahead / behind the hip */

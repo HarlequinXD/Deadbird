@@ -88,7 +88,7 @@ int main(void)
     m = asset_demon;
     m.bones = (const DBONE *)demon_bones; m.nbones = DEMON_NBONES;
     player_init(&m);
-    a = area_named("Server Vault");
+    a = area_named("Generator");
     ar = level_area(a);
 
     /* 1. dummy enemy right in front of her, out in the open hall */
@@ -105,7 +105,7 @@ int main(void)
     if (last_move_hit[1] != 1 || last_move_hit[2] != 1 || last_move_hit[3] != 1) { printf("FAIL: each swing should hit the dummy exactly once\n"); fail = 1; }
     if (dummy.hp >= dummy.max_hp) { printf("FAIL: no damage\n"); fail = 1; }
 
-    /* 2. a wall: stand close to the vault's north wall, facing it */
+    /* 2. a wall: stand close to the generator room's north wall, facing it */
     combat_reset();
     player_reset(&pl, ar->x0 + 4000, ar->z1 - 450, 0);                       /* facing +Z, wall ahead */
     player_update(&pl, 0, 0, 0); player_pose(&pl, &m);

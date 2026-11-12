@@ -147,6 +147,19 @@ int main(void)
           if (!em_check_geom(&A, &sec, &wall)) { printf("ops: FAIL an overlapping sector was accepted\n"); fails++; } else printf("ops: overlap refused: %s\n", em_error); }
 #undef OK
     }
+    {   /* texture moves: written, read back, compiled */
+        static char buf[1 << 16];
+        static EmMap B;
+        const MapDef *d;
+        int n;
+        em_new_level(&A, "SHIFT");
+        A.secs[0].w[0].ou = 8; A.secs[0].w[0].ov = 4; A.secs[0].fox = 16; A.secs[0].coz = 2;
+        n = em_write(&A, buf, (int)sizeof(buf));
+        if (n < 0 || !em_parse(&B, buf)) { printf("shift: FAIL round trip: %s\n", em_error); fails++; }
+        else if (B.secs[0].w[0].ou != 8 || B.secs[0].w[0].ov != 4 || B.secs[0].fox != 16 || B.secs[0].coz != 2) { printf("shift: FAIL read back %d %d %d %d\n", B.secs[0].w[0].ou, B.secs[0].w[0].ov, B.secs[0].fox, B.secs[0].coz); fails++; }
+        else if (!(d = em_compile(&B, 1)) || d->walls[d->secs[0].p0].ou != 8 || d->walls[d->secs[0].p0].ov != 4 || d->secs[0].fox != 16 || d->secs[0].coz != 2) { printf("shift: FAIL compile\n"); fails++; }
+        else printf("shift: wall / floor / ceiling texture moves round-trip ok\n");
+    }
     printf(fails ? "edtest: %d FAILURES\n" : "edtest: all passed\n", fails);
     return fails ? 1 : 0;
 }

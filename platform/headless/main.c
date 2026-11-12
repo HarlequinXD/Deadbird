@@ -183,7 +183,7 @@ int main(int argc, char **argv)
     {   /* enemy + FATALITY: walk up to the first trooper, chainsaw him until he reels, finish him */
         int k, st = 0, shots = 0;
         eng_set_touch_ui(1);
-        game_debug_near_enemy(0, 3800);
+        game_debug_setup_duel(0, -3 * 1024, -2 * 1024, 3800, 0);   /* a fresh trooper in the pump hall */
         run(0, 70);
         write_bmp(out, "20_trooper_fight");
         printf("trooper: state %d hp %d, Deadbird hp %d\n", game_debug_enemy_state(0) / 1000, game_debug_enemy_state(0) % 1000, game_debug_player_hp());
@@ -223,7 +223,7 @@ int main(int argc, char **argv)
             int t, hp0;
             for (t = 0; t < 4; t++) {
                 hp0 = 120;
-                run(0, 90); game_debug_setup_duel(1 + t, -5 * 1024, -7 * 1024, dist[t], ang[t]); { int q; for (q = 0; q < 110; q++) run((q == 0 || q == 14 || q == 28) ? BTN_ATTACK : 0, 1); }
+                run(0, 90); game_debug_setup_duel(1 + t, -3 * 1024, -2 * 1024, dist[t], ang[t]); { int q; for (q = 0; q < 110; q++) run((q == 0 || q == 14 || q == 28) ? BTN_ATTACK : 0, 1); }
                 st = game_debug_enemy_state(1 + t);
                 printf("combo from %d units, %d degrees off: trooper hp %d -> %d, state %d\n", dist[t], ang[t] * 360 / 4096, hp0, st % 1000, st / 1000);
                 if (t == 0) write_bmp(out, "24_combo_from_range");
@@ -233,17 +233,21 @@ int main(int argc, char **argv)
         {   /* a trooper behind the shut cyan door: no lock through it, no sliding through it */
             int q;
             run(0, 90);
-            game_debug_setup_duel(5, -8 * 1024 - 512, 2560, 4600, -1024);     /* her by the door, him in containment */
+            game_debug_setup_duel(5, -8 * 1024 - 512, 6 * 1024, 4600, -1024);     /* her by the cyan door, him in the cell block */
             for (q = 0; q < 110; q++) run((q == 0 || q == 14 || q == 28) ? BTN_ATTACK : 0, 1);
             st = game_debug_enemy_state(5);
-            printf("through the shut door: her x %d (door at -10240), trooper hp %d\n", (int)game_debug_player_x(), st % 1000);
-            if (game_debug_player_x() < -10240 + 150 || st % 1000 != 120) { printf("FAIL: she reached him through the shut door\n"); return 1; }
+            printf("through the shut door: her x %d (door at -11392), trooper hp %d\n", (int)game_debug_player_x(), st % 1000);
+            if (game_debug_player_x() < -11392 + 150 || st % 1000 != 120) { printf("FAIL: she reached him through the shut door\n"); return 1; }
         }
         if (game_debug_goto_exit()) {                     /* the ending: the reactor, then the score */
             static const int at[] = { 10, 40, 70, 86, 96, 110, 130, 180 };
             int j = 0, f;
-            for (k = 0; k < 120 && game_debug_fatality() < 0; k++) run(0, 1);
-            if (game_debug_fatality() < 0) { printf("FAIL: walking up to the core didn't start the ending\n"); return 1; }
+            run(0, 60);
+            if (game_debug_fatality() >= 0) { printf("FAIL: the ending started without A\n"); return 1; }
+            write_bmp(out, "25_generator_prompt");
+            run(BTN_USE, 1);                              /* A at the generator */
+            for (k = 0; k < 10 && game_debug_fatality() < 0; k++) run(0, 1);
+            if (game_debug_fatality() < 0) { printf("FAIL: A at the generator didn't start the ending\n"); return 1; }
             for (k = 0; k < 3000 && game_debug_fatality() >= 0; k++) {
                 run(0, 1);
                 f = game_debug_fatality();

@@ -17,7 +17,7 @@ typedef struct {
     LabPod pods[8]; int npods;
     LabArea areas[32]; int nareas;
     LabView views[16]; int nviews;
-    s32 route[48][2]; int nroute;
+    s32 route[64][2]; int nroute;
     LabSec *secs; LabWall *walls; int nsecs, nwalls;      /* sector maps only (else 0) */
     LabThing *things; int nthings;
     s32 spawn_x, spawn_z; int spawn_yaw, has_spawn;

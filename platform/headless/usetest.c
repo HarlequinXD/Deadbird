@@ -18,7 +18,7 @@ int main(void)
     level_init();
     for (si = 0; si < lab.nsecs; si++) {
         const LabSec *s = &lab.secs[si];
-        if (s->kind == 1 && !s->lock && door < 0) door = si;
+        if (s->kind == 1 && !s->lock && !(s->flags & SF_SECRET) && door < 0) door = si;
         if (s->kind == 2 && lift < 0) lift = si;
     }
     expect(door >= 0 && lift >= 0, "level 1 has an unlocked door and a lift");

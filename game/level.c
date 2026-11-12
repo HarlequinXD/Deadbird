@@ -253,7 +253,12 @@ static s32 seg_walls(const VECTOR *a, const VECTOR *d, s32 m, int *wi)
             tn = (long long)(x0 - a->vx) * ez - (long long)(z0 - a->vz) * ex;
             un = (long long)(x0 - a->vx) * d->vz - (long long)(z0 - a->vz) * d->vx;
             if (den < 0) { den = -den; tn = -tn; un = -un; }
-            if (tn < 0 || tn >= den || un < -(den >> 6) || un > den + (den >> 6)) continue;
+            {   /* the wall line, pushed out by m and lengthened by m at both ends, so a camera
+                   ray can't slip past the outside corner of a short wall (a door jamb) */
+                s32 L = (s32)isqrt((u32)((ex >> 4) * (ex >> 4) + (ez >> 4) * (ez >> 4))) << 4;
+                long long ext = L > 0 ? den * m / L : 0;
+                if (tn < 0 || tn >= den || un < -ext - (den >> 6) || un > den + ext + (den >> 6)) continue;
+            }
             t = (s32)((tn << 12) / den);
             if (t >= best) continue;
             px = a->vx + (s32)((long long)d->vx * t >> 12); pz = a->vz + (s32)((long long)d->vz * t >> 12);
@@ -574,7 +579,10 @@ void level_think(s32 px, s32 py, s32 pz, u32 keys)
 
 /* the interact button: the lift she's on, a lift she's beside (it comes to her), else the
    nearest door (or secret door) in reach; LU_* says what happened */
-int level_use(s32 px, s32 py, s32 pz, u32 keys)
+static int use_at(s32 px, s32 py, s32 pz, u32 keys, int act);
+int level_use(s32 px, s32 py, s32 pz, u32 keys) { return use_at(px, py, pz, keys, 1); }
+int level_can_use(s32 px, s32 py, s32 pz) { return use_at(px, py, pz, 0, 0); }
+static int use_at(s32 px, s32 py, s32 pz, u32 keys, int act)
 {
     int si, here, best = -1;
     s32 bestd = 0x7fffffff;
@@ -585,22 +593,24 @@ int level_use(s32 px, s32 py, s32 pz, u32 keys)
         s32 cx = (s->x0 + s->x1) / 2, cz = (s->z0 + s->z1) / 2, top, deck;
         if (s->kind != 2) continue;
         top = s->kb - s->ka; deck = -(s->ka + sec_dyn[si]);
-        if (mover_dir[si]) { if (here == si) return LU_LIFT; continue; }
+        if (mover_dir[si]) { if (here == si && act) return LU_LIFT; continue; }
         if (here == si && py > deck - 200 && py < deck + 200) {
+            if (!act) return LU_LIFT;
             mover_dir[si] = sec_dyn[si] ? -1 : 1; mover_t[si] = 0;
             lsound(SFX_AMB_STEAM, 2600, cx, cz, 1400);
             return LU_LIFT;
         }
         if (px > s->x0 - 1800 && px < s->x1 + 1800 && pz > s->z0 - 1800 && pz < s->z1 + 1800) {
             s32 lo = -s->ka, hi = -s->kb;
-            if (sec_dyn[si] == top && py > lo - 400 && py < lo + 400) { mover_dir[si] = -1; lsound(SFX_AMB_STEAM, 2600, cx, cz, 1400); return LU_LIFT; }
-            if (sec_dyn[si] == 0 && py > hi - 400 && py < hi + 400) { mover_dir[si] = 1; lsound(SFX_AMB_STEAM, 2600, cx, cz, 1400); return LU_LIFT; }
+            if (sec_dyn[si] == top && py > lo - 400 && py < lo + 400) { if (!act) return LU_LIFT; mover_dir[si] = -1; lsound(SFX_AMB_STEAM, 2600, cx, cz, 1400); return LU_LIFT; }
+            if (sec_dyn[si] == 0 && py > hi - 400 && py < hi + 400) { if (!act) return LU_LIFT; mover_dir[si] = 1; lsound(SFX_AMB_STEAM, 2600, cx, cz, 1400); return LU_LIFT; }
         }
     }
     for (si = 0; si < LAB_NSECS && si < MAX_SECS; si++) {     /* the nearest door in reach */
         const LabSec *s = &lab_secs[si];
         s32 dx, dz, d;
         if (s->kind != 1) continue;
+        if (!act && sec_dyn[si] >= s->ka) continue;                          /* already open: nothing to do */
         if (px < s->x0 - 1500 || px > s->x1 + 1500 || pz < s->z0 - 1500 || pz > s->z1 + 1500) continue;
         if (py < -s->k0 - 1600 || py > -s->k0 + 600) continue;               /* not on its floor */
         dx = px < s->x0 ? s->x0 - px : px > s->x1 ? px - s->x1 : 0;
@@ -611,6 +621,7 @@ int level_use(s32 px, s32 py, s32 pz, u32 keys)
     if (best >= 0) {
         const LabSec *s = &lab_secs[best];
         s32 cx = (s->x0 + s->x1) / 2, cz = (s->z0 + s->z1) / 2;
+        if (!act) return door_secret(s) ? LU_NONE : LU_DOOR;               /* the button doesn't give a secret away */
         if (s->lock && !((keys >> s->lock) & 1)) {
             lsound(SFX_ZAP, 3200, cx, cz, 1500);
             if (hooks.locked) hooks.locked(s->lock);

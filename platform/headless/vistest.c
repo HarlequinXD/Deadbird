@@ -22,6 +22,7 @@ static int player_angle(s32 dx, s32 dz)      /* heading of (dx, dz): 0 = +z, 102
 }
 static u16 shot[2][SCREEN_W_MAX * SCREEN_H];
 
+static int lum(u16 c) { int r = c & 31, g = (c >> 5) & 31, b = (c >> 10) & 31; return r > g ? (r > b ? r : b) : (g > b ? g : b); }
 static void grab(u16 *dst)
 {
     const u16 *v = gpu_vram();
@@ -94,7 +95,7 @@ int main(int argc, char **argv)
                 b.vx = a.vx + (b.vx - a.vx) * t / 4096; b.vy = a.vy + (b.vy - a.vy) * t / 4096; b.vz = a.vz + (b.vz - a.vz) * t / 4096;
                 level_debug_all_rooms(0); render(b.vx, b.vy, b.vz, cy, 180); grab(shot[0]);
                 level_debug_all_rooms(1); render(b.vx, b.vy, b.vz, cy, 180); grab(shot[1]);
-                for (k = diff = 0; k < SCREEN_W * SCREEN_H; k++) diff += shot[0][k] != shot[1][k];
+                for (k = diff = 0; k < SCREEN_W * SCREEN_H; k++) diff += shot[0][k] != shot[1][k] && (lum(shot[0][k]) > 2 || lum(shot[1][k]) > 2);   /* fogged-out near-black detail doesn't count */
                 frames++;
                 if (diff > 600) {             /* (a few hundred faint pixels of far, dark detail are noise) */
                     bad++;

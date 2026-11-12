@@ -1,544 +1,532 @@
-# Deadbird - level 1: the Extraction Plant.
+# Deadbird - level 1: the Extraction Plant (written by tools/levels/build_e1.py).
 #
-# A hub level: the Extraction Atrium in the middle, three keycard wings around it, the reactor at
-# the end. Cyan (processing floor, down the west stairs) opens the containment wing; amber (in the
-# research lab above it) opens the vault and turbine wing; crimson (on the turbine catwalk) opens
-# the shortcut back into the atrium and the core hall to the reactor.
+# Arrival Bay (the freight lift lowers her in) -> Security Checkpoint -> the Pump Hall, the hub
+# around the great extraction tank. West: stairs down to the Sump (cyan key); the cyan door opens
+# the Cell Block, whose lift climbs to the Overseer's Office (amber key) and a ledge to drop back
+# into the hall. East: the amber door opens the Cooling Hall; stairs climb to its gantry (crimson
+# key). North: the crimson door, a corridor and stairs down to the Generator. Three secret doors.
 #
-# Metres; x east, z north; heights go up from the atrium floor. See tools/make_map.py for the format.
-# The whole map has to fit inside +-31.25 m.
+# Built on a 2 m grid; rooms 2 m apart, doorways through the 2 m walls (alcove, recess, door,
+# recess, alcove). Metres; x east, z north; heights up from the hall floor.
 
-room dock Loading Dock
+room bay Arrival Bay
 room checkpoint Security Checkpoint
-room atrium Extraction Atrium
-room processing Processing Floor
-room containment Containment Block
-room ramp Lab Ramp
-room lab Research Lab
-room vault Server Vault
-room gallery Pipe Gallery
-room turbine Turbine Hall
-room corehall Core Hall
-room reactor Reactor Core
+room hall Pump Hall
+room sump The Sump
+room cells Cell Block
+room office Overseer's Office
+room cooling Cooling Hall
+room corridor Generator Corridor
+room generator Generator
 
-# ================================================================== LOADING DOCK (start)
-sector dock room dock floor 0 ceil 7
-    pts -4,-30  4,-30  4,-25  4,-24.5  4,-24  4,-23.5  4,-23  4,-22.5  8,-22.5  8,-18  2,-18  -2,-18  -8,-18  -8,-20  -8,-22  -8,-26  -4,-26
+# ================================================================== ARRIVAL BAY (start)
+sector bay room bay floor 0 ceil 8
+    pts -8,-30  4,-30  4,-26  8,-26  8,-20  4,-20  4,-19.375  2,-19.375  -2,-19.375  -4,-19.375  -4,-20  -8,-20  -8,-24  -8,-26
     ftex FLOOR_DOCK
-    frule FLOOR_HAZARD 1,99 0,-10
+    frule FLOOR_HAZARD 99,1 0,-10
     ctex CEILING_PANEL
-    crule CEILING_LIGHT 3,3 1,1
-    walls BASE_PLAIN BASE_PIPES BASE_PLAIN BASE_HAZARD / DOCK_PLATE DOCK_NUMBER DOCK_PLATE MID_POSTER_DANGER DOCK_PLATE MID_ARROW / TOP_CIRCUIT / top TOP_BEAM
+    crule CEILING_LIGHT 2,2 0,0
+    walls BASE_PLAIN BASE_PIPES BASE_PLAIN BASE_VENT / DOCK_PLATE / DOCK_PLATE / top TOP_BEAM
     lows PLATE_SIDE
-    ups TOP_BEAM
+    ups TOP_BEAM / DOCK_PLATE / DOCK_PLATE
+    wall 5,9 DARK_METAL
+    wall 0 cell 4,1 DOCK_NUMBER
+    wall 3 cell 1,1 MID_POSTER_DANGER
+    wall 11 cell 1,1 MID_AUTHORIZED
+    wall 11 BASE_PLAIN / DOCK_PLATE / DOCK_PLATE / top TOP_BEAM
+    wall 13 BASE_PLAIN / DOCK_PLATE / DOCK_PLATE / top TOP_BEAM
 
-# the freight lift that lowers her in from the shaft above the dock ceiling
-sector dock_lift room dock floor 8 ceil 15 lift 0 8
-    pts -8,-30  -4,-30  -4,-26  -8,-26
+# the freight lift that lowers her in from the shaft above the bay
+sector bay_lift room bay floor 8 ceil 16 lift 0 8
+    pts 4,-30  8,-30  8,-26  4,-26
     ftex FLOOR_HAZARD
-    walls DARK_METAL / HALL_WALL / BEAM
-    lows HAZARD
+    walls BASE_HAZARD / DARK_METAL / DARK_METAL / HAZARD / top BEAM
+    lows HAZARD / DARK_METAL / DARK_METAL / DARK_METAL
 
-# a raised loading bay with steps down its north side
-sector dock_bay room dock floor 1 ceil 7
-    pts 4,-30  8,-30  8,-25  4,-25
-    ftex FLOOR_GRATE
-    walls BASE_HAZARD / DOCK_PLATE DOCK_NUMBER / TOP_CIRCUIT / top TOP_BEAM
-    lows PLATE_SIDE
-stairs dock_steps room dock 4,-25 8,-22.5 n 1 0 ceil 7 steps 5
-    ftex STAIR_TREAD
-    walls BASE_HAZARD / DOCK_PLATE / TOP_CIRCUIT / top TOP_BEAM
-    lows PLATE_SIDE
-
-# secret: a scratched panel in the west wall slides up into a closet
-sector dock_secret room dock floor 0 door 2.5
-    pts -9,-22  -8,-22  -8,-20  -9,-20
+# secret: a plain panel in the west wall is a door; a store room behind it
+sector bay_secret room bay floor 0 door 4 secret
+    pts -8.25,-26  -8,-26  -8,-24  -8.25,-24
     walls DARK_METAL
-    wall 1,3 DOCK_PLATE
-    ups DOCK_PLATE
-sector dock_closet room dock floor 0 ceil 2.5
-    pts -12,-23  -9,-23  -9,-22  -9,-20  -9,-19  -12,-19
-    ftex FLOOR_GRATE
-    walls DARK_METAL
-    ups DARK_METAL
+    wall 1,3 BASE_PLAIN / DOCK_PLATE
 
-sector dock_door room dock floor 0 door 4
-    pts -2,-18  2,-18  2,-17  -2,-17
+sector bay_store room bay floor 0 ceil 4
+    pts -12,-28  -8.25,-28  -8.25,-26  -8.25,-24  -8.25,-22  -12,-22
+    ftex FLOOR_GRATE
+    ctex DARK_METAL
+    walls DARK_METAL / top BEAM
+
+# the bay door
+sector bay_door_ra room bay floor 0 ceil 4
+    pts -2,-19.375  2,-19.375  2,-19.125  -2,-19.125
     ftex FLOOR_HAZARD
-    walls DOOR_JAMB_R
+    ctex DARK_METAL
+    walls DARK_METAL
+
+sector bay_door room bay floor 0 door 4
+    pts -2,-19.125  2,-19.125  2,-18.875  -2,-18.875
+    ftex FLOOR_HAZARD
+    walls DARK_METAL
     wall 0,2 BULKHEAD
-    ups DOOR_LINTEL
+
+sector bay_door_rb room checkpoint floor 0 ceil 4
+    pts -2,-18.875  2,-18.875  2,-18.625  -2,-18.625
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
+    walls DARK_METAL
 
 # ================================================================== SECURITY CHECKPOINT
-sector checkpoint room checkpoint floor 0 ceil 4.5
-    pts -6,-17  -2,-17  2,-17  6,-17  6,-16  3,-16  3,-13  3,-12.5  3,-12  3,-11.5  3,-11  2,-11  -2,-11  -6,-11
+sector checkpoint room checkpoint floor 0 ceil 6
+    pts -4,-18  -4,-18.625  -2,-18.625  2,-18.625  4,-18.625  4,-18  6,-18  6,-10  4,-10  4,-9.375  2,-9.375  0,-9.375  -2,-9.375  -2,-10  -6,-10  -6,-18
     ftex FLOOR_PLATE
     frule FLOOR_STRIP 99,1 0,-7
     ctex CEILING_PANEL
     crule CEILING_LIGHT 2,2 0,0
-    walls BASE_PLAIN BASE_VENT / CHECKPOINT_PANEL MID_PANEL MID_AUTHORIZED MID_PANEL / top TOP_BEAM
-    wall 0 cell 1,1 WALL_GRAPH
+    walls BASE_PLAIN BASE_VENT / MID_VPIPES MID_PANEL / top TOP_BEAM
     lows PLATE_SIDE
     ups TOP_BEAM
+    wall 0,4,8,12 DARK_METAL
+    wall 14 cell 1,1 CHECKPOINT_PANEL
+    wall 6 cell 1,1 WALL_GRAPH
+    wall 6 cell 3,1 MID_AUTHORIZED
 
-# the guard booth: raised, glazed toward the room, steps down at its north end
-sector booth room checkpoint floor 0.8 ceil 3.5
-    pts 3,-16  6,-16  6,-13  3,-13
-    ftex FLOOR_GRATE
-    ctex CEILING_LIGHT
-    walls CHECKPOINT_PANEL / top TOP_BEAM
-    lows PLATE_SIDE
-    ups TOP_BEAM
-    wall 3 glass
-stairs booth_steps room checkpoint 3,-13 6,-11 n 0.8 0 ceil 4.5 steps 4
-    ftex STAIR_TREAD
-    walls CHECKPOINT_PANEL / top TOP_BEAM
-    lows PLATE_SIDE
-
-sector checkpoint_door room checkpoint floor 0 door 4
-    pts -2,-11  2,-11  2,-10  -2,-10
+# the hall door
+sector hall_door_ra room checkpoint floor 0 ceil 4
+    pts 0,-9.375  2,-9.375  2,-9.125  0,-9.125
     ftex FLOOR_HAZARD
-    walls DOOR_JAMB_R
-    wall 0,2 BULKHEAD
-    ups DOOR_LINTEL
+    ctex DARK_METAL
+    walls DARK_METAL
 
-# ================================================================== EXTRACTION ATRIUM (hub)
-# an octagon 20 m across and 14 m tall around the great extraction tank
-sector atrium room atrium floor 0 ceil 14
-    pts -6,-10  -2,-10  2,-10  6,-10  10,-6  10,-5  10,-2  10,2  10,5  10,6  6,10  5,10  1,10  -2,10  -6,10  -10,6  -10,4  -10,1  -10,-3  -10,-6
+sector hall_door room checkpoint floor 0 door 4
+    pts 0,-9.125  2,-9.125  2,-8.875  0,-8.875
+    ftex FLOOR_HAZARD
+    walls DARK_METAL
+    wall 0,2 BULKHEAD
+
+sector hall_door_rb room hall floor 0 ceil 4
+    pts 0,-8.875  2,-8.875  2,-8.625  0,-8.625
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
+    walls DARK_METAL
+
+# ================================================================== PUMP HALL (the hub)
+sector hall room hall floor 0 ceil 12
+    pts -2,-8  -2,-8.625  0,-8.625  2,-8.625  4,-8.625  4,-8  10,-8  10,-4  10.625,-4  10.625,-2  10.625,2  10.625,4  10,4  10,12  4,12  4,12.625  2,12.625  -2,12.625  -4,12.625  -4,12  -6,12  -10,12  -10,10  -10.625,10  -10.625,8  -10.625,4  -10.625,2  -10,2  -10,0  -10,-4  -10,-8
     ftex FLOOR_PLATE
     frule FLOOR_GRATE 2,2 0,0
     ctex CEILING_CABLES
     crule CEILING_LIGHT 3,3 0,0
-    walls BASE_PLAIN BASE_PIPES BASE_VENT BASE_PLAIN / EXTRACTION_PANEL MID_PANEL MID_POSTER_POWER MID_VPIPES / TOP_CIRCUIT / HALL_WALL_TOP / TOP_CIRCUIT / top TOP_BEAM
-    wall 3,13 cell 1,1 WALL_VITALS
-    wall 9 cell 0,1 WALL_GRAPH
-    lows PLATE_SIDE
-    ups TOP_CIRCUIT / top TOP_BEAM
+    walls BASE_PLAIN BASE_PIPES BASE_VENT BASE_PLAIN / MID_VPIPES MID_PANEL / TOP_CIRCUIT / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows BASE_PLAIN / MID_VPIPES
+    ups TOP_BEAM / HALL_WALL_TOP / HALL_WALL / TOP_CIRCUIT
+    wall 0,4,7,11,14,18,22,26 DARK_METAL
+    wall 30 cell 2,1 EXTRACTION_PANEL
+    wall 5 cell 1,1 EXTRACTION_PANEL
+    wall 6 cell 1,1 WALL_VITALS
+    wall 12 cell 2,1 MID_POSTER_POWER
+    wall 13 cell 1,1 MID_POSTER_DANGER
+    wall 29 cell 0,1 WALL_GRAPH
 
-# stairs down to the processing floor, off the west wall
-stairs proc_stairs room processing -10,-6 -16,-3 w 0 -3 ceil 4 steps 15
+# the ledge from the office: 4 m over the hall floor, a rail with a gap at its west end to drop through
+sector ledge room office floor 4 ceil 8
+    pts -10,12  -6,12  -6,18  -10,18
+    ftex FLOOR_GRATE
+    ctex CEILING_PANEL
+    walls LAB_PANEL / top TOP_BEAM
+    lows PLATE_SIDE / PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL_TOP
+
+# stairs down to the sump, off the hall's west wall
+stairs sump_stairs room sump -10,-4 -16,0 w 0 -4 ceil 4 steps 20
     ftex STAIR_TREAD
-    walls HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
     lows PLATE_SIDE
-    ups TOP_BEAM
+    ups TOP_BEAM / HALL_WALL
 
-sector cyan_door room containment floor 0 door 4 lock cyan
-    pts -11,1  -10,1  -10,4  -11,4
-    ftex FLOOR_HAZARD
-    walls DOOR_JAMB_R
-    wall 1,3 BULKHEAD
-    ups DOOR_LINTEL
-
-sector amber_door room vault floor 0 door 4 lock amber
-    pts 10,-5  11,-5  11,-2  10,-2
-    ftex FLOOR_HAZARD
-    walls DOOR_JAMB_R
-    wall 1,3 BULKHEAD
-    ups DOOR_LINTEL
-
-sector crimson_door room corehall floor 0 door 4 lock crimson
-    pts 1,10  5,10  5,11  1,11
-    ftex FLOOR_HAZARD
-    walls DOOR_JAMB_R
-    wall 0,2 BULKHEAD
-    ups DOOR_LINTEL
-
-# the shortcut from the turbine hall: crimson-locked from both sides
-sector turbine_door room turbine floor 0 door 4 lock crimson
-    pts 10,2  11,2  11,5  10,5
-    ftex FLOOR_HAZARD
-    walls DOOR_JAMB_R
-    wall 1,3 BULKHEAD
-    ups DOOR_LINTEL
-sector turbine_passage room turbine floor 0 ceil 4
-    pts 11,2  14,2  14,5  11,5
-    ftex FLOOR_PLATE
-    walls HALL_WALL / HALL_WALL_TOP
-    ups TOP_BEAM
-
-# ================================================================== PROCESSING FLOOR (cyan key)
-sector processing room processing floor -3 ceil 2.5
-    pts -28,-16  -16,-16  -16,-6  -16,-3  -28,-3  -28,-8  -28,-10
+# ================================================================== THE SUMP (cyan key)
+sector sump room sump floor -4 ceil 2
+    pts -28,-16  -24,-16  -22,-16  -16,-16  -16,-4  -16,0  -28,0
     ftex FLOOR_PLATE
     frule FLOOR_GRATE 1,99 0,-5
     ctex CEILING_PANEL
     crule CEILING_LIGHT 3,3 1,1
-    walls BASE_PIPES BASE_PLAIN BASE_VENT / PROCESSING_PANEL MID_VPIPES MID_PANEL MID_POSTER_POWER / top TOP_BEAM
+    walls BASE_PIPES BASE_PLAIN BASE_VENT / MID_VPIPES / top TOP_BEAM
     lows PLATE_SIDE
     ups TOP_BEAM
+    wall 6 cell 3,1 PROCESSING_PANEL
+    wall 3 cell 3,1 MID_POSTER_DANGER
+    wall 5 cell 3,1 WALL_VITALS
+    wall 0 BASE_PLAIN / MID_VPIPES / top TOP_BEAM
+    wall 2 BASE_PLAIN / MID_VPIPES / top TOP_BEAM
 
-# secret: a closet behind the west wall
-sector proc_secret room processing floor -3 door 2.5
-    pts -29,-10  -28,-10  -28,-8  -29,-8
+# secret: the south wall's middle panel opens on a drain room
+sector sump_secret room sump floor -4 door 4 secret
+    pts -24,-16.25  -22,-16.25  -22,-16  -24,-16
     walls DARK_METAL
-    wall 1,3 PROCESSING_PANEL
-    ups PROCESSING_PANEL
-sector proc_closet room processing floor -3 ceil -0.5
-    pts -31,-11  -29,-11  -29,-10  -29,-8  -29,-7  -31,-7
-    ftex FLOOR_GRATE
-    walls DARK_METAL
-    ups DARK_METAL
+    wall 0,2 BASE_PLAIN / MID_VPIPES
 
-# ================================================================== CONTAINMENT BLOCK
-sector containment room containment floor 0 ceil 4.8
-    pts -25,-2  -11,-2  -11,1  -11,4  -11,10  -21,10  -25,10
+sector sump_drain room sump floor -4 ceil 0
+    pts -26,-20  -20,-20  -20,-16.25  -22,-16.25  -24,-16.25  -26,-16.25
+    ftex FLOOR_DRAIN
+    ctex DARK_METAL
+    walls DARK_METAL / top BEAM
+
+# the cyan door: hall -> cell block, through x -12..-10
+sector cyan_door_ra room cells floor 0 ceil 4
+    pts -11.375,4  -11.125,4  -11.125,8  -11.375,8
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
+    walls DARK_METAL
+
+sector cyan_door room cells floor 0 door 4 lock cyan
+    pts -11.125,4  -10.875,4  -10.875,8  -11.125,8
+    ftex FLOOR_HAZARD
+    walls DARK_METAL
+    wall 1,3 BULKHEAD
+
+sector cyan_door_rb room hall floor 0 ceil 4
+    pts -10.875,4  -10.625,4  -10.625,8  -10.875,8
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
+    walls DARK_METAL
+
+# ================================================================== CELL BLOCK
+sector cells room cells floor 0 ceil 6
+    pts -24,2  -12,2  -11.375,2  -11.375,4  -11.375,8  -11.375,10  -12,10  -12,14  -20,14  -24,14
     ftex FLOOR_CELL
     frule FLOOR_DRAIN 5,3 2,1
     ctex CEILING_PANEL
     crule CEILING_LIGHT 3,3 1,1
-    walls CELL_WALL / CELL_WALL CELL_WARNING CELL_WALL MID_POSTER_DANGER / top TOP_BEAM
+    walls CELL_WALL / CELL_WALL / top TOP_BEAM
     lows PLATE_SIDE
-    ups TOP_BEAM
+    ups TOP_BEAM / CELL_WALL
+    wall 1,5 DARK_METAL
+    wall 9 cell 2,1 CELL_WARNING
+    wall 7 cell 2,1 CELL_WARNING
 
-# ================================================================== LAB RAMP and RESEARCH LAB (amber key)
-sector lab_ramp room ramp floor 0 fslope 0 3 ceil 4.8 cslope 0 7.5
-    pts -25,10  -21,10  -21,16  -25,16
-    ftex STAIR_TREAD
-    ctex CEILING_CABLES
-    walls HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
-    lows PLATE_SIDE
-    ups TOP_BEAM
-sector lab_landing room ramp floor 3 ceil 7.5
-    pts -25,16  -21,16  -20,16  -20,19  -25,19
-    ftex FLOOR_LAB
-    walls LAB_PANEL / LAB_POSTER / top TOP_BEAM
-    ups TOP_BEAM
+# the lift up to the office
+sector cells_lift room cells floor 0 ceil 10 lift 0 4
+    pts -24,14  -20,14  -20,18  -24,18
+    ftex FLOOR_HAZARD
+    walls BASE_HAZARD / DARK_METAL / DARK_METAL / top BEAM
+    lows HAZARD / DARK_METAL
 
-sector lab room lab floor 3 ceil 7.5
-    pts -20,12  -6,12  -2,12  -2,19  -20,19  -20,16
+# ================================================================== OVERSEER'S OFFICE (amber key)
+sector office room office floor 4 ceil 8
+    pts -24,18  -20,18  -10,18  -6,18  -6,24  -24,24
     ftex FLOOR_LAB
     ctex CEILING_PANEL
     crule CEILING_LIGHT 2,2 0,0
-    walls LAB_PANEL / LAB_PANEL LAB_POSTER LAB_PANEL / top TOP_BEAM
-    wall 3 cell 2,1 WALL_VITALS
-    wall 3 cell 4,1 WALL_GRAPH
+    walls LAB_PANEL / top TOP_BEAM
     lows PLATE_SIDE
     ups TOP_BEAM
+    wall 4 cell 3,0 LAB_POSTER
+    wall 4 cell 6,0 WALL_VITALS
+    wall 1 cell 1,0 WALL_GRAPH
 
-# an overlook bay above the atrium: 3 m down, a rail along its edge - the jump down is the shortcut back
-sector lab_bay room lab floor 3 ceil 7.5
-    pts -6,10  -2,10  -2,12  -6,12
-    ftex FLOOR_GRATE
-    walls LAB_PANEL / LAB_POSTER / top TOP_BEAM
-    lows PLATE_SIDE
-    ups TOP_BEAM
-
-# ================================================================== SERVER VAULT and PIPE GALLERY
-sector vault room vault floor 0 ceil 4.5
-    pts 11,-14  15,-14  16,-14  21,-14  21,-11  21,-2  11,-2  11,-5
-    ftex FLOOR_PLATE
-    frule FLOOR_GRATE 2,1 0,0
-    ctex CEILING_PANEL
-    crule CEILING_LIGHT 2,2 1,0
-    walls BASE_PLAIN BASE_VENT / VAULT_PANEL VAULT_PANEL MID_AUTHORIZED / top TOP_BEAM
-    lows PLATE_SIDE
-    ups TOP_BEAM
-
-# secret: a dead server rack is a door
-sector vault_secret room vault floor 0 door 2.5
-    pts 15,-15  16,-15  16,-14  15,-14
+# the amber door: hall -> cooling hall, through x 10..12
+sector amber_door_ra room hall floor 0 ceil 4
+    pts 10.625,-2  10.875,-2  10.875,2  10.625,2
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
     walls DARK_METAL
-    wall 0,2 VAULT_PANEL
-    ups VAULT_PANEL
-sector vault_closet room vault floor 0 ceil 2.5
-    pts 14,-17  17,-17  17,-15  16,-15  15,-15  14,-15
-    ftex FLOOR_GRATE
+
+sector amber_door room hall floor 0 door 4 lock amber
+    pts 10.875,-2  11.125,-2  11.125,2  10.875,2
+    ftex FLOOR_HAZARD
     walls DARK_METAL
-    ups DARK_METAL
+    wall 1,3 BULKHEAD
 
-sector gallery_mouth room gallery floor 0 ceil 4
-    pts 21,-14  22,-14  22,-11  21,-11
-    ftex FLOOR_PLATE
-    walls GALLERY_PIPES / top TOP_BEAM
-    ups TOP_BEAM
-sector gallery room gallery floor 0 ceil 6
-    pts 22,-14  26,-14  26,2  22,2  22,-11
-    ftex FLOOR_PLATE
-    frule FLOOR_GRATE 2,1 1,0
-    ctex CEILING_CABLES
-    crule CEILING_LIGHT 99,3 0,0
-    walls GALLERY_PIPES / GALLERY_PIPES MID_VPIPES GALLERY_PIPES MID_POSTER_DANGER / top TOP_BEAM
-    lows PLATE_SIDE
-    ups TOP_BEAM
+sector amber_door_rb room cooling floor 0 ceil 4
+    pts 11.125,-2  11.375,-2  11.375,2  11.125,2
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
+    walls DARK_METAL
 
-# ================================================================== TURBINE HALL (crimson key)
-sector turbine room turbine floor 0 ceil 16
-    pts 14,2  22,2  26,2  30,2  30,10  26,10  26,14  14,14  14,5
+# ================================================================== COOLING HALL (crimson key)
+sector cooling room cooling floor 0 ceil 10
+    pts 12,-12  14,-12  16,-12  18,-12  18,-8  18,-6  24,-6  24,6  12,6  12,4  11.375,4  11.375,2  11.375,-2  11.375,-4  12,-4
     ftex FLOOR_PLATE
     frule FLOOR_GRATE 3,1 1,0
     ctex CEILING_CABLES
     crule CEILING_LIGHT 3,3 1,1
-    walls BASE_PIPES BASE_HAZARD BASE_PLAIN / TURBINE_PANEL MID_VPIPES TURBINE_PANEL MID_POSTER_DANGER / TOP_CIRCUIT / HALL_WALL_TOP / top TOP_BEAM
-    lows PLATE_SIDE / TURBINE_PANEL / PLATE_SIDE / top BEAM
-    ups TOP_BEAM
+    walls BASE_PIPES BASE_HAZARD BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows HAZARD / PLATE_SIDE
+    ups TOP_BEAM / TOP_CIRCUIT / GALLERY_PIPES / GALLERY_PIPES
+    wall 9,13 DARK_METAL
+    wall 7 cell 0,1 TURBINE_PANEL
+    wall 7 cell 5,1 TURBINE_PANEL
+    wall 14 cell 1,1 MID_POSTER_DANGER
+    wall 0 BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    wall 2 BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
 
-sector turbine_lift room turbine floor 0 ceil 16 lift 0 8
-    pts 26,10  30,10  30,14  26,14
-    ftex FLOOR_HAZARD
-    walls BASE_HAZARD / TURBINE_PANEL / TOP_CIRCUIT / HALL_WALL_TOP / top TOP_BEAM
-    lows HAZARD
+# stairs up to the gantry along the south wall
+stairs cool_stairs room cooling 18,-12 24,-8 e 0 4 ceil 10 steps 20
+    ftex STAIR_TREAD
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
 
-sector catwalk room turbine floor 8 ceil 16
-    pts 14,14  26,14  30,14  30,18  14,18
+sector gantry room cooling floor 4 ceil 10
+    pts 24,-12  28,-12  28,6  24,6  24,-6  24,-8
     ftex FLOOR_GRATE
-    walls TURBINE_PANEL MID_VPIPES / TOP_CIRCUIT / HALL_WALL_TOP / top TOP_BEAM
-    lows PLATE_SIDE / TURBINE_PANEL / PLATE_SIDE / top BEAM
-
-# ================================================================== CORE HALL and REACTOR CORE (exit)
-sector core_hall room corehall floor 0 fslope 0 -4 ceil 4 cslope 0 0
-    pts 1,11  5,11  5,20  1,20
-    ftex FLOOR_HAZARD
     ctex CEILING_CABLES
-    walls HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    walls GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    wall 2 cell 0,0 TURBINE_PANEL
+    lows HAZARD / PLATE_SIDE
     ups TOP_BEAM
 
-sector reactor_ledge room reactor floor -4 ceil 10
-    pts -6,20  1,20  5,20  12,20  12,23  8,23  -2,23  -6,23
+# secret: a pipe panel in the south wall
+sector cool_secret room cooling floor 0 door 4 secret
+    pts 14,-12.25  16,-12.25  16,-12  14,-12
+    walls DARK_METAL
+    wall 0,2 BASE_PLAIN / GALLERY_PIPES
+
+sector cool_store room cooling floor 0 ceil 4
+    pts 12,-16  18,-16  18,-12.25  16,-12.25  14,-12.25  12,-12.25
+    ftex FLOOR_GRATE
+    ctex DARK_METAL
+    walls DARK_METAL / top BEAM
+
+# the crimson door: hall -> the generator corridor, through z 12..14 (the corridor is as wide
+# as the door, so its side has no alcove)
+sector crimson_door_ra room hall floor 0 ceil 4
+    pts -2,12.625  2,12.625  2,12.875  -2,12.875
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
+    walls DARK_METAL
+
+sector crimson_door room hall floor 0 door 4 lock crimson
+    pts -2,12.875  2,12.875  2,13.125  -2,13.125
+    ftex FLOOR_HAZARD
+    walls DARK_METAL
+    wall 0,2 BULKHEAD
+
+sector crimson_door_rb room corridor floor 0 ceil 4
+    pts -2,13.125  2,13.125  2,13.375  -2,13.375
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
+    walls DARK_METAL
+
+# ================================================================== GENERATOR CORRIDOR and GENERATOR (the end)
+sector corridor room corridor floor 0 ceil 6
+    pts -2,13.375  2,13.375  2,16  -2,16
     ftex FLOOR_HAZARD
     ctex CEILING_CABLES
-    walls REACTOR_PLATE BASE_HAZARD / REACTOR_PLATE REACTOR_WARNING REACTOR_PLATE MID_POSTER_DANGER / TOP_CIRCUIT / top TOP_BEAM
-    lows REACTOR_PLATE / HAZARD
+    walls HALL_WALL / HALL_WALL / top TOP_BEAM
     ups TOP_BEAM
-sector reactor_ramp_w room reactor floor -4 fslope 0 -8 ceil 10
-    pts -6,23  -2,23  -2,31  -6,31
+
+stairs gen_stairs room corridor -2,16 2,20 n 0 -2 ceil 6 steps 10
     ftex STAIR_TREAD
-    ctex CEILING_CABLES
-    walls REACTOR_PLATE BASE_HAZARD / REACTOR_PLATE REACTOR_WARNING / TOP_CIRCUIT / top TOP_BEAM
-    lows REACTOR_PLATE / HAZARD
-sector reactor_ramp_e room reactor floor -4 fslope 0 -8 ceil 10
-    pts 8,23  12,23  12,31  8,31
-    ftex STAIR_TREAD
-    ctex CEILING_CABLES
-    walls REACTOR_PLATE BASE_HAZARD / REACTOR_PLATE REACTOR_WARNING / TOP_CIRCUIT / top TOP_BEAM
-    lows REACTOR_PLATE / HAZARD
-sector reactor_pit room reactor floor -8 ceil 10
-    pts -2,23  8,23  8,31  -2,31
+    walls HALL_WALL / HALL_WALL / top TOP_BEAM
+    ups TOP_BEAM
+
+sector generator room generator floor -2 ceil 10
+    pts -4,20  -2,20  2,20  16,20  16,30  -4,30
     ftex FLOOR_REACTOR
+    frule FLOOR_HAZARD 99,1 0,10
     ctex CEILING_CABLES
     crule CEILING_LIGHT 2,2 0,0
-    walls REACTOR_PLATE BASE_HAZARD / REACTOR_PLATE REACTOR_WARNING REACTOR_PLATE / TOP_CIRCUIT / HALL_WALL_TOP / top TOP_BEAM
-    lows REACTOR_PLATE / HAZARD
+    walls REACTOR_PLATE BASE_HAZARD / REACTOR_PLATE / TOP_CIRCUIT / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows REACTOR_PLATE
+    ups TOP_BEAM / HALL_WALL_TOP / HALL_WALL / TOP_CIRCUIT
+    wall 5 cell 2,1 REACTOR_WARNING
+    wall 3 cell 2,1 REACTOR_WARNING
+    wall 4 cell 4,1 WALL_VITALS
+    wall 4 cell 5,1 WALL_GRAPH
 
 # ================================================================== LIGHTS
-# dock: cold blue-white ceiling lights, a red warning lamp by the lift
-lightgrid -8,-30 8,-18 6.4 4 0.8 0.88 1.0 7
-light -3.6,-26.4,5.5 1.3 0.15 0.1 4
-sprite -3.6,-26.4,5.6 0.26 255 40 30 5
-light 0,-17.5,3.8 0.9 0.3 0.15 3
-light -10.5,-21,2.2 0.5 0.35 0.6 3.5
-# checkpoint
-lightgrid -6,-17 3,-11 4 3 0.8 0.85 0.9 5.5
-light 4.5,-14.5,3.2 0.35 0.7 0.6 4
-light 0,-10.5,3.8 0.9 0.3 0.15 3
-# atrium: the tank's cyan, warm work lights high on the walls, a ring of lights over the floor
-light 0,-2,4 0.35 1.1 1.4 15
-light 0,-2,0.6 0.25 0.8 1.0 6
-lightgrid -10,-12 10,8 6 6.5 0.6 0.62 0.7 8
-light -7,-7,11 0.8 0.75 0.6 12
-light 7,-7,11 0.8 0.75 0.6 12
-light -7,6,11 0.7 0.7 0.75 12
-light 7,6,11 0.7 0.7 0.75 12
-light -10.5,2.5,3.6 0.2 0.8 1.0 3.5
-light 10.5,-3.5,3.6 1.0 0.6 0.1 3.5
-light 3,10.5,3.6 1.1 0.15 0.1 3.5
-light 10.5,3.5,3.6 1.1 0.15 0.1 3.5
-# processing: amber pod light
-lightgrid -28,-16 -16,-3 2 4 0.75 0.65 0.5 6.5
-light -13,-4.5,3.6 0.6 0.6 0.7 5
-light -30,-9,-1 0.5 0.35 0.7 3.5
-# containment: cold aisle (each cell adds its own red lamp)
-lightgrid -25,-2 -11,10 4.3 4.5 0.6 0.65 0.75 6.5
-# lab ramp and lab: clean white
-light -23,13,6 0.8 0.85 0.9 6.5
-light -22.5,17.5,6.8 0.8 0.85 0.9 5.5
-lightgrid -20,12 -2,19 7 4.5 0.85 0.9 0.95 6.5
-light -4,11,7 0.7 0.75 0.8 5
-# vault: blue
-lightgrid 11,-14 21,-2 4 4 0.45 0.6 1.0 6
-light 15.5,-16,2.3 0.5 0.35 0.6 3.5
-# gallery: green-tinged
-lightgrid 22,-14 26,2 5.5 4 0.6 0.8 0.65 6
-light 21.5,-12.5,3.5 0.6 0.7 0.6 3
-# turbine hall: tall work lights, green floor glow
-lightgrid 14,2 30,18 13 6 0.75 0.72 0.6 11
-light 18,9,0.3 0.2 0.9 0.7 4
-light 24,9,0.3 0.2 0.9 0.7 4
-light 22,16,10.5 0.6 0.6 0.55 8
-light 12.5,3.5,3.6 1.1 0.15 0.1 3
-# core hall and reactor
-light 3,12,3 1.0 0.5 0.25 5
-light 3,17,0 1.0 0.5 0.25 5
-light 3,27,-2 1.6 0.8 0.3 17
-light 3,27,6 0.9 0.55 0.3 11
-light -4,21.5,0 0.8 0.55 0.4 7
-light 10,21.5,0 0.8 0.55 0.4 7
+lightgrid -8,-30 8,-20 5.5 4 1.0 1.05 1.15 8
+light 6,-26.5,6 1.3 0.15 0.1 4
+sprite 6,-26.2,6.2 0.26 255 40 30 5
+light -10,-25,3 0.5 0.35 0.6 3.5
+light 0,-18.5,4.4 0.9 0.3 0.15 3
+lightgrid -6,-18 6,-10 4.5 4 0.8 0.85 0.9 5.5
+light 1,-8.5,4.4 0.9 0.3 0.15 3
+# the hall: the tank's cyan, work lights high on the walls, a ring of lights over the floor
+light 0,2,4 0.35 1.1 1.4 15
+light 0,2,0.6 0.25 0.8 1.0 6
+lightgrid -10,-8 10,12 7 5 0.8 0.82 0.9 10
+light -8,-6,9 0.8 0.75 0.6 12
+light 8,-6,9 0.8 0.75 0.6 12
+light -8,10,9 0.7 0.7 0.75 12
+light 8,10,9 0.7 0.7 0.75 12
+light -10.5,6,4.4 0.2 0.8 1.0 3.5
+light 10.5,0,4.4 1.0 0.6 0.1 3.5
+light 0,12.5,4.4 1.1 0.15 0.1 3.5
+lightgrid -28,-16 -16,0 0.5 4 0.9 0.78 0.6 7
+light -13,-2,3 0.6 0.6 0.7 5
+light -23,-18,-1 0.5 0.35 0.7 3.5
+lightgrid -24,2 -12,14 4.5 4 0.6 0.65 0.75 6.5
+light -22,16,6 0.9 0.6 0.2 4
+lightgrid -24,18 -6,24 7 4 0.85 0.9 0.95 6.5
+light -8,15,7 0.7 0.75 0.8 5
+lightgrid 12,-12 28,6 7 4 0.9 0.86 0.72 8.5
+light 16,4,0.3 0.2 0.9 0.7 4
+light 21,4,0.3 0.2 0.9 0.7 4
+light 26,0,8 0.6 0.6 0.55 7
+light 15,-14,2.5 0.5 0.35 0.6 3.5
+light 0,15,4.5 1.0 0.5 0.25 5
+light 0,19,3 0.8 0.5 0.3 5
+lightgrid -4,20 16,30 7 5 0.7 0.6 0.5 9
+light 6,25,0 1.6 0.8 0.3 17
+light 6,25,7 0.9 0.55 0.3 11
+light -2,22,4 0.8 0.55 0.4 7
+light 14,22,4 0.8 0.55 0.4 7
+light 14,28,4 0.8 0.55 0.4 7
+light -2,28,4 0.8 0.55 0.4 7
 
 # ================================================================== PROPS
-# dock
-prop crate 6,-27 0.7 0.7
-prop crate 6.8,-27.5 0.7 0.7
-prop crate 6.4,-26.8 0.7 1.4
-prop box 4.5,-29.5 7.5,-28 1 2.3 DARK_METAL CRATE cell 1.3
-prop crate -7,-19.2 0.8 0.8
-prop crate -6.2,-19.4 0.8 0.8
-prop crate 7,-19 0.7 0.7
-prop can 6.5,-21
-prop can 7.2,-21.2
-prop can -3.3,-25.4
-prop machine -3.5,-30 -1,-28.8 2.2 n
-
+# arrival bay
+prop crate -6.5,-28.5 0.8 0.8
+prop crate -5.6,-28.6 0.8 0.8
+prop crate -6.1,-28.4 0.8 1.6
+prop crate 6.6,-21.5 0.7 0.7
+prop crate -6.8,-21.4 0.8 0.8
+prop can 2.6,-29.2
+prop can 3.2,-29.4
+prop can -3.5,-21
+prop machine 6.8,-22 8,-20 2.2 w
 # checkpoint
-prop console 4.5,-15.6 n graph
-prop console -4,-16.5 n vitals
-prop box -6,-14 -5.3,-12 0 3.4 DARK_METAL HAZARD cell 0.9
-
-# atrium
-prop tank 0,-2
-prop console -4,-9.2 n graph
-prop console 4,-9.2 n vitals
-prop pillar -7,7 14
-prop pillar 7,7 14
-prop pillar -7,-7 14
-prop pillar 7,-7 14
-prop rail -6,10 -4.5,10 3
-
-# processing floor: extraction pods in two rows, machines down the middle
-prop pod -25,-13 e 3
-prop pod -25,-7 e 4
-prop pod -19,-13 w 3
-prop pod -19,-7 w 4
-prop machine -23,-11 -21,-9.5 2.6 n
-prop console -22,-4 s vitals
-
-# containment: barred cells along both long walls
-prop cell -23,-1.2 n
-prop cell -20.5,-1.2 n
-prop cell -18,-1.2 n
-prop cell -15.5,-1.2 n
-prop cell -18,9.2 s
-prop cell -15.5,9.2 s
-prop cell -13,9.2 s
-prop can -12,-1.4
-prop crate -24.3,9.3 0.7 0.7
-
-# research lab
-prop box -12.5,15 -10.5,16.4 3 3.8 DARK_METAL MACHINE_PANEL cell 0.8
-prop box -12.3,15.4 -11.4,15.9 3.8 3.95 SHINI_BODY SHINI_BODY cell 0.9
-prop console -17,18.6 s graph
-prop console -14.5,18.6 s vitals
-prop rack -3,17 w
-prop rack -3,15.5 w
-prop cyl -19,13,3.8 0.19 0.56 6 GLASS add anim 2 rep 1
-prop cyl -18.2,13,3.8 0.19 0.56 6 GLASS add anim 2 rep 1
-prop cyl -17.4,13,3.8 0.19 0.56 6 GLASS add anim 2 rep 1
-prop box -19.4,12.2 -17,13.6 3 3.8 DARK_METAL MACHINE_PANEL cell 0.8
-
-# vault: rack aisles
-prop box 12.6,-12.6 13.4,-10.1 0 2.6 DARK_METAL SERVER_RACK cell 0.8
-prop box 12.6,-6.9 13.4,-3.6 0 2.6 DARK_METAL SERVER_RACK cell 0.8
-prop box 15.6,-12.6 16.4,-10.1 0 2.6 DARK_METAL SERVER_RACK cell 0.8
-prop box 15.6,-6.9 16.4,-3.6 0 2.6 DARK_METAL SERVER_RACK cell 0.8
-prop box 18.6,-12.6 19.4,-10.1 0 2.6 DARK_METAL SERVER_RACK cell 0.8
-prop box 18.6,-6.9 19.4,-3.6 0 2.6 DARK_METAL SERVER_RACK cell 0.8
-
-# turbine hall: two turbines with spinning fans
-prop box 15.5,7 19.5,10.5 0 3.4 DARK_METAL MACHINE_BASE cell 1
-prop fan 17.5,10.51,1.7 1.1 1
-prop box 21.5,7 25.5,10.5 0 3.4 DARK_METAL MACHINE_BASE cell 1
-prop fan 23.5,10.51,1.7 1.1 -1
-prop rail 14,14 26,14 8
-prop console 29.4,6 w graph
-
-# reactor
-prop core 3,27
-prop rail -2,23 8,23 -4
-prop console -5,21.5 n graph
-prop console 11,21.5 n vitals
+prop console 4,-16.6 w graph
+prop console -4,-11 s vitals
+prop box -6,-12 -5.2,-10 0 3.4 DARK_METAL HAZARD cell 0.9
+prop box 4.4,-12 6,-11.2 0 1.1 DARK_METAL MACHINE_PANEL cell 0.9
+# the pump hall
+prop tank 0,2
+prop pillar -6,-4 12
+prop pillar 6,-4 12
+prop pillar -6,8 12
+prop pillar 6,8 12
+prop console -7,-7.2 n graph
+prop console 7,-7.2 n vitals
+prop rail -9,12 -6,12 4
+# the sump: extraction pods in two rows, a machine down the middle
+prop pod -25,-12 e 3
+prop pod -25,-6 e 4
+prop pod -19,-12 w 3
+prop pod -19,-6 w 4
+prop console -22,-1 s vitals
+prop can -17,-15
+prop can -17.6,-15.3
+# the cell block: barred cells along both long walls
+prop cell -22,2.8 n
+prop cell -19.5,2.8 n
+prop cell -17,2.8 n
+prop cell -17,13.2 s
+prop cell -14.5,13.2 s
+prop can -13,2.6
+prop crate -23.3,12.5 0.7 0.7
+# the office
+prop box -15,22.2 -13,23.6 4 4.8 DARK_METAL MACHINE_PANEL cell 0.8
+prop box -14.8,22.6 -13.9,23.1 4.8 4.95 SHINI_BODY SHINI_BODY cell 0.9
+prop console -20,23.4 s graph
+prop console -22.5,23.4 s vitals
+prop rack -6.6,22 w
+prop rack -6.6,20.5 w
+prop cyl -9.4,23,4.8 0.19 0.56 6 GLASS add anim 2 rep 1
+prop cyl -8.6,23,4.8 0.19 0.56 6 GLASS add anim 2 rep 1
+prop box -9.8,22.2 -8.2,23.6 4 4.8 DARK_METAL MACHINE_PANEL cell 0.8
+# the cooling hall: two turbines with spinning fans, a rail along the gantry
+prop box 14,2 18,5.5 0 3.4 DARK_METAL MACHINE_BASE cell 1
+prop fan 16,5.51,1.7 1.1 1
+prop box 19,2 23,5.5 0 3.4 DARK_METAL MACHINE_BASE cell 1
+prop fan 21,5.51,1.7 1.1 -1
+prop rail 24,-6 24,-2 4
+prop console 27.4,-4 w graph
+prop crate 13,-15 0.7 0.7
+# the generator
+prop core 6,25
+prop console -3.2,22 e graph
+prop console -3.2,28 e vitals
+prop console 15.2,22 w vitals
+prop console 15.2,28 w graph
 
 # ================================================================== THINGS
-thing start -6,-28 yaw 0
+thing start 6,-28 yaw 0
 
-thing trooper 2,-27 yaw 180
-thing trooper 6,-20 yaw 200
-thing trooper 4.5,-14.5 yaw 270
-thing trooper -4,-13 yaw 180
-thing trooper -22,-12 yaw 90
-thing trooper -25,-5 yaw 120
-thing trooper -19,-9 yaw 60
-thing trooper -17,4 yaw 90
-thing trooper -22,6 yaw 120
-thing trooper -14,0 yaw 60
-thing trooper -12,16 yaw 270
-thing trooper -16,14 yaw 250
-thing trooper 5,6 yaw 200
-thing trooper 14,-8 yaw 270
-thing trooper 18,-12 yaw 300
-thing trooper 24,-4 yaw 180
-thing trooper 18,12 yaw 180
-thing trooper 25,5 yaw 210
-thing trooper 20,16 yaw 90
-thing trooper -4,21.5 yaw 160
-thing trooper 10,21.5 yaw 200
-thing trooper 0,29 yaw 135
-thing trooper 6,29 yaw 225
+thing trooper -4,-24 yaw 90
+thing trooper 2,-22 yaw 180
+thing trooper -4,-12 yaw 180
+thing trooper 4,-14 yaw 270
+thing trooper -6,6 yaw 135
+thing trooper 4,-2 yaw 270
+thing trooper 6,10 yaw 200
+thing trooper -20,-6 yaw 90
+thing trooper -24,-12 yaw 45
+thing trooper -26,-4 yaw 120
+thing trooper -16,10 yaw 90
+thing trooper -20,6 yaw 120
+thing trooper -14,4 yaw 60
+thing trooper -12,22 yaw 270
+thing trooper -18,20 yaw 90
+thing trooper 16,0 yaw 270
+thing trooper 20,-2 yaw 200
+thing trooper 14,-8 yaw 0
+thing trooper 26,-8 yaw 0
+thing trooper 0,24 yaw 160
+thing trooper 12,23 yaw 200
+thing trooper 1,28 yaw 135
+thing trooper 12,28 yaw 225
 
-thing key cyan -22,-15
-thing key amber -11.5,17
-thing key crimson 15.5,16
-thing shard -26,-14
-thing shard 28,4
-thing shard 11,22
-thing shard -10.5,-21 secret
-thing shard 15.5,-16 secret
-thing shard -30,-9 secret
-thing exit 3,27                     # the core: walking up to it ends the level
+thing key cyan -22,-14
+thing key amber -20,22
+thing key crimson 26,4
+thing shard -8,16
+thing shard 27,-10
+thing shard 13,4
+thing shard -10.5,-25 secret
+thing shard -23,-18.5 secret
+thing shard 15,-14.5 secret
+thing exit 6,25                    # the generator: A beside it ends the level
 
-# route test: the whole level in key order (stairs, ramp, lifts, every door)
-thing way -6,-24
+# route test: the whole level in key order (stairs, lifts, every door; the first point is skipped)
+thing way 6,-28
+thing way 6,-24
+thing way 0,-22
 thing way 0,-19
 thing way 0,-14
-thing way 0,-8
-thing way -8,-4.5
-thing way -18,-5
-thing way -17,-10
-thing way -17,-15
-thing way -22,-15
-thing way -17,-15
-thing way -17,-10
-thing way -18,-5
-thing way -8,-4.5
-thing way -6,2.5
-thing way -12,2.5
-thing way -18,4
-thing way -23,8
-thing way -23,15
-thing way -22,17.5
-thing way -15,17
-thing way -11.5,17
-thing way -3,11
-thing way -3,8
-thing way 4,0
-thing way 8,-3.5
-thing way 14,-3.5
-thing way 14.5,-13
-thing way 23,-12.5
-thing way 24,0
-thing way 24,4
-thing way 28,8
-thing way 28,12
-thing way 28,16
-thing way 15.5,16
-thing way 28,16
-thing way 28,12
-thing way 28,8
+thing way 1,-11
+thing way 1,-9
+thing way 1,-6
+thing way -6,-2
+thing way -13,-2
+thing way -18,-2
+thing way -22,-4
+thing way -22,-14
+thing way -22,-4
+thing way -18,-2
+thing way -13,-2
+thing way -6,-2
+thing way -8,6
+thing way -11,6
+thing way -14,6
+thing way -18,10
+thing way -22,12
+thing way -22,16
+thing way -22,20
+thing way -20,22
+thing way -12,20
+thing way -9.3,20
+thing way -9.3,15
+thing way -9.3,13
+thing way -9.3,10
+thing way -6,2
+thing way 3,-4
+thing way 8,0
+thing way 11,0
+thing way 14,0
+thing way 15,-4
+thing way 15,-10
+thing way 21,-10
+thing way 26,-10
 thing way 26,4
-thing way 18,3.5
-thing way 12,3.5
-thing way 7,3.5
-thing way 3,8
-thing way 3,15
-thing way 3,21.5
-thing way 10,22
-thing way 10,30
-thing way 6,27
+thing way 25,0
+thing way 22,0
+thing way 16,0
+thing way 11,0
+thing way 6,4
+thing way 0,10
+thing way 0,13
+thing way 0,15
+thing way 0,18
+thing way 0,22
+thing way 2,24

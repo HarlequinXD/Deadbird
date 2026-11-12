@@ -42,6 +42,7 @@ typedef struct {
     u16 next;                         /* neighbour sector + 1, 0 = solid wall */
     u16 mid, low, up;                 /* wall specs (offsets into spec[]) */
     u8 flags;
+    u8 ou, ov;                        /* texture shift along / up the wall, 1/16 m (0..31) */
 } MapWall;
 typedef struct {
     u16 p0, np;                       /* points p0 .. p0+np-1; walls share the same indices */
@@ -51,6 +52,7 @@ typedef struct {
     u16 ftex, ctex;                   /* flat specs */
     u8 room, kind, lock, flags;       /* flags: SF_* */
     s16 ka, kb;                       /* door: open height above the floor; lift: low, high floor */
+    u8 fox, foz, cox, coz;            /* floor / ceiling texture shift in x, z, 1/16 m (0..31) */
 } MapSector;
 #ifndef SF_SECRET
 #define SF_SECRET 1                   /* a door that looks like wall: opened by the interact button */

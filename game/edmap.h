@@ -30,7 +30,7 @@
 
 /* a ROWS spec: tile rows bottom-up (each row's tiles repeat along the wall), top = 255 for none */
 typedef struct { u8 nrows, top, n[EM_NROWS], t[EM_NROWS][EM_ROWLEN]; } EmRows;
-typedef struct { s16 mid, low, up; u8 flags; } EmWall;                 /* row spec indices, -1 = default */
+typedef struct { s16 mid, low, up; u8 flags, ou, ov; } EmWall;         /* row spec indices, -1 = default; ou, ov: texture shift (1/16 m) */
 typedef struct { u8 tile, sx, sz, ox, oz; } EmRule;
 typedef struct { u8 def, nrules; EmRule r[EM_RULES]; } EmFlat;
 enum { EM_MID, EM_LOW, EM_UP };
@@ -40,6 +40,7 @@ typedef struct {
     char name[16];
     u8 room, kind, lock, np;
     u8 flags;                         /* SF_SECRET: a secret door */
+    u8 fox, foz, cox, coz;            /* floor / ceiling texture shift, 1/16 m (0..31) */
     s16 x[EM_SV], z[EM_SV];
     EmWall w[EM_SV];
     s16 floor, ceil, ka, kb;          /* door: ka = open height; lift: ka, kb = low, high floor */

@@ -55,6 +55,7 @@ static s32 exit_x, exit_z; static int has_exit;
 static Player pl;
 static int gs, gs_t, frame_count, shake, rumble;
 static s32 cam_yaw, cam_dist, cam_h, cam_side, cam_clip = 2900;
+static s32 cam_fy; static int cam_fy_ok;          /* the height the camera follows: her height, smoothed (stairs don't jolt it) */
 static u32 prev_pad, cur_pad;
 static int stick_on, stick_ox, stick_oy, stick_x, stick_y;   /* floating touch stick (screen px) */
 static int an_lx, an_ly, an_rx, an_ry;                       /* gamepad sticks, -4096..4096 */
@@ -63,6 +64,7 @@ static int custom_map;                    /* the level built is the editor's, no
 #define STICK_R 38
 static int debug_side_cam;
 static int touch_ui;
+static int can_use;                             /* something in reach answers A (the touch USE button shows) */
 static int pause_sel, pause_tap = -1;          /* the pause menu: 0 resume, 1 quit / back to the editor */
 
 /* ------------------------------------------------------------------ touch layout */
@@ -99,6 +101,7 @@ static u32 touch_hit(int x, int y)
     for (i = 0; i < touch_button_count; i++) {
         const TouchButton *b = &touch_buttons[i];
         int dx = x - b->x, dy = y - b->y;
+        if (b->button == BTN_USE && !can_use) continue;           /* hidden: nothing to use */
         if (dx * dx + dy * dy <= (b->r + 7) * (b->r + 7)) bits |= b->button;
     }
     return bits;
@@ -179,7 +182,7 @@ static void start_play(void)
     combat_reset();
     attack_end(&saw_attack);
     level_spawn(&sx, &sz, &syaw);
-    player_reset(&pl, sx, sz, syaw);
+    player_reset(&pl, sx, sz, syaw); cam_fy_ok = 0;
     memset(&player_tgt, 0, sizeof(player_tgt));
     player_tgt.radius = 210; player_tgt.height = 1800; player_tgt.hp = player_tgt.max_hp = 100;
     player_tgt.team = TEAM_PLAYER; player_tgt.on_hit = player_hit;
@@ -217,7 +220,7 @@ static void go_title(void)
     level_init();
     fx_reset();
     level_spawn(&sx, &sz, &syaw);
-    player_reset(&pl, sx - 600, sz + 600, syaw + 300);
+    player_reset(&pl, sx - 600, sz + 600, syaw + 300); cam_fy_ok = 0;
     cam_yaw = syaw + 300;
     cam_clip = 2900;
     gs = GS_TITLE; gs_t = 0;
@@ -478,6 +481,14 @@ static void cine_start(int ei)
     snd_play(SFX_SWING, 4096, 0, 3000);
 }
 
+/* she's at the generator (the level's exit), on its floor, alive: A there starts the ending */
+static int near_generator(void)
+{
+    return has_exit && pl.grounded && php > 0 && iabs(pl.x - exit_x) < 4300 && iabs(pl.z - exit_z) < 4300 &&
+           iabs(pl.y - level_ground(exit_x, exit_z, pl.y)) < 600 &&
+           (pl.x - exit_x) * (pl.x - exit_x) / 16 + (pl.z - exit_z) * (pl.z - exit_z) / 16 < 4300 * 4300 / 16;
+}
+
 /* the ending: she walks up to the reactor's core and puts the saw through it */
 static void core_start(void)
 {
@@ -658,7 +669,7 @@ static void simulate(u32 pad)
             if (pad & ~pl.prev & BTN_ATTACK) { myaw = pl.lock_yaw; mmag = 4096; }
         } else pl.lock_dist = 0;
     }
-    if (use_press && !(fatal_ready >= 0 && pl.grounded)) {   /* A: the door / lift / secret door in reach */
+    if (use_press && !(fatal_ready >= 0 && pl.grounded) && !near_generator()) {   /* A: the door / lift / secret door in reach */
         int u = level_use(pl.x, pl.y, pl.z, keys);
         if (u == LU_SECRET) show_msg("A SECRET DOOR", 0);
     }
@@ -720,9 +731,8 @@ static void simulate(u32 pad)
     saw_combat();
     fatal_ready = php > 0 ? enemy_fatality_target(&pl) : -1;
     if (fatal_ready >= 0 && use_press && pl.grounded) cine_start(fatal_ready);
-    else if (has_exit && pl.grounded && php > 0 && iabs(pl.x - exit_x) < 4300 && iabs(pl.z - exit_z) < 4300 &&
-             iabs(pl.y - level_ground(exit_x, exit_z, pl.y)) < 600 &&
-             (pl.x - exit_x) * (pl.x - exit_x) / 16 + (pl.z - exit_z) * (pl.z - exit_z) / 16 < 4300 * 4300 / 16) core_start();
+    else if (use_press && near_generator()) core_start();          /* A at the generator: the ending */
+    can_use = !cine.active && php > 0 && (fatal_ready >= 0 || near_generator() || level_can_use(pl.x, pl.y, pl.z) != LU_NONE);
     play_frames++;
     if (hurt_flash > 0) hurt_flash--;
     level_update();
@@ -830,6 +840,7 @@ static void draw_touch(FrameBuf *fb)
         const TouchButton *b = &touch_buttons[i];
         if (b->button == BTN_USE) {                                  /* USE, or the FATALITY sigil, pulsing */
             int g;
+            if (!can_use) continue;                                  /* only near something to use */
             if (fatal_ready < 0) {
                 ui_button(fb, b->x, b->y, 15, UI_ICON_NONE, (cur_pad & b->button) != 0, frame_count);
                 text_center(fb, "USE", b->x + 1, b->y - 3, 1, 230, 0);
@@ -936,7 +947,12 @@ static void draw_world(FrameBuf *fb, PROJ *pr)
     mat_rot_x(&rx, 150); mat_rot_y(&ry, -cam_yaw - (debug_side_cam ? 1024 : 0)); mat_mul(&rx, &ry, &view);
     /* look-at point: chest height */
     rxv = (icos(cam_yaw) * cam_side) >> 12; rzv = (-isin(cam_yaw) * cam_side) >> 12;
-    tgt.vx = (s16)(-(pl.x + rxv) + sx); tgt.vy = (s16)(-(pl.y - cam_h + 300) + sy); tgt.vz = (s16)(-(pl.z + rzv));
+    {
+        s32 want = pl.y + pl.step_off, d = want - cam_fy;
+        if (!cam_fy_ok || d > 3000 || d < -3000) { cam_fy = want; cam_fy_ok = 1; }
+        else cam_fy += pl.grounded ? d / 6 : d / 3;     /* steps glide; a jump is followed closely */
+    }
+    tgt.vx = (s16)(-(pl.x + rxv) + sx); tgt.vy = (s16)(-(cam_fy - cam_h + 300) + sy); tgt.vz = (s16)(-(pl.z + rzv));
     view.t[0] = view.t[1] = view.t[2] = 0;
     mat_apply(&view, &tgt, &tv);
     {
@@ -946,8 +962,8 @@ static void draw_world(FrameBuf *fb, PROJ *pr)
         int f;
         off.vx = 0; off.vy = 300; off.vz = cam_dist;
         mat_rot_tapply(&view, &off, &back);
-        campos.vx = (pl.x + rxv) - back.vx; campos.vy = (pl.y - cam_h + 300) - back.vy; campos.vz = (pl.z + rzv) - back.vz;
-        head.vx = pl.x; head.vy = pl.y - 1500; head.vz = pl.z;
+        campos.vx = (pl.x + rxv) - back.vx; campos.vy = (cam_fy - cam_h + 300) - back.vy; campos.vz = (pl.z + rzv) - back.vz;
+        head.vx = pl.x; head.vy = cam_fy - 1500; head.vz = pl.z;
         f = level_clip_segment(&head, &campos, 160);
         d = cam_dist * f / 4096 - 120;
         if (d < 450) d = 450;
@@ -1170,6 +1186,11 @@ static void app_draw(FrameBuf *fb)
         if (fatal_ready >= 0 && !dead_t && gs == GS_PLAY) {             /* the prompt */
             static const char *how[3] = { "PRESS CROSS", "PRESS A    KEY E", "TAP THE SIGIL" };
             text_hell(fb, "FATALITY", SCREEN_W / 2, 44, 2, frame_count, 1);
+            text_center(fb, how[touch_ui ? 2 : pad_style], SCREEN_W / 2, 68, 1, 150 + (isin(frame_count * 160) * 100 >> 12), 1);
+        }
+        else if (!dead_t && gs == GS_PLAY && !cine.active && near_generator()) {      /* at the generator */
+            static const char *how[3] = { "PRESS CROSS TO DESTROY IT", "PRESS A TO DESTROY IT   KEY E", "TAP USE TO DESTROY IT" };
+            text_hell(fb, "THE GENERATOR", SCREEN_W / 2, 44, 2, frame_count, 1);
             text_center(fb, how[touch_ui ? 2 : pad_style], SCREEN_W / 2, 68, 1, 150 + (isin(frame_count * 160) * 100 >> 12), 1);
         }
         if (gs == GS_PAUSE) {

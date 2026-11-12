@@ -89,6 +89,7 @@ void level_think(s32 px, s32 py, s32 pz, u32 keys);
 void level_set_use_mode(int on);          /* doors and lifts wait for level_use (else they work by themselves) */
 enum { LU_NONE, LU_DOOR, LU_SECRET, LU_LOCKED, LU_LIFT };
 int  level_use(s32 px, s32 py, s32 pz, u32 keys);    /* the interact button: opens / calls / starts (LU_*) */
+int  level_can_use(s32 px, s32 py, s32 pz);          /* what A would do here (no effect; secret doors: LU_NONE) */
 /* a pickup she's touching (taken once): returns its LabThing type or -1, its arg in *arg */
 int  level_pickup(s32 px, s32 py, s32 pz, int *arg);
 int  level_thing_count(void);
