@@ -169,7 +169,7 @@ void ui_button(FrameBuf *fb, int cx, int cy, int r, int icon, int lit, int t)
     }
     if (lit) ui_sprite(fb, cx - s / 2, cy - s / 2 - 2, s, s, 0, 64, 48, 48, 255, 150, 90, 0, 0, 1);      /* burning */
     else ui_sprite(fb, cx - s / 2, cy - s / 2 - 2, s, s, 0, 64, 48, 48, b, b, b, 0, 0, 1);
-    ui_sprite(fb, cx - is / 2, cy - is / 2, is, is, iu[icon], iv[icon], 32, 32, lit ? 128 : 100, lit ? 128 : 92, lit ? 128 : 88, 0, 0, 0);
+    if (icon >= 0 && icon < 6) ui_sprite(fb, cx - is / 2, cy - is / 2, is, is, iu[icon], iv[icon], 32, 32, lit ? 128 : 100, lit ? 128 : 92, lit ? 128 : 88, 0, 0, 0);
 }
 
 void ui_stick(FrameBuf *fb, int ox, int oy, int kx, int ky, int radius, int active, int t)

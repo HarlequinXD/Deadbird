@@ -73,7 +73,7 @@ static TouchButton touch_buttons[] = {                        /* placed by touch
     { 0, 0, 25, BTN_ATTACK },
     { 0, 0, 17, BTN_JUMP },
     { 0, 0, 12, PAD_START },
-    { 0, 0, 26, PAD_TRIANGLE | PAD_SQUARE },               /* FATALITY: only while one is possible */
+    { 0, 0, 22, BTN_USE },                                 /* USE: doors, lifts; the FATALITY sigil while one is possible */
     { 0, 0, 15, BTN_DODGE },                               /* dodge roll */
 };
 static const int touch_button_count = (int)(sizeof(touch_buttons) / sizeof(touch_buttons[0]));
@@ -99,7 +99,6 @@ static u32 touch_hit(int x, int y)
     for (i = 0; i < touch_button_count; i++) {
         const TouchButton *b = &touch_buttons[i];
         int dx = x - b->x, dy = y - b->y;
-        if (b->button == (PAD_TRIANGLE | PAD_SQUARE) && fatal_ready < 0) continue;
         if (dx * dx + dy * dy <= (b->r + 7) * (b->r + 7)) bits |= b->button;
     }
     return bits;
@@ -261,6 +260,7 @@ static void app_init(void)
         saw_chain[b].bones = (const DBONE *)&saw_bones[1 + b];
     }
     player_init(&demon);
+    level_set_use_mode(1);                         /* doors and lifts answer the interact button (A) */
     hud_init();
     ui_init();
 #ifndef GEN_BAKED
@@ -606,7 +606,9 @@ static void cine_step(void)
 static void simulate(u32 pad)
 {
     int myaw, mmag;
+    u32 use_press;
     if (dead_t) { pad = 0; if (++dead_t > 150) { start_play(); return; } }
+    use_press = pad & ~pl.prev & BTN_USE;              /* A, just pressed */
     camera_update(pad);
     read_move(pad, &myaw, &mmag);
     {   /* auto-targeting: the nearest trooper within reach, roughly where she's facing or the stick
@@ -655,6 +657,10 @@ static void simulate(u32 pad)
             pl.lock_x = le->x; pl.lock_z = le->z;
             if (pad & ~pl.prev & BTN_ATTACK) { myaw = pl.lock_yaw; mmag = 4096; }
         } else pl.lock_dist = 0;
+    }
+    if (use_press && !(fatal_ready >= 0 && pl.grounded)) {   /* A: the door / lift / secret door in reach */
+        int u = level_use(pl.x, pl.y, pl.z, keys);
+        if (u == LU_SECRET) show_msg("A SECRET DOOR", 0);
     }
     level_think(pl.x, pl.y, pl.z, keys);               /* doors and lifts move first: she rides them */
     player_update(&pl, pad, myaw, mmag);
@@ -713,7 +719,7 @@ static void simulate(u32 pad)
     enemy_update(&pl, 0);
     saw_combat();
     fatal_ready = php > 0 ? enemy_fatality_target(&pl) : -1;
-    if (fatal_ready >= 0 && (pad & PAD_TRIANGLE) && (pad & PAD_SQUARE) && pl.grounded) cine_start(fatal_ready);
+    if (fatal_ready >= 0 && use_press && pl.grounded) cine_start(fatal_ready);
     else if (has_exit && pl.grounded && php > 0 && iabs(pl.x - exit_x) < 4300 && iabs(pl.z - exit_z) < 4300 &&
              iabs(pl.y - level_ground(exit_x, exit_z, pl.y)) < 600 &&
              (pl.x - exit_x) * (pl.x - exit_x) / 16 + (pl.z - exit_z) * (pl.z - exit_z) / 16 < 4300 * 4300 / 16) core_start();
@@ -822,9 +828,13 @@ static void draw_touch(FrameBuf *fb)
     }
     for (i = 0; i < touch_button_count; i++) {
         const TouchButton *b = &touch_buttons[i];
-        if (b->button == (PAD_TRIANGLE | PAD_SQUARE)) {              /* FATALITY sigil, pulsing */
+        if (b->button == BTN_USE) {                                  /* USE, or the FATALITY sigil, pulsing */
             int g;
-            if (fatal_ready < 0) continue;
+            if (fatal_ready < 0) {
+                ui_button(fb, b->x, b->y, 15, UI_ICON_NONE, (cur_pad & b->button) != 0, frame_count);
+                text_center(fb, "USE", b->x + 1, b->y - 3, 1, 230, 0);
+                continue;
+            }
             g = 110 + (isin(frame_count * 140) * 70 >> 12);
             ui_sprite_rot(fb, b->x, b->y, b->r * 3, 64, 144, 64, 64, frame_count * 20, g, g / 5, g / 8, 1, 1);
             ui_sprite(fb, b->x - b->r * 2, b->y - b->r * 2, b->r * 4, b->r * 4, 32, 144, 32, 32, g, g / 3, g / 5, 1, 0, 2);
@@ -1050,7 +1060,8 @@ static void draw_controls(FrameBuf *fb)
         { "LEFT THUMB",   "STICK - PUSH FAR TO RUN" },
         { "CHAINSAW",     "ATTACK, TAP AGAIN: COMBO" },
         { "WINGS",        "JUMP" },
-        { "",             "SLASH, BACKHAND, SLAM" },
+        { "SPRINT",       "DODGE ROLL" },
+        { "USE",          "DOORS, LIFTS, FATALITY" },
         { "RIGHT THUMB",  "DRAG TO TURN THE CAMERA" },
         { "",             "CAMERA FOLLOWS YOU" },
         { "BONES",        "PAUSE" },
@@ -1058,10 +1069,12 @@ static void draw_controls(FrameBuf *fb)
     static const char *pad_lines[][2] = {               /* Xbox controller / keyboard (PC) */
         { "LEFT STICK",   "MOVE - PUSH FAR TO RUN" },
         { "X",            "CHAINSAW, AGAIN: COMBO" },
-        { "A",            "JUMP" },
+        { "Y",            "JUMP" },
+        { "B",            "DODGE ROLL" },
+        { "A",            "DOORS, LIFTS, FATALITY" },
         { "RIGHT STICK",  "TURN THE CAMERA" },
         { "LB  RB",       "SWING THE CAMERA" },
-        { "KEYS",         "WASD SPACE F SHIFT Q E" },
+        { "KEYS",         "WASD F SPACE C E  Q R" },
         { "START",        "PAUSE" },
     };
     const char *(*L)[2] = touch_ui ? lines : pad_lines;
@@ -1072,9 +1085,9 @@ static void draw_controls(FrameBuf *fb)
         quad_g(fb, ox + 16, 32, ox + 304, 216, RGB(160, 40, 20), RGB(60, 8, 4), NO_SEMI, 9);
     }
     text_hell(fb, "CONTROLS", SCREEN_W / 2, 42, 2, frame_count, 6);
-    for (i = 0; i < 7; i++) {
-        text(fb, L[i][0], ox + 28, 74 + i * 18, 1, 230, 6);
-        text(fb, L[i][1], ox + 128, 74 + i * 18, 1, 140, 6);
+    for (i = 0; i < 9; i++) {
+        text(fb, L[i][0], ox + 28, 70 + i * 14, 1, 230, 6);
+        text(fb, L[i][1], ox + 128, 70 + i * 14, 1, 140, 6);
     }
     if ((frame_count >> 4) & 1) text_center(fb, touch_ui ? "TAP TO GO BACK" : "PRESS ANY BUTTON", SCREEN_W / 2, 200, 1, 160, 6);
 }
@@ -1155,7 +1168,7 @@ static void app_draw(FrameBuf *fb)
             text_hell(fb, "YOU DIED", SCREEN_W / 2, 100, 3, frame_count, 1);
         }
         if (fatal_ready >= 0 && !dead_t && gs == GS_PLAY) {             /* the prompt */
-            static const char *how[3] = { "TRIANGLE + SQUARE", "Y + X    KEYS R + F", "TAP THE SIGIL" };
+            static const char *how[3] = { "PRESS CROSS", "PRESS A    KEY E", "TAP THE SIGIL" };
             text_hell(fb, "FATALITY", SCREEN_W / 2, 44, 2, frame_count, 1);
             text_center(fb, how[touch_ui ? 2 : pad_style], SCREEN_W / 2, 68, 1, 150 + (isin(frame_count * 160) * 100 >> 12), 1);
         }
@@ -1184,11 +1197,11 @@ PSX_STATIC_ASSERT(ram_budget, sizeof(pl) < RAM_BUDGET);
 static const KeyBind KEYS[] = {          /* Windows: playing */
     { 'W', 0, 0, PAD_UP }, { KEY_UP, 0, 0, PAD_UP }, { 'S', 0, 0, PAD_DOWN }, { KEY_DOWN, 0, 0, PAD_DOWN },
     { 'A', 0, 0, PAD_LEFT }, { KEY_LEFT, 0, 0, PAD_LEFT }, { 'D', 0, 0, PAD_RIGHT }, { KEY_RIGHT, 0, 0, PAD_RIGHT },
-    { ' ', 0, 0, PAD_CROSS }, { KEY_SHIFT, 0, 0, PAD_R2 },              /* jump, sprint */
+    { ' ', 0, 0, PAD_TRIANGLE }, { KEY_SHIFT, 0, 0, PAD_R2 },           /* jump, sprint */
+    { 'E', 0, 0, PAD_CROSS },                                              /* interact */
     { 'C', 0, 0, PAD_CIRCLE },                                             /* dodge roll */
     { 'F', 0, 0, PAD_SQUARE }, { 'J', 0, 0, PAD_SQUARE }, { KEY_CTRL, 0, 0, PAD_SQUARE }, { KEY_MOUSE_L, 0, 0, PAD_SQUARE },   /* chainsaw */
-    { 'R', 0, 0, PAD_TRIANGLE },                                           /* R + F = fatality */
-    { 'Q', 0, 0, PAD_L1 }, { 'E', 0, 0, PAD_R1 },
+    { 'Q', 0, 0, PAD_L1 }, { 'R', 0, 0, PAD_R1 },                          /* swing the camera */
     { KEY_ENTER, 0, 0, PAD_START }, { KEY_ESC, 0, 0, PAD_START }, { KEY_BACKSPACE, 0, 0, PAD_SELECT },
     { 0, 0, 0, 0 }
 };

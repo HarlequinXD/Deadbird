@@ -19,7 +19,8 @@
 #define DEMON_MESH_NO_DATA
 #include "demon_mesh.h"
 
-#define BTN_JUMP  PAD_CROSS
+#define BTN_JUMP  PAD_TRIANGLE              /* Y */
+#define BTN_USE   PAD_CROSS                 /* A: interact - doors, lifts, secret doors, the fatality */
 #define BTN_DODGE  PAD_CIRCLE                /* dodge roll (keep holding to sprint out of it) */
 #define PIVOT_FRAMES 14
 #define BTN_SPRINT PAD_R2                    /* hold to sprint; a long full-stick run turns into one anyway */

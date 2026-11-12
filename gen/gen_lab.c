@@ -955,7 +955,7 @@ static void build_mover(int si)
     float hi = s->kind == SK_DOOR ? s->floor + s->ka : s->ka;
     if (s->kind == SK_LIFT) lo = s->ka - (s->kb - s->ka) - 256;       /* a skirt as deep as the travel */
     CURDYN = si + 1;
-    CURPAL = s->kind == SK_DOOR && s->lock ? 1 + PAL_DOOR(s->lock) : 0;
+    CURPAL = s->kind == SK_DOOR && s->lock && !(s->flags & SF_SECRET) ? 1 + PAL_DOOR(s->lock) : 0;
     for (int i = 0; i < s->np; i++) {
         const MapWall *w = &MAP->walls[s->p0 + i];
         if (!w->next) continue;                                        /* the jambs hide the slab's edges */
@@ -1092,7 +1092,7 @@ static void gen_map_geometry(void)
             if (s->kind == SK_LIFT && !c) q->h = s->ka;                /* + how far it has risen */
             if (P.k != 0) { q->h = (s16)iround(P.h); q->ax = (s16)P.ax; q->az = (s16)P.az; q->kx = (s16)iround(P.k * P.nx * 4096); q->kz = (s16)iround(P.k * P.nz * 4096); }
         }
-        o->w0 = s->p0; o->nw = s->np; o->room = s->room; o->kind = s->kind; o->lock = s->lock; o->ka = s->ka; o->kb = s->kb; o->k0 = s->floor;
+        o->w0 = s->p0; o->nw = s->np; o->room = s->room; o->kind = s->kind; o->lock = s->lock; o->flags = s->flags; o->ka = s->ka; o->kb = s->kb; o->k0 = s->floor;
         for (int i = 0; i < s->np; i++) {
             const MapPt *pa = &MAP->pts[s->p0 + i], *pb = &MAP->pts[s->p0 + (i + 1) % s->np];
             LabWall *w = &lab.walls[s->p0 + i];

@@ -150,9 +150,9 @@ int main(int argc, char **argv)
     fprintf(out, "static const LabSec lse[%d] = {", lab.nsecs);
     for (int i = 0; i < lab.nsecs; i++) {
         const LabSec *q = &lab.secs[i];
-        fprintf(out, "\n{%d,%d,%d,%d,{%d,%d,%d,%d,%d},{%d,%d,%d,%d,%d},%d,%d,%d,%d,%d,0,%d,%d,%d},", q->x0, q->z0, q->x1, q->z1,
+        fprintf(out, "\n{%d,%d,%d,%d,{%d,%d,%d,%d,%d},{%d,%d,%d,%d,%d},%d,%d,%d,%d,%d,%d,%d,%d,%d},", q->x0, q->z0, q->x1, q->z1,
                 q->f.h, q->f.ax, q->f.az, q->f.kx, q->f.kz, q->c.h, q->c.ax, q->c.az, q->c.kx, q->c.kz,
-                q->w0, q->nw, q->room, q->kind, q->lock, q->ka, q->kb, q->k0);
+                q->w0, q->nw, q->room, q->kind, q->lock, q->flags, q->ka, q->kb, q->k0);
     }
     fprintf(out, "\n};\nstatic const LabWall lwa[%d] = {", lab.nwalls);
     for (int i = 0; i < lab.nwalls; i++) {

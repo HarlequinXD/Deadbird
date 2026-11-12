@@ -13,7 +13,7 @@ deadbird_headless: $(SRC) $(wildcard $(ROOT)/engine/*.h) $(wildcard $(ROOT)/game
 	$(CC) $(CFLAGS) $(INC) $(SRC) -o $@
 
 clean:
-	rm -f deadbird_headless gaittest stresstest vistest labview rolltest combattest edtest edittest *.bmp
+	rm -f deadbird_headless gaittest stresstest vistest labview rolltest combattest edtest edittest usetest *.bmp
 
 
 # side-on walk/run contact sheet driven by the real locomotion code
@@ -81,3 +81,8 @@ STUDIO_SRC := studiotest.c $(FILES) $(wildcard $(ROOT)/engine/*.c) $(FW) $(wildc
               $(wildcard $(ROOT)/studio/*.c) $(ROOT)/examples/fps/sector_world.c $(ROOT)/game/edmap.c $(WORLD)
 studiotest: $(STUDIO_SRC) $(wildcard $(ROOT)/engine/studio/*.h) $(wildcard $(ROOT)/studio/*.h)
 	$(CC) $(CFLAGS) -I$(ROOT)/engine -I$(ROOT)/engine/fw -I$(ROOT)/engine/studio -I$(ROOT)/studio -I$(ROOT)/examples/fps $(INC) $(STUDIO_SRC) -o $@ -lm
+
+# the interact button: doors and lifts wait for it, a lift carries her once it's going
+USE_SRC := usetest.c $(ENG) $(ROOT)/game/level.c $(GEN)
+usetest: $(USE_SRC) $(wildcard $(ROOT)/game/*.h)
+	$(CC) $(CFLAGS) $(INC) $(USE_SRC) -o $@

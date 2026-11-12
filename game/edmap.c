@@ -314,7 +314,7 @@ int em_add_sector(EmMap *m, const s32 *x, const s32 *z, int n, int like)
         *s = m->secs[like];
         for (i = 0; i < EM_SV; i++) { s->w[i].mid = s->w[i].low = s->w[i].up = -1; s->w[i].flags = 0; }
         s->fslope = s->cslope = -1;
-        if (s->kind != SK_ROOM) { s->kind = SK_ROOM; s->lock = 0; s->ceil = (s16)(s->floor + 4096); }
+        if (s->kind != SK_ROOM) { s->kind = SK_ROOM; s->lock = 0; s->flags = 0; s->ceil = (s16)(s->floor + 4096); }
     } else {
         sector_defaults(s);
         s->ceil = 4096;
@@ -693,6 +693,7 @@ int em_parse(EmMap *m, const char *text)
                         if (c == 4) { err(line, "lock is cyan|amber|crimson", tok[i + 1]); return 0; }
                         s->lock = (u8)c; i += 2;
                     }
+                    else if (seq(a0, "secret")) { s->flags |= SF_SECRET; i += 1; }
                     else if (seq(a0, "lift") && i + 2 < ntok) {
                         if (!mtr(tok[i + 1], &a) || !mtr(tok[i + 2], &b)) { err(line, "bad lift", 0); return 0; }
                         s->kind = SK_LIFT; s->ka = (s16)a; s->kb = (s16)b; i += 3;
@@ -946,7 +947,7 @@ int em_write(const EmMap *m, char *out, int cap)
         if (s->kind != SK_DOOR) { o_s(&o, " ceil "); o_m(&o, s->ceil); }
         if (s->fslope >= 0) { o_s(&o, " fslope "); o_i(&o, s->fslope); o_c(&o, ' '); o_m(&o, s->fslope_h); }
         if (s->cslope >= 0) { o_s(&o, " cslope "); o_i(&o, s->cslope); o_c(&o, ' '); o_m(&o, s->cslope_h); }
-        if (s->kind == SK_DOOR) { o_s(&o, " door "); o_m(&o, s->ka); if (s->lock) { o_s(&o, " lock "); o_s(&o, KEYN[s->lock & 3]); } }
+        if (s->kind == SK_DOOR) { o_s(&o, " door "); o_m(&o, s->ka); if (s->lock) { o_s(&o, " lock "); o_s(&o, KEYN[s->lock & 3]); } if (s->flags & SF_SECRET) o_s(&o, " secret"); }
         if (s->kind == SK_LIFT) { o_s(&o, " lift "); o_m(&o, s->ka); o_c(&o, ' '); o_m(&o, s->kb); }
         o_s(&o, "\n    pts");
         for (j = 0; j < s->np; j++) { o_c(&o, ' '); o_pt(&o, s->x[j], s->z[j]); }
@@ -1781,7 +1782,7 @@ const MapDef *em_compile(const EmMap *m, int strict)
         o->fslope = s->fslope; o->cslope = s->cslope;
         o->fslope_h = s->fslope >= 0 ? s->fslope_h : 0; o->cslope_h = s->cslope >= 0 ? s->cslope_h : 0;
         o->ftex = (u16)spec_flat(&s->f, m, si, 0); o->ctex = (u16)spec_flat(&s->c, m, si, 1);
-        o->room = s->room; o->kind = s->kind; o->lock = s->lock; o->pad = 0; o->ka = s->ka; o->kb = s->kb;
+        o->room = s->room; o->kind = s->kind; o->lock = s->lock; o->flags = (u8)(s->kind == SK_DOOR ? s->flags & SF_SECRET : 0); o->ka = s->ka; o->kb = s->kb;
     }
     if (c_nspec >= 0xffff) { err0("map too big: tile specs"); return 0; }
     /* props: lights, halos, then the prop lines (compile_props) */

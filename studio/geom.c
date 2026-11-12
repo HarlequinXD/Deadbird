@@ -656,6 +656,9 @@ static void inspector(float x, float y, float w, float h)
                 else { if (s->ceil <= s->floor) s->ceil = (s16)(s->floor + (s->ka > 0 ? s->ka : 4096)); s->lock = 0; s->ka = s->kb = 0; }
                 edited();
             }
+        if (s->kind == SK_DOOR && sui_button("secret", x + w - 106, cy + 114, 96, 24, "SECRET", (s->flags & SF_SECRET) ? BTN_CHIP_ON : BTN_CHIP)) {
+            push_undo(); s->flags ^= SF_SECRET; edited();
+        }
         if (s->kind == SK_DOOR) {
             sui_text(FONT_REGULAR, 11, x + 12, cy + 186, "NEEDS", C_MUTED);
             for (i = 0; i < 4; i++) if (sui_button((const char *)&KEYN[i] + 1, x + 56 + i * 58, cy + 178, 56, 28, KEYN[i], s->lock == i ? BTN_CHIP_ON : BTN_CHIP)) { push_undo(); s->lock = (u8)i; edited(); }

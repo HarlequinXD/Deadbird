@@ -14,7 +14,7 @@ void ui_sprite_rot(FrameBuf *fb, int cx, int cy, int size, int u, int v, int uw,
 /* a menu plate centred on cx (width w), lit = selected; t = time for flicker */
 void ui_plate(FrameBuf *fb, int cx, int y, int w, int lit, int t, int ot);
 
-enum { UI_ICON_JUMP, UI_ICON_SPRINT, UI_ICON_CAM_L, UI_ICON_CAM_R, UI_ICON_PAUSE, UI_ICON_SAW };
+enum { UI_ICON_JUMP, UI_ICON_SPRINT, UI_ICON_CAM_L, UI_ICON_CAM_R, UI_ICON_PAUSE, UI_ICON_SAW, UI_ICON_NONE };
 void ui_button(FrameBuf *fb, int cx, int cy, int r, int icon, int lit, int t);
 /* the UI kit (tools/make_kit.py): HUD pieces and 9-slice panels / buttons in the touch controls' style */
 enum { KIT_HB_FRAME, KIT_HB_FILL, KIT_HB_SHINE, KIT_HB_BOLT, KIT_HB_EYE, KIT_KEY_SLOT, KIT_KEY_CARD,

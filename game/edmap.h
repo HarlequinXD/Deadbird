@@ -39,6 +39,7 @@ typedef struct { u16 sec; u8 ceil; s8 cx, cz; u8 tile; } EmFCell;     /* fcell /
 typedef struct {
     char name[16];
     u8 room, kind, lock, np;
+    u8 flags;                         /* SF_SECRET: a secret door */
     s16 x[EM_SV], z[EM_SV];
     EmWall w[EM_SV];
     s16 floor, ceil, ka, kb;          /* door: ka = open height; lift: ka, kb = low, high floor */

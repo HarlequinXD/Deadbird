@@ -507,6 +507,14 @@ static void lsound(int id, int vol, s32 x, s32 z, int pitch) { if (hooks.sound) 
 
 #define DOOR_SPEED 96
 #define LIFT_SPEED 40
+/* doors and lifts: by default they work by themselves (a door opens as she comes near, a lift
+   sets off once she's stood on it); in "use" mode (Deadbird) they wait for level_use - the
+   interact button - except a lift already carrying her, which finishes its trip */
+static int use_mode;
+void level_set_use_mode(int on) { use_mode = on; }
+
+static int door_secret(const LabSec *s) { return (s->flags & SF_SECRET) != 0; }
+
 void level_think(s32 px, s32 py, s32 pz, u32 keys)
 {
     int si, here;
@@ -519,19 +527,21 @@ void level_think(s32 px, s32 py, s32 pz, u32 keys)
             int near = px > s->x0 - 2200 && px < s->x1 + 2200 && pz > s->z0 - 2200 && pz < s->z1 + 2200;
             int close = px > s->x0 - 1100 && px < s->x1 + 1100 && pz > s->z0 - 1100 && pz < s->z1 + 1100;
             int can = !s->lock || ((keys >> s->lock) & 1);
-            if (near && can) {
+            int open = use_mode ? mover_dir[si] > 0 : (door_secret(s) ? close : near) && can;
+            if (open) {
                 if (sec_dyn[si] == 0) lsound(SFX_AMB_CLANK, 3000, cx, cz, 2600);
                 sec_dyn[si] = (s16)(sec_dyn[si] + DOOR_SPEED > s->ka ? s->ka : sec_dyn[si] + DOOR_SPEED);
-                mover_t[si] = 0;
+                if (near || here == si) mover_t[si] = 0;          /* stays open while she's about */
+                else if (++mover_t[si] > 180) mover_dir[si] = 0;  /* then shuts behind her */
             } else {
-                if (close && !can && !mover_flag[si]) {
+                if (!use_mode && close && !can && !mover_flag[si] && !door_secret(s)) {
                     mover_flag[si] = 1;
                     lsound(SFX_ZAP, 3200, cx, cz, 1500);
                     if (hooks.locked) hooks.locked(s->lock);
                 }
                 if (!close) mover_flag[si] = 0;
                 if (mover_t[si] < 1000) mover_t[si]++;
-                if (mover_t[si] > 180 && sec_dyn[si] > 0 && here != si) {
+                if ((use_mode || mover_t[si] > 180) && sec_dyn[si] > 0 && here != si) {
                     if (sec_dyn[si] == s->ka) lsound(SFX_AMB_CLANK, 2500, cx, cz, 2200);
                     sec_dyn[si] = (s16)(sec_dyn[si] - DOOR_SPEED < 0 ? 0 : sec_dyn[si] - DOOR_SPEED);
                 }
@@ -539,19 +549,20 @@ void level_think(s32 px, s32 py, s32 pz, u32 keys)
         } else if (s->kind == 2) {
             s32 top = s->kb - s->ka, deck = -(s->ka + sec_dyn[si]);
             int on = here == si && py > deck - 120 && py < deck + 120;
-            if (mover_dir[si]) {
+            if (mover_dir[si]) {             /* moving: it carries her (her floor is its deck) */
                 s32 v = sec_dyn[si] + mover_dir[si] * LIFT_SPEED;
                 if (v <= 0 || v >= top) { v = v <= 0 ? 0 : top; mover_dir[si] = 0; mover_t[si] = -90; lsound(SFX_AMB_CLANK, 3500, cx, cz, 1800); }
                 sec_dyn[si] = (s16)v;
                 continue;
             }
             if (on) {
-                if (++mover_t[si] > 45) { mover_dir[si] = sec_dyn[si] ? -1 : 1; mover_t[si] = 0; lsound(SFX_AMB_STEAM, 2600, cx, cz, 1400); }
+                /* use mode: only the level's opening ride sets off by itself */
+                if ((!use_mode || mover_t[si] > 0) && ++mover_t[si] > 45) { mover_dir[si] = sec_dyn[si] ? -1 : 1; mover_t[si] = 0; lsound(SFX_AMB_STEAM, 2600, cx, cz, 1400); }
             } else {
                 if (mover_t[si] > 0) mover_t[si] = 0;
                 else if (mover_t[si] < 0) mover_t[si]++;
                 /* call it: she's beside it, standing at the end it isn't at */
-                if (!mover_t[si] && px > s->x0 - 1800 && px < s->x1 + 1800 && pz > s->z0 - 1800 && pz < s->z1 + 1800) {
+                if (!use_mode && !mover_t[si] && px > s->x0 - 1800 && px < s->x1 + 1800 && pz > s->z0 - 1800 && pz < s->z1 + 1800) {
                     s32 lo = -s->ka, hi = -s->kb;
                     if (sec_dyn[si] == top && py > lo - 300 && py < lo + 300) { mover_dir[si] = -1; lsound(SFX_AMB_STEAM, 2600, cx, cz, 1400); }
                     else if (sec_dyn[si] == 0 && py > hi - 300 && py < hi + 300) { mover_dir[si] = 1; lsound(SFX_AMB_STEAM, 2600, cx, cz, 1400); }
@@ -559,6 +570,56 @@ void level_think(s32 px, s32 py, s32 pz, u32 keys)
             }
         }
     }
+}
+
+/* the interact button: the lift she's on, a lift she's beside (it comes to her), else the
+   nearest door (or secret door) in reach; LU_* says what happened */
+int level_use(s32 px, s32 py, s32 pz, u32 keys)
+{
+    int si, here, best = -1;
+    s32 bestd = 0x7fffffff;
+    if (!LAB_NSECS) return LU_NONE;
+    here = level_sector_at(px, pz, sec_hint);
+    for (si = 0; si < LAB_NSECS && si < MAX_SECS; si++) {     /* lifts first */
+        const LabSec *s = &lab_secs[si];
+        s32 cx = (s->x0 + s->x1) / 2, cz = (s->z0 + s->z1) / 2, top, deck;
+        if (s->kind != 2) continue;
+        top = s->kb - s->ka; deck = -(s->ka + sec_dyn[si]);
+        if (mover_dir[si]) { if (here == si) return LU_LIFT; continue; }
+        if (here == si && py > deck - 200 && py < deck + 200) {
+            mover_dir[si] = sec_dyn[si] ? -1 : 1; mover_t[si] = 0;
+            lsound(SFX_AMB_STEAM, 2600, cx, cz, 1400);
+            return LU_LIFT;
+        }
+        if (px > s->x0 - 1800 && px < s->x1 + 1800 && pz > s->z0 - 1800 && pz < s->z1 + 1800) {
+            s32 lo = -s->ka, hi = -s->kb;
+            if (sec_dyn[si] == top && py > lo - 400 && py < lo + 400) { mover_dir[si] = -1; lsound(SFX_AMB_STEAM, 2600, cx, cz, 1400); return LU_LIFT; }
+            if (sec_dyn[si] == 0 && py > hi - 400 && py < hi + 400) { mover_dir[si] = 1; lsound(SFX_AMB_STEAM, 2600, cx, cz, 1400); return LU_LIFT; }
+        }
+    }
+    for (si = 0; si < LAB_NSECS && si < MAX_SECS; si++) {     /* the nearest door in reach */
+        const LabSec *s = &lab_secs[si];
+        s32 dx, dz, d;
+        if (s->kind != 1) continue;
+        if (px < s->x0 - 1500 || px > s->x1 + 1500 || pz < s->z0 - 1500 || pz > s->z1 + 1500) continue;
+        if (py < -s->k0 - 1600 || py > -s->k0 + 600) continue;               /* not on its floor */
+        dx = px < s->x0 ? s->x0 - px : px > s->x1 ? px - s->x1 : 0;
+        dz = pz < s->z0 ? s->z0 - pz : pz > s->z1 ? pz - s->z1 : 0;
+        d = dx + dz;
+        if (d < bestd) { bestd = d; best = si; }
+    }
+    if (best >= 0) {
+        const LabSec *s = &lab_secs[best];
+        s32 cx = (s->x0 + s->x1) / 2, cz = (s->z0 + s->z1) / 2;
+        if (s->lock && !((keys >> s->lock) & 1)) {
+            lsound(SFX_ZAP, 3200, cx, cz, 1500);
+            if (hooks.locked) hooks.locked(s->lock);
+            return LU_LOCKED;
+        }
+        mover_dir[best] = 1; mover_t[best] = 0;
+        return door_secret(s) ? LU_SECRET : LU_DOOR;
+    }
+    return LU_NONE;
 }
 
 int level_secrets(int *found)

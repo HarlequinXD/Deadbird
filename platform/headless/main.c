@@ -111,7 +111,7 @@ int main(int argc, char **argv)
     run(PAD_UP | PAD_RIGHT, 14);
     write_bmp(out, "06_run_turn_lean");
     run(PAD_RIGHT, 30);
-    run(PAD_UP, 1); run(PAD_UP | PAD_CROSS, 1);
+    run(PAD_UP, 1); run(PAD_UP | BTN_JUMP, 1);
     run(PAD_UP, 12);
     write_bmp(out, "07_jump");
     run(PAD_UP, 40);
@@ -198,7 +198,7 @@ int main(int argc, char **argv)
         run(0, 20);
         write_bmp(out, "22_fatality_prompt");
         if (game_debug_fatality() != -2) { printf("FAIL: no fatality prompt\n"); return 1; }
-        run(PAD_TRIANGLE | PAD_SQUARE, 1);
+        run(BTN_USE, 1);                                  /* A: the fatality */
         {
             static const int at[] = { 10, 30, 36, 50, 70, 84, 90, 100, 120, 140, 170, 200 };
             int j = 0, f;
@@ -208,7 +208,11 @@ int main(int argc, char **argv)
                 if (j < 12 && f >= at[j]) { char nm[32]; sprintf(nm, "23_fatality_%02d", j); write_bmp(out, nm); j++; shots++; }
             }
         }
-        st = game_debug_enemy_state(0);
+        {   /* the dazed trooper nearest her gets it (another may have followed her over) */
+            int q;
+            st = game_debug_enemy_state(0);
+            for (q = 0; q < 64 && game_debug_enemy_state(q) >= 0; q++) if (game_debug_enemy_state(q) / 1000 == E_CUT) st = game_debug_enemy_state(q);
+        }
         printf("fatality: %d frames captured, trooper state %d (6 = cut in half)\n", shots, st / 1000);
         if (st / 1000 != E_CUT) { printf("FAIL: the fatality didn't cut him in half\n"); return 1; }
         run(0, 60);

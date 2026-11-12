@@ -344,7 +344,8 @@ static void sector_colour(int si, u32 *c, s32 lo, s32 hi)
     const EmSector *s = &ED.secs[si];
     int k = hi > lo ? (int)((s->floor - lo) * 256 / (hi - lo)) : 128;
     *c = mix(RGB(52, 22, 20), RGB(150, 122, 100), k);
-    if (s->kind == SK_DOOR) *c = s->lock ? mix(RGB(20, 14, 14), KEYC[s->lock], 150) : RGB(120, 86, 50);
+    if (s->kind == SK_DOOR && (s->flags & SF_SECRET)) *c = RGB(110, 60, 140);
+    else if (s->kind == SK_DOOR) *c = s->lock ? mix(RGB(20, 14, 14), KEYC[s->lock], 150) : RGB(120, 86, 50);
     else if (s->kind == SK_LIFT) *c = RGB(70, 110, 60);
     else if (s->ceil <= s->floor) *c = RGB(26, 24, 28);
 }
@@ -1333,7 +1334,7 @@ static void rows_draw(void)
 
 /* ------------------------------------------------------------------ inspector ([]) */
 enum {
-    R_NAME, R_ROOM, R_ROOMNAME, R_KIND, R_FLOOR, R_CEIL, R_OPEN, R_LOCK, R_LOW, R_HIGH, R_FSLOPE, R_FSLOPEH, R_CSLOPE, R_CSLOPEH,
+    R_NAME, R_ROOM, R_ROOMNAME, R_KIND, R_FLOOR, R_CEIL, R_OPEN, R_LOCK, R_SECRET, R_LOW, R_HIGH, R_FSLOPE, R_FSLOPEH, R_CSLOPE, R_CSLOPEH,
     R_FTEX, R_CTEX, R_FRULE, R_FRULEN, R_CRULE, R_CRULEN, R_WALLS, R_LOWS, R_UPS, R_CLEARF,
     R_W_MID, R_W_LOW, R_W_UP, R_W_GLASS, R_W_BARS, R_W_ALIGN, R_W_SHADOW, R_W_CLEAR, R_W_SECTOR,
     R_C_X, R_C_Z,
@@ -1378,7 +1379,7 @@ static void build_rows(void)
         const EmSector *s = &ED.secs[sel_i];
         R(R_NAME); R(R_ROOM); R(R_ROOMNAME); R(R_KIND); R(R_FLOOR);
         if (s->kind != SK_DOOR) R(R_CEIL);
-        if (s->kind == SK_DOOR) { R(R_OPEN); R(R_LOCK); }
+        if (s->kind == SK_DOOR) { R(R_OPEN); R(R_LOCK); R(R_SECRET); }
         if (s->kind == SK_LIFT) { R(R_LOW); R(R_HIGH); }
         R(R_FSLOPE); if (s->fslope >= 0) R(R_FSLOPEH);
         R(R_CSLOPE); if (s->cslope >= 0) R(R_CSLOPEH);
@@ -1409,7 +1410,7 @@ static const char *const DIRN[4] = { "NORTH", "EAST", "SOUTH", "WEST" };
 static const char *ins_label(int k, char *b)
 {
     static const char *const L[R_P_FIELD] = {
-        "NAME", "ROOM", "ROOM NAME", "KIND", "FLOOR", "CEILING", "OPENS TO", "LOCK", "LIFT LOW", "LIFT HIGH", "FLOOR SLOPE", "SLOPE TO", "CEIL SLOPE", "SLOPE TO",
+        "NAME", "ROOM", "ROOM NAME", "KIND", "FLOOR", "CEILING", "OPENS TO", "LOCK", "SECRET", "LIFT LOW", "LIFT HIGH", "FLOOR SLOPE", "SLOPE TO", "CEIL SLOPE", "SLOPE TO",
         "FLOOR TILE", "CEIL TILE", "FLOOR PATTERN", "EVERY", "CEIL PATTERN", "EVERY", "WALL ROWS", "STEP ROWS", "UPPER ROWS", "CLEAR PAINT",
         "WALL ROWS", "STEP ROWS", "UPPER ROWS", "GLASS", "BARS", "TILES LINE UP", "SHADOW", "CLEAR PAINT", "ITS SECTOR",
         "X", "Z",
@@ -1444,6 +1445,7 @@ static const char *ins_value(int k, char *b)
         case R_CEIL: eu_m(b, s->ceil); break;
         case R_OPEN: eu_m(b, s->ka); break;
         case R_LOCK: eu_str(b, s->lock == 1 ? "CYAN" : s->lock == 2 ? "AMBER" : s->lock == 3 ? "CRIMSON" : "NONE"); break;
+        case R_SECRET: eu_str(b, (s->flags & SF_SECRET) ? "YES" : "NO"); break;
         case R_LOW: eu_m(b, s->ka); break;
         case R_HIGH: eu_m(b, s->kb); break;
         case R_FSLOPE: if (s->fslope < 0) eu_str(b, "FLAT"); else { o = eu_str(b, "WALL "); eu_int(o, s->fslope); } break;
@@ -1558,6 +1560,7 @@ static void ins_adjust(int k, int d, int big)
         case R_CEIL: s->ceil = (s16)clampv(s->ceil + d * hstep, s->floor, 32000); break;
         case R_OPEN: s->ka = (s16)clampv(s->ka + d * hstep, 512, 16384); break;
         case R_LOCK: s->lock = (u8)((s->lock + 4 + d) % 4); break;
+        case R_SECRET: s->flags ^= SF_SECRET; break;
         case R_LOW: s->ka = (s16)clampv(s->ka + d * hstep, -30000, s->kb - 205); break;
         case R_HIGH: s->kb = (s16)clampv(s->kb + d * hstep, s->ka + 205, 30000); break;
         case R_FSLOPE: s->fslope = (s8)(s->fslope + d < -1 ? s->np - 1 : s->fslope + d >= s->np ? -1 : s->fslope + d); if (s->fslope >= 0 && !s->fslope_h) s->fslope_h = (s16)(s->floor + 1024); break;

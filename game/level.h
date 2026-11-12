@@ -37,7 +37,10 @@ typedef struct { const char *name; s32 x, y, z; int yaw, pitch; } LabView;
    (z - az) * kz) >> 12) and its walls; a wall runs (x0,z0) -> (x1,z1) with the sector on its left
    (inward normal nx,nz, 4.12) and next = neighbour + 1 (0 = solid) */
 typedef struct { s16 h, ax, az, kx, kz; } LabPlane;
-typedef struct { s16 x0, z0, x1, z1; LabPlane f, c; u16 w0, nw; u8 room, kind, lock, pad; s16 ka, kb, k0; } LabSec;   /* lift: low, high, start floor; door: open height */
+typedef struct { s16 x0, z0, x1, z1; LabPlane f, c; u16 w0, nw; u8 room, kind, lock, flags; s16 ka, kb, k0; } LabSec;
+#ifndef SF_SECRET
+#define SF_SECRET 1                       /* sector flag: a secret door (gen/map.h) */
+#endif   /* lift: low, high, start floor; door: open height */
 typedef struct { s16 x0, z0, x1, z1, nx, nz; u16 next, sec; } LabWall;
 typedef struct { u8 type, arg; s16 x, z, yaw, ax, az; } LabThing;        /* map things (gen/map.h TH_*) */
 
@@ -83,6 +86,9 @@ typedef struct {
 } LevelHooks;
 void level_set_hooks(const LevelHooks *h);
 void level_think(s32 px, s32 py, s32 pz, u32 keys);
+void level_set_use_mode(int on);          /* doors and lifts wait for level_use (else they work by themselves) */
+enum { LU_NONE, LU_DOOR, LU_SECRET, LU_LOCKED, LU_LIFT };
+int  level_use(s32 px, s32 py, s32 pz, u32 keys);    /* the interact button: opens / calls / starts (LU_*) */
 /* a pickup she's touching (taken once): returns its LabThing type or -1, its arg in *arg */
 int  level_pickup(s32 px, s32 py, s32 pz, int *arg);
 int  level_thing_count(void);

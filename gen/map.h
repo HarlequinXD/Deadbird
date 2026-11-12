@@ -49,9 +49,12 @@ typedef struct {
     s8 fslope, cslope;                /* hinge wall of a sloped floor / ceiling, -1 = level */
     s16 fslope_h, cslope_h;           /* height at the point furthest from the hinge */
     u16 ftex, ctex;                   /* flat specs */
-    u8 room, kind, lock, pad;
+    u8 room, kind, lock, flags;       /* flags: SF_* */
     s16 ka, kb;                       /* door: open height above the floor; lift: low, high floor */
 } MapSector;
+#ifndef SF_SECRET
+#define SF_SECRET 1                   /* a door that looks like wall: opened by the interact button */
+#endif
 typedef struct { u8 type, arg; s16 x, z, yaw; s16 ax, az; } MapThing;   /* arg: key colour; ax/az: patrol point */
 
 typedef struct {
