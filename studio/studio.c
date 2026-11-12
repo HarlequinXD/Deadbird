@@ -772,18 +772,16 @@ static const HrList *hires_frame(int w, int h, int density)
         static const char *const WH[4] = { "/ Scene", "/ Geometry", "/ Behaviour", "/ Assets" };
         int modal = tab == TAB_BEHAVIOUR && (pick_open || ev_pick >= 0);
         sui_mute(modal);
-        if (tab == TAB_GEOMETRY && geom_loaded()) {
-            /* the level editor gets the whole screen, as in the game; its MENU > EXIT EDITOR
-               (or back) returns to the Studio's tabs, MENU > PLAY TEST plays the project */
+        if (tab == TAB_BEHAVIOUR) behaviour();
+        else if (tab == TAB_SCENE) scene();
+        else if (tab == TAB_GEOMETRY) {
+            /* the level editor fills everything under the Studio's bar, edge to edge */
             int wc;
-            geom_tab(0, 0, W, H, &wc);
-        } else {
-            if (tab == TAB_BEHAVIOUR) behaviour();
-            else if (tab == TAB_SCENE) scene();
-            else if (tab == TAB_GEOMETRY) { int wc; geom_tab(0, 45, W, H - 45, &wc); if (wc) make_level(wc == 1); }
-            else placeholder("Assets", "Model import (FBX, glTF, OBJ) with animation clips comes in", "milestone 4, along with textures and sounds.");
-            header(WH[tab]);
+            geom_tab(0, 45, W, H - 45, &wc);
+            if (wc) make_level(wc == 1);
         }
+        else placeholder("Assets", "Model import (FBX, glTF, OBJ) with animation clips comes in", "milestone 4, along with textures and sounds.");
+        header(WH[tab]);
         sui_mute(0);
         if (pick_open && tab == TAB_BEHAVIOUR) picker();
         if (ev_pick >= 0 && tab == TAB_BEHAVIOUR) event_picker();

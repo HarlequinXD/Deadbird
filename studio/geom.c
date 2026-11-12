@@ -103,8 +103,8 @@ int geom_pointer(int id, int ev, float x, float y, int kind)
     return 1;
 }
 
-/* the tab: the editor's picture filling the area (the Studio gives it the whole screen); or,
-   with no level yet, a way to make one */
+/* the tab: the editor's picture filling the area under the Studio's bar; or, with no level
+   yet, a way to make one */
 void geom_tab(float x, float y, float w, float h, int *wants_create)
 {
     *wants_create = 0;
@@ -118,6 +118,6 @@ void geom_tab(float x, float y, float w, float h, int *wants_create)
         if (sui_button("mk0", cx + 10, y + 160, 210, 40, "Empty room", BTN_PLAIN)) *wants_create = 2;
         return;
     }
-    ix = x; iy = y; iw = w; ih = h;                      /* the whole area: the engine's frame is already the screen's shape */
+    ix = x; iy = y; iw = w; ih = h;                      /* the whole area, edge to edge */
     sui_frame_image(ix, iy, iw, ih);
 }

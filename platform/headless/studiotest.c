@@ -154,7 +154,7 @@ int main(int argc, char **argv)
     run(3);
     shot("st_08_geometry");
     {   /* Deadbird's own level editor, on the project's level: the d-pad, the tool rail, X */
-        float iw = last->vw, ih = last->vh, ix = 0, iy = 0;      /* the editor has the whole screen */
+        float iw = last->vw, ih = last->vh - 45, ix = 0, iy = 45;  /* the editor fills everything under the bar */
 #define FX(x) (ix + (x) * iw / SCREEN_W)
 #define FY(y) (iy + (y) * ih / SCREEN_H)
         int ns = ED.nsecs, k;
