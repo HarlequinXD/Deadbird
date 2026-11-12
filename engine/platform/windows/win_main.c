@@ -101,6 +101,7 @@ static void to_screen(LPARAM lp, int *x, int *y)
 #ifdef WIN_HIRES
 static u32 *hr_px; static int hr_cap, hr_w, hr_h, hr_shown;
 static BITMAPINFO hbmi;
+static int hires_on(void) { const App *a = eng_app(); return a->hires && a->hires(); }
 static int ui_pct = 100;                     /* the UI's size, % of the screen's own scale (CTRL + / - / 0) */
 /* density for the app: Windows' scale for this screen (96 dpi = 100) times the user's size */
 static int density_now(void)
