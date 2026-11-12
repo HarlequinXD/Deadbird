@@ -53,8 +53,31 @@ typedef struct {
 
 void  ot_clear(FrameBuf *fb);
 POLY *prim_alloc(FrameBuf *fb);                 /* NULL when the packet buffer is full */
+/* 1 when every corner is past the same screen edge: the polygon can't touch the screen */
+static inline int poly_off_screen(const s16 *x, const s16 *y, int n)
+{
+    int k, l = 1, r = 1, t = 1, b = 1;
+    for (k = 0; k < n; k++) {
+        if (x[k] >= 0) l = 0;
+        if (x[k] < SCREEN_W) r = 0;
+        if (y[k] >= 0) t = 0;
+        if (y[k] < SCREEN_H) b = 0;
+    }
+    return l | r | t | b;
+}
+/* links a primitive into the OT - unless it's wholly off screen, when it's dropped (no GPU work) */
 static inline void ot_add(FrameBuf *fb, int z, POLY *p)
 {
+    {
+        int k, n = (p->code & PF_QUAD) ? 4 : 3, l = 1, r = 1, t = 1, b = 1;
+        for (k = 0; k < n; k++) {
+            if (p->v[k].x >= 0) l = 0;
+            if (p->v[k].x < SCREEN_W) r = 0;
+            if (p->v[k].y >= 0) t = 0;
+            if (p->v[k].y < SCREEN_H) b = 0;
+        }
+        if (l | r | t | b) return;
+    }
     if (z < 0) z = 0;
     if (z >= OT_LEN) z = OT_LEN - 1;
     p->next = fb->ot[z];

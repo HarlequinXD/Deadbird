@@ -52,6 +52,11 @@ void model_draw_mats(const Model *m, const MATRIX *cam, const DrawCtx *c, FrameB
             POLY *p;
             int n = dp->n;
             if (!ok[vi[0]] || !ok[vi[1]] || !ok[vi[2]] || (n == 4 && !ok[vi[3]])) continue;   /* near clip */
+            {   /* wholly off screen: skipped */
+                s16 qx[4], qy[4];
+                for (k = 0; k < n; k++) { qx[k] = sx[vi[k]]; qy[k] = sy[vi[k]]; }
+                if (poly_off_screen(qx, qy, n)) continue;
+            }
             nc = normal_clip(sx[vi[0]], sy[vi[0]], sx[vi[1]], sy[vi[1]], sx[vi[2]], sy[vi[2]]);
             if (nc * c->cull_sign <= 0) continue;                                             /* back face */
             zsum = sz[vi[0]] + sz[vi[1]] + sz[vi[2]];

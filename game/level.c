@@ -769,6 +769,7 @@ static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const L
             int fg;
             if (za > FOG_FAR) continue;
             for (k = 0; k < n; k++) { x[k] = csx[f->v[k]]; y[k] = csy[f->v[k]]; }
+            if (poly_off_screen(x, y, n)) continue;     /* off screen: discarded before any work */
             if (!(f->flags & F_DOUBLE) && normal_clip(x[0], y[0], x[1], y[1], x[2], y[2]) <= 0) continue;
             fg = fog(za) * pm >> 12;
             for (k = 0; k < n; k++) {
@@ -810,6 +811,7 @@ static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const L
                     x[k] = (s16)(pr->ofx + tv[k]->x * pr->h / tv[k]->z);
                     y[k] = (s16)(pr->ofy + tv[k]->y * pr->h / tv[k]->z);
                 }
+                if (poly_off_screen(x, y, 3)) continue;
                 if (!(f->flags & F_DOUBLE) && normal_clip(x[0], y[0], x[1], y[1], x[2], y[2]) <= 0) continue;
                 za = (tv[0]->z + tv[1]->z + tv[2]->z) / 3;
                 fg = fog(za) * pm >> 12;
@@ -953,11 +955,14 @@ void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
         s.vx = ch->cx; s.vy = (s16)(ch->cy - (ch->sec ? sec_dyn[ch->sec - 1] : 0)); s.vz = ch->cz;
         mat_apply(view, &s, &c);
         if (c.vz < -r || c.vz - r > FOG_FAR) continue;
-        /* frustum: half-widths 160/h and 120/h of z, padded by the radius */
-        if (c.vx * pr->h > (c.vz * 160) + r * (pr->h + 160)) continue;
-        if (-c.vx * pr->h > (c.vz * 160) + r * (pr->h + 160)) continue;
-        if (c.vy * pr->h > (c.vz * 120) + r * (pr->h + 120)) continue;
-        if (-c.vy * pr->h > (c.vz * 120) + r * (pr->h + 120)) continue;
+        /* frustum: the screen's half-widths over h, of z, padded by the radius */
+        {
+            s32 hw = SCREEN_W / 2 + 8, hh = SCREEN_H / 2 + 8;
+            if (c.vx * pr->h > (c.vz * hw) + r * (pr->h + hw)) continue;
+            if (-c.vx * pr->h > (c.vz * hw) + r * (pr->h + hw)) continue;
+            if (c.vy * pr->h > (c.vz * hh) + r * (pr->h + hh)) continue;
+            if (-c.vy * pr->h > (c.vz * hh) + r * (pr->h + hh)) continue;
+        }
         draw_chunk(fb, view, pr, ch, t);
     }
     /* light halos */
