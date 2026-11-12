@@ -414,7 +414,7 @@ int em_prop_defaults(EmProp *p, int kind, s32 x, s32 z)
     case PK_POD: p->v0 = 0; break;
     case PK_FAN: p->h0 = 3072; p->h1 = 1024; p->v0 = 40; break;
     case PK_RAIL: p->x0 = (s16)(x - 1024); p->x1 = (s16)(x + 1024); p->z1 = (s16)z; p->h0 = 0; break;
-    case PK_CYL: p->h0 = 0; p->h1 = 512; p->h2 = 2048; p->v0 = 8; p->t0 = LT_PIPE; p->axis = 1; break;
+    case PK_CYL: p->h0 = 0; p->h1 = 512; p->h2 = 2048; p->v0 = 8; p->t0 = LT_DARK_METAL; p->axis = 1; break;
     default: break;
     }
     return 1;

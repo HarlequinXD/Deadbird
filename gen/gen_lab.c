@@ -247,7 +247,6 @@ static void extraction_pod(float x, float z, float facing, int anim)
     cylinder(v3(x, 0, z), r + 120, 0, -380, 8, LT_MACHINE_BASE, 0, 0, 0, 'y', LT_HAZARD, 1);
     cylinder(v3(x, -380, z), r, 0, -2300, 8, LT_GLASS, F_ADD, anim, 0, 'y', -1, 2);
     cylinder(v3(x, -2680, z), r + 120, 0, -600, 8, LT_DARK_METAL, 0, 0, 0, 'y', LT_DARK_METAL, 1);
-    for (int k = 0; k < 3; k++) { float a = k * 2.1f + 0.3f; CYL(v3(x + gcos(a) * 260, -3280, z + gsin(a) * 260), 70, 0, -1200, 5, LT_PIPE); }
     captive(x, -500, z, 0.95f, facing);
     cyl_collide(x, z, r + 120, 3300);
     light(v3(x, -1500, z), 0.25f, 0.85f, 1.0f, 3200);
@@ -460,7 +459,6 @@ static void special_tank(float TX0, float TZ0)
       cylinder(v3(TX0, 0, TZ0), TR + 300, 0, -600, 12, LT_MACHINE_BASE, 0, 0, 0, 'y', LT_HAZARD, 1);
       cylinder(v3(TX0, -600, TZ0), TR, 0, -3200, 12, LT_GLASS, F_ADD, 2, 0, 'y', -1, 2);
       cylinder(v3(TX0, -3800, TZ0), TR + 260, 0, -800, 12, LT_DARK_METAL, 0, 0, 0, 'y', LT_DARK_METAL, 1);
-      for (int k = 0; k < 6; k++) { float a = k * GPI / 3 + 0.3f; CYL(v3(TX0 + gcos(a) * 900, -4600, TZ0 + gsin(a) * 900), 150, 0, -1900, 6, LT_PIPE); }
       for (int k = 0; k < 12; k++) {
           float a0 = 2 * GPI * k / 12, a1 = 2 * GPI * (k + 1) / 12, r0 = TR + 320, r1 = TR + 560;
           V3 p0 = v3(TX0 + gcos(a0) * r0, -3, TZ0 + gsin(a0) * r0), p1 = v3(TX0 + gcos(a1) * r0, -3, TZ0 + gsin(a1) * r0);
@@ -503,10 +501,6 @@ static void special_core(float RX, float RZ, int compact)
       cylinder(v3(RX, -300, RZ), 1300, 0, -5200, 12, LT_COIL, 0, 0, 0, 'y', -1, 4);
       for (int k = 0; k < 3; k++) cylinder(v3(RX, -1300.f - 1300 * k, RZ), 1370, 0, -320, 12, LT_ENERGY, F_EMIT | F_PULSE, 6 + k % 2, E, 'y', -1, 1);
       cylinder(v3(RX, -5500, RZ), 1700, 0, -700, 12, LT_DARK_METAL, 0, 0, 0, 'y', LT_DARK_METAL, 1);
-      CYL(v3(RX, -6200, RZ), 600, 0, -2800, 8, LT_PIPE);
-      if (!compact) cylinder(v3(RX + 1650, -6000, RZ), 320, 0, 5850, 8, LT_PIPE, 0, 0, 0, 'x', -1, 1);
-      if (!compact) cylinder(v3(RX - 7500, -6000, RZ), 320, 0, 5850, 8, LT_PIPE, 0, 0, 0, 'x', -1, 1);
-      if (!compact) cylinder(v3(RX, -6000, RZ + 1650), 320, 0, 5850, 8, LT_PIPE, 0, 0, 0, 'z', -1, 1);
       cyl_collide(RX, RZ, 2200, 300);
       coll(RX - 1400, RZ - 1400, RX + 1400, RZ + 1400, 9000);
       occl(RX - 1000, -5500, RZ - 1000, RX + 1000, 0, RZ + 1000);
