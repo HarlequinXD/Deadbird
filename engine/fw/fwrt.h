@@ -22,6 +22,6 @@ extern const KeyBind fw_runtime_keys[];
     name, init, fw_rt_tick, fw_rt_draw, \
     fw_rt_touch_buttons, fw_rt_tap, fw_rt_look, 45, \
     0, 0, 0, 0, 0, \
-    fw_runtime_keys, 0, files_dir, ".game", fw_rt_ram }
+    fw_runtime_keys, 0, files_dir, ".game", fw_rt_ram, 0, 0, 0, 0 }
 
 #endif

@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build headless engine
-        run: make -C platform/headless deadbird_headless gaittest stresstest labview combattest vistest edtest edittest hello_headless fps_headless fwtest CFLAGS="-O2 -std=c99 -Wall -Wextra -Wno-unused-parameter -Werror"
+        run: make -C platform/headless deadbird_headless gaittest stresstest labview combattest vistest edtest edittest hello_headless fps_headless fwtest studiotest CFLAGS="-O2 -std=c99 -Wall -Wextra -Wno-unused-parameter -Werror"
       - name: Play the test level headless (scripted input)
         run: |
           mkdir -p frames
@@ -35,6 +35,10 @@ jobs:
           ./platform/headless/fwtest frames
           printf 'hold 30\nshot fps_start\nstick 0 4096\nhold 120\nshot fps_walk\n' > fps.txt
           WIDE=426 TOUCH=1 ./platform/headless/fps_headless frames fps.txt
+      - name: Deadbird Studio (the editor), driven headless
+        run: |
+          mkdir -p studio-files
+          ENGINE_FILES=studio-files ./platform/headless/studiotest frames
       - uses: actions/upload-artifact@v4
         with:
           name: test-frames
@@ -65,6 +69,10 @@ jobs:
         with:
           name: HellGate-debug-apk
           path: platform/android/hellgate/build/outputs/apk/debug/*.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeadbirdStudio-debug-apk
+          path: platform/android/studio/build/outputs/apk/debug/*.apk
 
   windows:
     name: Windows EXE

@@ -142,6 +142,11 @@ engine/            the reusable PS1-style engine (C99, fixed point, no malloc) -
   model.[ch], ik.[ch], draw2d.[ch], snd.h + snd_mix.c, files.h
   platform/        android, windows, psx and headless layers, shared by every game on the engine
 examples/hello/    the engine's sample game: a spinning cube, a sound, touch / pad / keyboard input
+engine/fw/         the gameplay framework: actors, FPS / third-person controller, FSMs whose actions are the
+                   API (ACTIONS.md), text game projects, a runtime that plays them
+engine/studio/     the pixel-art UI kit editors are built with (sui) + a software rasteriser for it
+studio/            Deadbird Studio, the game editor app (projects, behaviour graph, actor types, play-test)
+examples/fps/      HELL GATE: a first-person shooter that is only a project file
 game/              Deadbird itself (platform independent): flow, player movement + keyframed animation, level, HUD, fx, title;
                    the level editor: edmap.[ch] (the .map format in memory: parse, write, check,
                    compile, edit), editor.c (2D map, panels, level list), ed3d.c (3D view), edui.c
@@ -242,6 +247,17 @@ faces), floors and ceilings, one tile at a time (`wall I cell` / `fcell` lines i
 
 **PLAY TEST** (START menu) checks the map, builds it and drops you in; pause → ✕ goes back to the
 editor. A gamepad works on Android too (Bluetooth / USB), and on Windows an Xbox controller.
+
+## Deadbird Studio (the game editor)
+
+An Android app (Windows next) for making FPS and third-person games on the engine, in
+Deadbird's pixel-art hell style: start a game from a template, edit actor types (look, numbers,
+behaviour), build behaviour as state machines - drag states around, drag from a state's handle to
+another to add a transition (curved links), pick actions from the library by group and step their
+arguments - and play-test it in place. Projects are text files (`.game`) in the app's files folder.
+Coming next: the sector editor and 3D scene view, then FBX / glTF / OBJ model import with
+animation. CI builds it as `DeadbirdStudio-debug-apk`; `platform/headless/studiotest` drives it
+with scripted taps and checks the projects it writes.
 
 ## Building
 

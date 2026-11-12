@@ -1206,4 +1206,5 @@ const App game_app = {
     KEYS, KEYS_EDITOR,
     "levels", ".map",
     ram_used,
+    0, 0, 0, 0,                          /* no full-resolution UI */
 };

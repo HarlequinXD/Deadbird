@@ -17,6 +17,7 @@
 #define APP_H
 
 #include "gpu.h"
+#include "hires.h"
 
 /* pointer events (touch, mouse) in frame pixels (SCREEN_W x SCREEN_H) */
 enum { EV_DOWN, EV_MOVE, EV_UP, EV_HOVER };
@@ -66,6 +67,13 @@ typedef struct App {
     const char *files_dir, *files_ext;
     /* static RAM the game uses, checked against the PS1's 2 MB */
     int  (*ram_used)(void);
+    /* full-resolution UI (editors, tools; not on the PS1): while hires() returns 1 the platform
+       shows the HrList hires_frame builds for its screen size (density: pixels per 160 dpi,
+       x 100) instead of the scaled PS1 frame, and sends pointers / the back key in screen pixels */
+    int  (*hires)(void);
+    const HrList *(*hires_frame)(int w, int h, int density);
+    void (*hires_pointer)(int id, int ev, int x, int y, int kind);
+    void (*hires_back)(void);
 } App;
 
 extern const App game_app;               /* every game defines exactly one */

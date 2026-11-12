@@ -16,6 +16,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <android/keycodes.h>
+#include <android/configuration.h>
 #include <SLES/OpenSLES.h>
 #include <SLES/OpenSLES_Android.h>
 #include "engine.h"
@@ -34,6 +35,11 @@ static struct {
     int quad_w;                  /* the frame width the quad's texture coordinates were made for */
     GLuint prog, tex, vbo;
     int ready;
+    /* full-resolution / pixel-art UI (App.hires): its shader, atlas, and the canvas it's drawn on */
+    GLuint hprog, hatlas, hfbo, hcanvas;
+    GLint  hu_scale, hu_uv;
+    int    hatlas_serial, hcw, hch;
+    int    density;                  /* dpi */
 } G;
 
 static u16 pixels[SCREEN_W_MAX * SCREEN_H];
@@ -128,6 +134,103 @@ static void gl_setup(void)
     G.quad_w = 0;
 }
 
+/* ---------------------------------------------------------------- the App's own UI (editors) */
+static void hires_setup(void)
+{
+    static const char *vs =
+        "attribute vec2 p; attribute vec2 t; attribute vec4 c; varying vec2 v; varying vec4 k;"
+        "uniform vec2 sc; uniform vec2 uvs;"
+        "void main(){ v = t * uvs; k = c; gl_Position = vec4(p.x * sc.x - 1.0, 1.0 - p.y * sc.y, 0.0, 1.0); }";
+    static const char *fs =
+        "precision mediump float; varying vec2 v; varying vec4 k; uniform sampler2D s;"
+        "void main(){ gl_FragColor = texture2D(s, v) * k; }";
+    G.hprog = glCreateProgram();
+    glAttachShader(G.hprog, shader(GL_VERTEX_SHADER, vs));
+    glAttachShader(G.hprog, shader(GL_FRAGMENT_SHADER, fs));
+    glBindAttribLocation(G.hprog, 0, "p");
+    glBindAttribLocation(G.hprog, 1, "t");
+    glBindAttribLocation(G.hprog, 2, "c");
+    glLinkProgram(G.hprog);
+    G.hu_scale = glGetUniformLocation(G.hprog, "sc");
+    G.hu_uv = glGetUniformLocation(G.hprog, "uvs");
+    G.hatlas = G.hfbo = G.hcanvas = 0; G.hatlas_serial = 0; G.hcw = G.hch = 0;
+}
+static GLuint nearest_texture(void)
+{
+    GLuint t;
+    glGenTextures(1, &t);
+    glBindTexture(GL_TEXTURE_2D, t);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    return t;
+}
+/* draw an HrList: onto a vw x vh canvas (pixel art) that is then scaled up to the screen */
+static void present_hires(const HrList *l)
+{
+    int cw = l->vw > 0 ? l->vw : G.w, ch = l->vh > 0 ? l->vh : G.h, i;
+    float quad[24];
+    if (!G.hprog) hires_setup();
+    if (!G.hatlas || G.hatlas_serial != l->atlas_serial) {
+        if (!G.hatlas) G.hatlas = nearest_texture();
+        glBindTexture(GL_TEXTURE_2D, G.hatlas);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, l->atlas_w, l->atlas_h, 0, GL_RGBA, GL_UNSIGNED_BYTE, l->atlas);
+        G.hatlas_serial = l->atlas_serial;
+    }
+    if (!G.hfbo || cw != G.hcw || ch != G.hch) {
+        if (!G.hfbo) { glGenFramebuffers(1, &G.hfbo); G.hcanvas = nearest_texture(); }
+        glBindTexture(GL_TEXTURE_2D, G.hcanvas);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, cw, ch, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+        glBindFramebuffer(GL_FRAMEBUFFER, G.hfbo);
+        glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, G.hcanvas, 0);
+        G.hcw = cw; G.hch = ch;
+    }
+    /* 1: the UI onto the canvas */
+    glBindFramebuffer(GL_FRAMEBUFFER, G.hfbo);
+    glViewport(0, 0, cw, ch);
+    glClearColor((l->clear & 255) / 255.f, (l->clear >> 8 & 255) / 255.f, (l->clear >> 16 & 255) / 255.f, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glUseProgram(G.hprog);
+    glUniform2f(G.hu_scale, 2.0f / cw, 2.0f / ch);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glEnableVertexAttribArray(0); glEnableVertexAttribArray(1); glEnableVertexAttribArray(2);
+    for (i = 0; i < l->ncmd; i++) {
+        const HrCmd *c = &l->cmd[i];
+        const HrVert *v = l->v + c->first;
+        if (!c->count) continue;
+        if (c->tex == HR_TEX_FRAME) { glBindTexture(GL_TEXTURE_2D, G.tex); glUniform2f(G.hu_uv, (float)SCREEN_W / TEX_W, (float)SCREEN_H / TEX_H); }
+        else { glBindTexture(GL_TEXTURE_2D, G.hatlas); glUniform2f(G.hu_uv, 1, 1); }
+        if (c->clip[2] > c->clip[0]) { glEnable(GL_SCISSOR_TEST); glScissor(c->clip[0], ch - c->clip[3], c->clip[2] - c->clip[0], c->clip[3] - c->clip[1]); }
+        else glDisable(GL_SCISSOR_TEST);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(HrVert), &v->x);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(HrVert), &v->u);
+        glVertexAttribPointer(2, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(HrVert), &v->rgba);
+        glDrawArrays(GL_TRIANGLES, 0, c->count);
+    }
+    glDisable(GL_SCISSOR_TEST);
+    glDisable(GL_BLEND);
+    glDisableVertexAttribArray(2);
+    /* 2: the canvas, scaled up to the screen with nearest filtering */
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, G.w, G.h);
+    glClearColor(0, 0, 0, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glUseProgram(G.prog);
+    glBindTexture(GL_TEXTURE_2D, G.hcanvas);
+    {
+        float q[16] = { -1.f, 1.f, 0.f, 1.f,  1.f, 1.f, 1.f, 1.f,  -1.f, -1.f, 0.f, 0.f,  1.f, -1.f, 1.f, 0.f };
+        memcpy(quad, q, sizeof(q));
+    }
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 16, quad);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 16, quad + 2);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    eglSwapBuffers(G.dpy, G.surf);
+}
+
 /* the quad's texture coordinates for the frame's current width */
 static void quad_for_width(void)
 {
@@ -195,6 +298,7 @@ static void display_term(void)
     }
     G.dpy = EGL_NO_DISPLAY; G.ctx = EGL_NO_CONTEXT; G.surf = EGL_NO_SURFACE;
     G.ready = 0;
+    G.hprog = 0; G.hatlas = G.hfbo = G.hcanvas = 0; G.hatlas_serial = 0;
 }
 
 /* present the PS1 display area: BGR555 -> RGB565, upload, scale */
@@ -202,6 +306,8 @@ static void present(void)
 {
     const u16 *v = gpu_vram();
     int dx, dy, x, y;
+    const App *app = eng_app();
+    int hi = app->hires && app->hires();
     eng_display_area(&dx, &dy);
     if (G.quad_w != SCREEN_W) quad_for_width();
     for (y = 0; y < SCREEN_H; y++) {
@@ -213,13 +319,14 @@ static void present(void)
             dst[x] = (u16)((r << 11) | (((g << 1) | (g >> 4)) << 5) | b);
         }
     }
+    glBindTexture(GL_TEXTURE_2D, G.tex);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SCREEN_W, SCREEN_H, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, pixels);
+    if (hi) { present_hires(app->hires_frame(G.w, G.h, G.density * 100 / 160)); return; }
     glViewport(0, 0, G.w, G.h);
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
     glViewport(G.vx, G.vy, G.vw, G.vh);
     glUseProgram(G.prog);
-    glBindTexture(GL_TEXTURE_2D, G.tex);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SCREEN_W, SCREEN_H, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, pixels);
     glBindBuffer(GL_ARRAY_BUFFER, G.vbo);
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
@@ -270,13 +377,19 @@ static int axis(AInputEvent *ev, int a, float dead)
     return (int)(v * 4096);
 }
 
-/* every finger of a motion event (or just one) to the engine, in frame pixels */
+/* every finger of a motion event (or just one) to the engine, in frame pixels (or, for an App with
+   its own UI, in screen pixels to it) */
 static void touch_each(AInputEvent *ev, int ev_kind, int only)
 {
     size_t i, n = AMotionEvent_getPointerCount(ev);
+    const App *app = eng_app();
     for (i = 0; i < n; i++) {
         int x, y;
         if (only >= 0 && (int)i != only) continue;
+        if (app->hires && app->hires() && app->hires_pointer) {
+            app->hires_pointer(AMotionEvent_getPointerId(ev, i), ev_kind, (int)AMotionEvent_getX(ev, i), (int)AMotionEvent_getY(ev, i), 0);
+            continue;
+        }
         to_frame(AMotionEvent_getX(ev, i), AMotionEvent_getY(ev, i), &x, &y);
         eng_touch(AMotionEvent_getPointerId(ev, i), ev_kind, x, y);
     }
@@ -288,6 +401,10 @@ static int32_t on_input(struct android_app *app, AInputEvent *ev)
     if (AInputEvent_getType(ev) == AINPUT_EVENT_TYPE_KEY) {
         int32_t k = AKeyEvent_getKeyCode(ev), act = AKeyEvent_getAction(ev);
         u32 b = key_bit(k);
+        if (k == AKEYCODE_BACK && eng_app()->hires && eng_app()->hires()) {   /* the editor's own back */
+            if (act == AKEY_EVENT_ACTION_UP && eng_app()->hires_back) eng_app()->hires_back();
+            return 1;
+        }
         if (k == AKEYCODE_BACK && eng_pointer_mode()) b = PAD_CIRCLE;      /* the phone's back: cancel / back */
         if (!b) return 0;
         if (act == AKEY_EVENT_ACTION_DOWN) gp_bits |= b; else if (act == AKEY_EVENT_ACTION_UP) gp_bits &= ~b;
@@ -317,7 +434,7 @@ static int32_t on_input(struct android_app *app, AInputEvent *ev)
         case AMOTION_EVENT_ACTION_MOVE: touch_each(ev, EV_MOVE, -1); break;
         case AMOTION_EVENT_ACTION_UP: case AMOTION_EVENT_ACTION_POINTER_UP: touch_each(ev, EV_UP, idx); break;
         case AMOTION_EVENT_ACTION_CANCEL:
-            if (eng_pointer_mode()) touch_each(ev, EV_UP, -1); else eng_touch_cancel();
+            if (eng_pointer_mode() || (eng_app()->hires && eng_app()->hires())) touch_each(ev, EV_UP, -1); else eng_touch_cancel();
             break;
         }
         return 1;
@@ -420,6 +537,8 @@ void android_main(struct android_app *app)
     G.dpy = EGL_NO_DISPLAY; G.ctx = EGL_NO_CONTEXT; G.surf = EGL_NO_SURFACE;
 
     lvl_init(app);
+    G.density = app->config ? AConfiguration_getDensity(app->config) : 320;
+    if (G.density <= 0 || G.density > 1000) G.density = 320;
     if (!game_started) {
         eng_init();
         eng_set_touch_ui(1);

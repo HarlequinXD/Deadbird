@@ -137,4 +137,5 @@ const App game_app = {
     KEYS, 0,                          /* keyboard */
     0, 0,                             /* no user files */
     ram_used,
+    0, 0, 0, 0,                       /* no full-resolution UI */
 };

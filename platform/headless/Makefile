@@ -75,3 +75,9 @@ fps_headless: $(FPS_SRC) $(wildcard $(ROOT)/engine/fw/*.h) $(ROOT)/examples/fps/
 FWTEST_SRC := fwtest.c $(FILES) $(wildcard $(ROOT)/engine/*.c) $(FW) $(ROOT)/examples/fps/sector_world.c $(WORLD)
 fwtest: $(FWTEST_SRC) $(wildcard $(ROOT)/engine/fw/*.h) $(ROOT)/examples/fps/hellgate_game.h
 	$(CC) $(CFLAGS) -I$(ROOT)/engine -I$(ROOT)/engine/fw -I$(ROOT)/examples/fps $(INC) $(FWTEST_SRC) -o $@
+
+# Deadbird Studio (studio/), headless: scripted taps, pixel-art screenshots, project checks
+STUDIO_SRC := studiotest.c $(FILES) $(wildcard $(ROOT)/engine/*.c) $(FW) $(wildcard $(ROOT)/engine/studio/*.c) \
+              $(wildcard $(ROOT)/studio/*.c) $(ROOT)/examples/fps/sector_world.c $(WORLD)
+studiotest: $(STUDIO_SRC) $(wildcard $(ROOT)/engine/studio/*.h) $(wildcard $(ROOT)/studio/*.h)
+	$(CC) $(CFLAGS) -I$(ROOT)/engine -I$(ROOT)/engine/fw -I$(ROOT)/engine/studio -I$(ROOT)/studio -I$(ROOT)/examples/fps $(INC) $(STUDIO_SRC) -o $@ -lm
