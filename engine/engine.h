@@ -53,6 +53,7 @@ void eng_char(int ch);
 /* keyboard: key down / up (app.h KEY_* or upper-case ASCII), mapped by the game's KeyBinds */
 void eng_key(int key, int down);
 void eng_keys_clear(void);
+int  eng_key_held(int key);                   /* a key (app.h KEY_* or upper-case ASCII) is down */
 /* tests / tools: drive the touch stick directly */
 void eng_set_stick(int active, int ox, int oy, int x, int y);
 int  eng_ram_used(void);

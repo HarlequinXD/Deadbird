@@ -22,6 +22,9 @@ int  studio_screen(void);
 int  studio_play_ok(void);
 void studio_tab(int t);
 int  studio_tab_now(void);
+void studio_set_pc(int on);
+int  studio_help_open(void);
+void studio_select_arg(int state, int act, int arg);
 extern int screen_w;
 extern EmMap ED;
 extern s32 ed_cx, ed_cz;
@@ -44,6 +47,10 @@ static void frame(void)
 static void run(int n) { while (n-- > 0) frame(); }
 static float PS(void) { return DENS / 100.0f; }
 static void ptr(int ev, float x, float y) { game_app.hires_pointer(0, ev, (int)(x * PS()), (int)(y * PS()), 0); }
+static void mptr(int ev, float x, float y) { game_app.hires_pointer(0, ev, (int)(x * PS()), (int)(y * PS()), PK_MOUSE_L); }
+static void key(int k) { eng_key(k, 1); frame(); eng_key(k, 0); frame(); }
+static void esc(void) { eng_key(KEY_ESC, 1); game_app.text(27); frame(); eng_key(KEY_ESC, 0); frame(); }   /* as Windows sends it */
+static void type(const char *t) { while (*t) { game_app.text((unsigned char)*t++); frame(); } }
 static void tap(float x, float y) { ptr(EV_DOWN, x, y); frame(); ptr(EV_UP, x, y); frame(); frame(); }
 static void drag(float x0, float y0, float x1, float y1)
 {
@@ -218,6 +225,65 @@ int main(int argc, char **argv)
     shot("st_14_play_level");
     tap(44, 20);
     run(2);
+
+    /* a PC: the mouse, the wheel and the keyboard */
+    studio_set_pc(1);
+    key(KEY_F5); run(30);
+    expect(studio_screen() == 2, "F5 starts a play-test");
+    shot("st_20_pc_play");
+    esc(); run(2);
+    expect(studio_screen() == 1, "ESC stops it");
+    key(KEY_F1); run(1);
+    expect(studio_help_open(), "F1 opens the keyboard and mouse sheet");
+    shot("st_21_keys");
+    esc(); run(1);
+    expect(!studio_help_open(), "ESC closes it");
+    eng_key(KEY_CTRL, 1); key('3'); eng_key(KEY_CTRL, 0); run(1);
+    expect(studio_tab_now() == 2, "CTRL+3 opens the Behaviour tab");
+    mptr(EV_HOVER, last->vw - 46, 22); run(2);
+    expect(game_app.hires_cursor && game_app.hires_cursor(), "the mouse over Play shows a hand");
+    mptr(EV_HOVER, last->vw / 2, last->vh / 2 + 60); run(2);
+    shot("st_22_hover");
+    {   /* type a number into an action's argument, then delete the action */
+        DocFsm *m = &d->fsms[0];
+        int k = doc_state_index(m, "chase"), a, na;
+        for (a = 0; a < m->s[k].na; a++) if (!strcmp(m->s[k].a[a].action, "ChasePlayer")) break;
+        if (a == m->s[k].na) a = 0;
+        studio_select_arg(k, a, 0); run(2);
+        printf("      %s %s ->", m->s[k].a[a].action, m->s[k].a[a].arg[0]);
+        type("42"); run(1);
+        printf(" %s\n", m->s[k].a[a].arg[0]);
+        expect(!strcmp(m->s[k].a[a].arg[0], "42"), "typing replaces a number argument");
+        shot("st_23_typed");
+        esc(); run(1);
+        na = m->s[k].na;
+        key(KEY_DEL); run(1);
+        expect(m->s[k].na == na - 1, "DELETE removes the selected action");
+        type("\x13"); run(1);
+        expect(!d->dirty, "CTRL+S saves");
+    }
+    {   /* the wheel zooms the state graph */
+        mptr(EV_HOVER, 200, 200); run(1);
+        game_app.wheel(1); run(1); game_app.wheel(1); run(1);
+        shot("st_24_wheel_zoom");
+    }
+    eng_key(KEY_CTRL, 1); key('2'); eng_key(KEY_CTRL, 0); run(3);
+    expect(studio_tab_now() == 1, "CTRL+2 opens the level editor");
+    {
+        float ix, iy, iw, ih;
+        int n0s = ED.nsecs;
+        geom_view(&ix, &iy, &iw, &ih);
+        mptr(EV_HOVER, ix + iw / 2, iy + ih / 2); run(2);
+        game_app.wheel(1); run(2);
+        key('M'); run(2);                                     /* M: the editor's menu */
+        expect(editor_panel_scroll() == 0, "M opens the level editor's menu");
+        shot("st_25_pc_editor_menu");
+        esc(); run(3);
+        expect(editor_panel_scroll() < 0, "ESC closes it");
+        type("\x1a"); run(2);                                /* CTRL+Z */
+        printf("      sectors %d -> %d after CTRL+Z\n", n0s, ED.nsecs);
+        shot("st_26_pc_editor");
+    }
     printf(fails ? "studiotest: %d FAILURES\n" : "studiotest: all passed\n", fails);
     return fails ? 1 : 0;
 }

@@ -2012,6 +2012,17 @@ static void tap_hit(int id)
     if (id >= H_LIST + 500 && id < H_LIST + 503) { lst_act = id - H_LIST - 500; tap_press |= PAD_CROSS; return; }
     if (id >= H_LIST && id < H_LIST + 100) { if (lst_sel == id - H_LIST) tap_press |= PAD_CROSS; else { lst_sel = id - H_LIST; lst_act = 0; } return; }
 }
+/* scroll the open list panel by rows (+: later rows come in); the lit row stays in view */
+#define LIST_OV (ov == OV_INSPECT || ov == OV_TOOLS || ov == OV_MENU)
+static void panel_scroll_by(int k)
+{
+    int rows = panel_rows(), top = panel_n - rows > 0 ? panel_n - rows : 0, sc = clampv(ov_scroll + k, 0, top);
+    if (sc == ov_scroll) return;
+    ov_scroll = sc;
+    ov_sel = clampv(ov_sel, ov_scroll, ov_scroll + rows - 1);
+    if (ov_sel >= panel_n) ov_sel = panel_n - 1;
+    snd_play(SFX_UI_MOVE, 1800, 0, 4096);
+}
 static int in_map(int x, int y) { return y >= MAP_Y0 && y < MAP_Y1 && x >= MAP_X0 && x < MAP_X1; }
 static void pointer_events(void)
 {
@@ -2065,17 +2076,11 @@ static void pointer_events(void)
             if (drag_moved && mode == M_MAP && !ov && (drag_hit < 0) && in_map(drag_x, drag_y)) {
                 vx -= ((s32)dx << 10) / ppm(); vz += ((s32)dy << 10) / ppm();
                 drag_x = e->x; drag_y = e->y;
-            } else if (drag_moved && (ov == OV_INSPECT || ov == OV_TOOLS || ov == OV_MENU)) {   /* drag the panel's list */
-                int rows = panel_rows(), top = panel_n - rows > 0 ? panel_n - rows : 0, sc = ov_scroll;
-                while (dy <= -ROW_H) { sc++; drag_y -= ROW_H; dy += ROW_H; }      /* finger up: the list follows it, later rows come in */
-                while (dy >= ROW_H) { sc--; drag_y += ROW_H; dy -= ROW_H; }
-                sc = clampv(sc, 0, top);
-                if (sc != ov_scroll) {
-                    ov_scroll = sc;
-                    ov_sel = clampv(ov_sel, ov_scroll, ov_scroll + rows - 1);   /* the lit row stays in view */
-                    if (ov_sel >= panel_n) ov_sel = panel_n - 1;
-                    snd_play(SFX_UI_MOVE, 1800, 0, 4096);
-                }
+            } else if (drag_moved && LIST_OV) {           /* drag the panel's list */
+                int k = 0;
+                while (dy <= -ROW_H) { k++; drag_y -= ROW_H; dy += ROW_H; }      /* finger up: the list follows it, later rows come in */
+                while (dy >= ROW_H) { k--; drag_y += ROW_H; dy -= ROW_H; }
+                if (k) panel_scroll_by(k);
             }
             continue;
         }
@@ -2091,7 +2096,8 @@ static void pointer_events(void)
             } else if (ov && e->kind != EK_TOUCH) tap_press |= 0;
         }
     }
-    if (mode == M_MAP && ed_wheel) { zoom_by(ed_wheel > 0 ? 1 : -1, ed_mouse_on ? ed_mouse_x : MAP_CX, ed_mouse_on ? ed_mouse_y : MAP_CY); }
+    if (ed_wheel && LIST_OV) panel_scroll_by(-ed_wheel * 2);          /* the wheel scrolls an open list */
+    else if (mode == M_MAP && !ov && ed_wheel) { zoom_by(ed_wheel > 0 ? 1 : -1, ed_mouse_on ? ed_mouse_x : MAP_CX, ed_mouse_on ? ed_mouse_y : MAP_CY); }
 }
 
 /* ------------------------------------------------------------------ the map screen */

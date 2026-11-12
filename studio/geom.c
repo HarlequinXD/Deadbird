@@ -19,7 +19,12 @@
 #include "ui.h"
 
 static char mapfile[32];
+#ifdef _WIN32
+static int loaded, last_kind = EK_MOUSE_L;        /* on a PC the editor starts in its mouse and keyboard layout */
+#else
 static int loaded, last_kind = EK_TOUCH;          /* the Studio is touch first; a mouse switches it */
+#endif
+static int hov_x = -1, hov_y = -1;               /* the mouse over the editor (frame pixels) */
 static float ix, iy, iw, ih;                 /* where the frame is shown (canvas units) */
 static int want_w;                           /* the frame width that keeps its pixels square */
 static u32 ptr_mask;                         /* pointers that went down on the editor */
@@ -104,9 +109,14 @@ int geom_pointer(int id, int ev, float x, float y, int kind)
     if (ev == EP_UP) ptr_mask &= ~bit;
     last_kind = kind;
     fx = (int)((x - ix) * SCREEN_W / iw); fy = (int)((y - iy) * SCREEN_H / ih);
+    if (kind != EK_TOUCH) { hov_x = fx; hov_y = fy; }
+    if (ev == EP_HOVER && (x < ix || y < iy || x >= ix + iw || y >= iy + ih)) { hov_x = hov_y = -1; return 0; }
     editor_pointer(id, ev, fx, fy, kind);
     return 1;
 }
+void geom_wheel(int steps) { if (loaded) editor_wheel(steps); }
+void geom_char(int ch) { if (loaded) editor_char(ch); }
+int  geom_hot(void) { return loaded && hov_x >= 0 && eu_hit_at(hov_x, hov_y) >= 0; }
 
 /* ---- the editor's UI, recorded in frame coordinates (edui.h), drawn crisp over the frame */
 static u32 col(u32 rgb, int semi)

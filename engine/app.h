@@ -27,7 +27,8 @@ enum { PK_TOUCH, PK_MOUSE_L, PK_MOUSE_R };
 enum {
     KEY_ENTER = 13, KEY_ESC = 27, KEY_BACKSPACE = 8, KEY_TAB = 9,
     KEY_UP = 128, KEY_DOWN, KEY_LEFT, KEY_RIGHT, KEY_SHIFT, KEY_CTRL, KEY_PGUP, KEY_PGDN,
-    KEY_F1, KEY_F10, KEY_MOUSE_L, KEY_COUNT = 160
+    KEY_F1, KEY_F10, KEY_MOUSE_L,
+    KEY_DEL, KEY_HOME, KEY_END, KEY_F2, KEY_F5, KEY_ALT, KEY_COUNT = 160
 };
 enum { KB_LX_POS = 1, KB_LX_NEG, KB_LY_POS, KB_LY_NEG };   /* a key that pushes the left stick */
 typedef struct {
@@ -74,6 +75,7 @@ typedef struct App {
     const HrList *(*hires_frame)(int w, int h, int density);
     void (*hires_pointer)(int id, int ev, int x, int y, int kind);
     void (*hires_back)(void);
+    int  (*hires_cursor)(void);          /* 1: the mouse is over something clickable (a hand) */
 } App;
 
 extern const App game_app;               /* every game defines exactly one */

@@ -11,6 +11,9 @@
  *   - the keyboard through the game's KeyBind tables (app.h), typed text in pointer mode
  *   - the mouse as a pointer (pointer mode) and as KEY_MOUSE_L
  *   - F11 or ALT+ENTER fullscreen
+ * Apps with a full-resolution UI (App.hires: the Studio) are drawn with the software rasteriser
+ * (engine/studio/hr_soft.c) on a pixel-art canvas scaled up to the window by a whole number
+ * (CTRL + / CTRL - / CTRL 0 change it); the mouse, wheel, typed text and keys go to the app.
  * User files live in a folder named by the game (App.files_dir) next to the exe.
  */
 #define WIN32_LEAN_AND_MEAN
@@ -24,6 +27,9 @@
 #define RECT PSX_RECT
 #include "engine.h"
 #include "files.h"
+#ifdef WIN_HIRES
+#include "hr_soft.h"
+#endif
 #undef RECT
 
 /* ------------------------------------------------------------------ XInput (xinput9_1_0.dll, ships with Windows) */
@@ -90,6 +96,73 @@ static void to_screen(LPARAM lp, int *x, int *y)
     *y = view_h > 0 ? (wy - view_y) * SCREEN_H / view_h : 0;
 }
 
+/* ------------------------------------------------------------------ full-resolution UI (App.hires) */
+#ifdef WIN_HIRES
+static u32 *hr_px; static int hr_cap, hr_w, hr_h, hr_shown;
+static BITMAPINFO hbmi;
+static int ui_scale;                         /* window pixels per canvas pixel; 0: by the window's size */
+static int hires_on(void) { const App *a = eng_app(); return a->hires && a->hires(); }
+static int scale_for(int h)
+{
+    int s = ui_scale ? ui_scale : (h + 310) / 620;      /* about 600 canvas lines: 1080p 2x, 1440p 2x, 2160p 3x */
+    if (s < 1) s = 1;
+    if (s > 6) s = 6;
+    return s;
+}
+static void scale_load(void) { char b[8]; int n = plat_file_load("studio-ui.cfg", b, 7); if (n > 0) { b[n] = 0; ui_scale = b[0] >= '0' && b[0] <= '6' ? b[0] - '0' : 0; } }
+static void scale_set(int s)
+{
+    char b[2];
+    if (s > 6) s = 6;
+    ui_scale = s < 0 ? 0 : s;
+    b[0] = (char)('0' + ui_scale); b[1] = 0;
+    plat_file_save("studio-ui.cfg", b, 1);
+    InvalidateRect(wnd, NULL, FALSE);
+}
+/* the app's list onto its canvas, then the canvas scaled up over the window */
+static void present_hires(HDC dc, int redraw)
+{
+    RECT rc;
+    int w, h, i, dx, dy;
+    GetClientRect(wnd, &rc);
+    w = rc.right; h = rc.bottom;
+    if (w <= 0 || h <= 0) return;
+    if (redraw || !hr_shown) {
+        const App *a = eng_app();
+        const HrList *l = a->hires_frame(w, h, scale_for(h) * 100);
+        HrFrameSrc fr;
+        int cw = l->vw > 0 ? l->vw : w, ch = l->vh > 0 ? l->vh : h;
+        if (cw * ch > hr_cap) {
+            HeapFree(GetProcessHeap(), 0, hr_px);
+            hr_cap = cw * ch;
+            hr_px = (u32 *)HeapAlloc(GetProcessHeap(), 0, (SIZE_T)hr_cap * 4);
+            if (!hr_px) { hr_cap = 0; return; }
+        }
+        eng_display_area(&dx, &dy);
+        fr.vram = gpu_vram(); fr.stride = VRAM_W; fr.x = dx; fr.y = dy; fr.w = SCREEN_W; fr.h = SCREEN_H;
+        hr_soft_draw(l, hr_px, cw, ch, &fr);
+        for (i = 0; i < cw * ch; i++) {                 /* bytes r,g,b,a -> GDI's b,g,r,x */
+            u32 c = hr_px[i];
+            hr_px[i] = (c & 0x0000ff00u) | (c & 0xffu) << 16 | (c >> 16 & 0xffu);
+        }
+        hr_w = cw; hr_h = ch; hr_shown = 1;
+        if (GetForegroundWindow() == wnd) {                    /* the pointer's shape follows what's under it */
+            POINT pt;
+            if (GetCursorPos(&pt) && ScreenToClient(wnd, &pt) && pt.x >= 0 && pt.y >= 0 && pt.x < w && pt.y < h)
+                SetCursor(LoadCursor(NULL, a->hires_cursor && a->hires_cursor() ? IDC_HAND : IDC_ARROW));
+        }
+    }
+    memset(&hbmi, 0, sizeof(hbmi));
+    hbmi.bmiHeader.biSize = sizeof(hbmi.bmiHeader);
+    hbmi.bmiHeader.biWidth = hr_w; hbmi.bmiHeader.biHeight = -hr_h;
+    hbmi.bmiHeader.biPlanes = 1; hbmi.bmiHeader.biBitCount = 32; hbmi.bmiHeader.biCompression = BI_RGB;
+    SetStretchBltMode(dc, COLORONCOLOR);                       /* nearest: crisp pixel art */
+    StretchDIBits(dc, 0, 0, w, h, 0, 0, hr_w, hr_h, hr_px, &hbmi, DIB_RGB_COLORS, SRCCOPY);
+}
+#else
+static int hires_on(void) { return 0; }
+#endif
+
 static void toggle_fullscreen(void)
 {
     DWORD style = (DWORD)GetWindowLongA(wnd, GWL_STYLE);
@@ -103,13 +176,13 @@ static void toggle_fullscreen(void)
                          mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
         }
         fullscreen = 1;
-        ShowCursor(FALSE);
+        if (!hires_on()) ShowCursor(FALSE);                    /* an editor keeps its mouse pointer */
     } else {
         SetWindowLongA(wnd, GWL_STYLE, (LONG)(style | WS_OVERLAPPEDWINDOW));
         SetWindowPlacement(wnd, &prev_place);
         SetWindowPos(wnd, NULL, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+        if (fullscreen && !hires_on()) ShowCursor(TRUE);
         fullscreen = 0;
-        ShowCursor(TRUE);
     }
 }
 
@@ -131,6 +204,9 @@ static void present(HDC dc)
     RECT rc;
     int w, h, vw, vh, vx, vy, x, y, dx, dy;
     const u16 *v = gpu_vram();
+#ifdef WIN_HIRES
+    if (hires_on()) { present_hires(dc, 0); return; }
+#endif
     eng_display_area(&dx, &dy);
     for (y = 0; y < SCREEN_H; y++) {
         const u16 *src = v + (dy + y) * VRAM_W + dx;
@@ -176,7 +252,13 @@ static int key_of(WPARAM vk)
     case VK_OEM_MINUS: case VK_SUBTRACT: return '-';
     case VK_OEM_PLUS: case VK_ADD: return '+';
     case VK_F1: return KEY_F1;
+    case VK_F2: return KEY_F2;
+    case VK_F5: return KEY_F5;
     case VK_F10: return KEY_F10;
+    case VK_DELETE: return KEY_DEL;
+    case VK_HOME: return KEY_HOME;
+    case VK_END: return KEY_END;
+    case VK_MENU: case VK_LMENU: case VK_RMENU: return KEY_ALT;
     }
     return 0;
 }
@@ -188,6 +270,16 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
     case WM_DESTROY: PostQuitMessage(0); return 0;
     case WM_KEYDOWN: case WM_SYSKEYDOWN:
         if (wp == VK_F11 || (wp == VK_RETURN && (lp & (1 << 29)))) { if (!(lp & (1 << 30))) toggle_fullscreen(); return 0; }
+#ifdef WIN_HIRES
+        if (hires_on() && (GetKeyState(VK_CONTROL) & 0x8000)) {   /* CTRL + / - / 0: the UI's size */
+            RECT rc; int cur;
+            GetClientRect(h, &rc);
+            cur = scale_for(rc.bottom);
+            if (wp == VK_OEM_PLUS || wp == VK_ADD) { scale_set(cur + 1); return 0; }
+            if (wp == VK_OEM_MINUS || wp == VK_SUBTRACT) { scale_set(cur > 1 ? cur - 1 : 1); return 0; }
+            if (wp == '0' || wp == VK_NUMPAD0) { scale_set(0); return 0; }
+        }
+#endif
         eng_key(key_of(wp), 1);
         if (msg == WM_SYSKEYDOWN && wp != VK_F4) return 0;
         break;
@@ -199,28 +291,61 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         break;
     /* the mouse: a pointer (pointer mode) and a button */
     case WM_MOUSEMOVE: {
-        int x, y; to_screen(lp, &x, &y);
+        int x, y;
+#ifdef WIN_HIRES
+        if (hires_on()) {
+            const App *a = eng_app();
+            x = (int)(short)LOWORD(lp); y = (int)(short)HIWORD(lp);
+            if (a->hires_pointer) a->hires_pointer(0, (wp & (MK_LBUTTON | MK_RBUTTON)) ? EV_MOVE : EV_HOVER, x, y, (wp & MK_RBUTTON) ? PK_MOUSE_R : PK_MOUSE_L);
+            return 0;
+        }
+#endif
+        to_screen(lp, &x, &y);
         if (wp & MK_RBUTTON) eng_pointer(0, EV_MOVE, x, y, PK_MOUSE_R);
         else if (wp & MK_LBUTTON) eng_pointer(0, EV_MOVE, x, y, PK_MOUSE_L);
         else eng_pointer(0, EV_HOVER, x, y, PK_MOUSE_L);
         return 0;
     }
     case WM_LBUTTONDOWN: case WM_RBUTTONDOWN: {
-        int x, y; to_screen(lp, &x, &y);
+        int x, y;
         SetCapture(h);
+#ifdef WIN_HIRES
+        if (hires_on()) {
+            const App *a = eng_app();
+            if (msg == WM_LBUTTONDOWN) eng_key(KEY_MOUSE_L, 1);
+            if (a->hires_pointer) a->hires_pointer(0, EV_DOWN, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), msg == WM_LBUTTONDOWN ? PK_MOUSE_L : PK_MOUSE_R);
+            return 0;
+        }
+#endif
+        to_screen(lp, &x, &y);
         if (msg == WM_LBUTTONDOWN) eng_key(KEY_MOUSE_L, 1);
         eng_pointer(0, EV_DOWN, x, y, msg == WM_LBUTTONDOWN ? PK_MOUSE_L : PK_MOUSE_R);
         return 0;
     }
     case WM_LBUTTONUP: case WM_RBUTTONUP: {
-        int x, y; to_screen(lp, &x, &y);
+        int x, y;
         ReleaseCapture();
+#ifdef WIN_HIRES
+        if (hires_on()) {
+            const App *a = eng_app();
+            if (msg == WM_LBUTTONUP) eng_key(KEY_MOUSE_L, 0);
+            if (a->hires_pointer) a->hires_pointer(0, EV_UP, (int)(short)LOWORD(lp), (int)(short)HIWORD(lp), msg == WM_LBUTTONUP ? PK_MOUSE_L : PK_MOUSE_R);
+            return 0;
+        }
+#endif
+        to_screen(lp, &x, &y);
         if (msg == WM_LBUTTONUP) eng_key(KEY_MOUSE_L, 0);
         eng_pointer(0, EV_UP, x, y, msg == WM_LBUTTONUP ? PK_MOUSE_L : PK_MOUSE_R);
         return 0;
     }
-    case WM_MOUSEWHEEL: eng_wheel((short)HIWORD(wp) > 0 ? 1 : -1); return 0;
-    case WM_CHAR: eng_char((int)wp); return 0;
+    case WM_MOUSEWHEEL:
+        if (hires_on()) { if (eng_app()->wheel) eng_app()->wheel((short)HIWORD(wp) > 0 ? 1 : -1); return 0; }
+        eng_wheel((short)HIWORD(wp) > 0 ? 1 : -1);
+        return 0;
+    case WM_CHAR:
+        if (hires_on()) { if (eng_app()->text) eng_app()->text((int)wp); return 0; }
+        eng_char((int)wp);
+        return 0;
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC dc = BeginPaint(h, &ps);
@@ -229,6 +354,15 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         return 0;
     }
     case WM_ERASEBKGND: return 1;
+#ifdef WIN_HIRES
+    case WM_SETCURSOR:
+        if (LOWORD(lp) == HTCLIENT && hires_on()) {
+            const App *a = eng_app();
+            SetCursor(LoadCursor(NULL, a->hires_cursor && a->hires_cursor() ? IDC_HAND : IDC_ARROW));
+            return TRUE;
+        }
+        break;
+#endif
     }
     return DefWindowProcA(h, msg, wp, lp);
 }
@@ -380,6 +514,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
 {
     WNDCLASSA wc;
     RECT r = { 0, 0, 426 * 3, SCREEN_H * 3 };                   /* 16:9 */
+#ifdef WIN_HIRES
+    RECT wa;
+#endif
     LARGE_INTEGER freq, last, now;
     double acc = 0.0, step;
     (void)prev; (void)cmd;
@@ -393,6 +530,15 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
     wc.hIcon = LoadIcon(inst, MAKEINTRESOURCE(1));          /* the game's icon (its .rc, resource 1) */
     wc.lpszClassName = "PS1Engine";
     RegisterClassA(&wc);
+#ifdef WIN_HIRES
+    /* an editor: most of the screen's work area (it can be resized, F11 fills the screen) */
+    if (SystemParametersInfoA(SPI_GETWORKAREA, 0, &wa, 0)) {
+        int ww = (wa.right - wa.left) * 85 / 100, wh = (wa.bottom - wa.top) * 85 / 100;
+        if (ww < 1024) ww = 1024;
+        if (wh < 600) wh = 600;
+        r.right = ww; r.bottom = wh;
+    }
+#endif
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
     wnd = CreateWindowA("PS1Engine", eng_app()->name, WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
                         r.right - r.left, r.bottom - r.top, NULL, NULL, inst, NULL);
@@ -408,6 +554,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
 
     xinput_load();
     lvl_init();
+#ifdef WIN_HIRES
+    scale_load();
+#endif
     eng_init();
     eng_set_touch_ui(0);
     eng_set_pad_style(1);
@@ -437,6 +586,10 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show)
         audio_pump();
         if (ticks) {
             HDC dc = GetDC(wnd);
+#ifdef WIN_HIRES
+            if (hires_on()) present_hires(dc, 1);
+            else
+#endif
             present(dc);
             ReleaseDC(wnd, dc);
         } else {

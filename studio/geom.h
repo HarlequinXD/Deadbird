@@ -19,6 +19,9 @@ void geom_view(float *x, float *y, float *w, float *h);   /* where the frame is 
 int  geom_tick(void);                                /* each engine tick on the tab: GEOM_* */
 void geom_draw(FrameBuf *fb, int t);                 /* the editor's picture (the App's draw) */
 int  geom_pointer(int id, int ev, float x, float y, int kind);   /* canvas units; 1: the editor took it */
+void geom_wheel(int steps);                          /* the mouse wheel: zoom the map / scroll a list */
+void geom_char(int ch);                              /* typed text (names) and CTRL+Z / Y / S */
+int  geom_hot(void);                                 /* the mouse is over one of the editor's buttons */
 int  geom_back(void);                                /* Android's back: the editor's O; 1: leave it */
 void geom_set_toast(void (*say)(const char *));
 int  geom_load_level(const char *name);              /* sector_world's loader for play-tests */

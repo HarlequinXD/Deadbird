@@ -1,5 +1,6 @@
 /*
- * Deadbird Studio - a game editor for Android (then Windows), built on the engine.
+ * Deadbird Studio - a game editor for Android and Windows, built on the engine. On a PC it runs
+ * with the mouse and keyboard: hover, the wheel, typing into values and shortcuts (F1 lists them).
  *
  * Projects -> the editor (Scene, Geometry, Behaviour, Assets) -> Play-test. The whole UI is drawn
  * at the screen's real resolution with sui (engine/studio); play-testing runs the project in the
@@ -55,6 +56,15 @@ static int ev_pick = -1, ev_pick_to = -1;       /* choosing the event for a new 
 /* scene editor */
 static int sel_type;
 static float insp_scroll, insp_content;     /* the behaviour inspector's scroll */
+
+/* a PC (mouse and keyboard): hover, shortcuts, typing, the keys sheet */
+#ifdef _WIN32
+static int pc = 1;
+#else
+static int pc;
+#endif
+static int help_open;                       /* the keyboard and mouse sheet (F1) */
+static char *typing, *typing_was; static int typing_num, typing_fresh;   /* the argument the keyboard edits */
 
 static void say(const char *s) { doc_copy(toast, s, sizeof(toast)); toast_t = 150; }
 
@@ -123,7 +133,7 @@ static void play_start(void)
     play_ok = fw_runtime_load(textbuf, n);
     paused = 0;
     screen = SCR_PLAY;
-    eng_set_touch_ui(1);
+    eng_set_touch_ui(!pc);                  /* a PC plays with the keyboard and mouse */
 }
 static void play_stop(void) { screen = SCR_EDIT; eng_set_touch_ui(0); if (tab == TAB_GEOMETRY) geom_resume(); }
 
@@ -144,6 +154,7 @@ static void header(const char *where)
         if (sui_button(T[i], x + 3 + i * 84, 10, 84, 24, T[i], tab == i ? BTN_TAB_ON : BTN_TAB)) { tab = i; sel_arg = -1; }
     if (sui_button("play", W - 84, 6, 76, 32, "Play", BTN_PRIMARY)) play_start();
     sui_tri(W - 76, 16, W - 76, 28, W - 66, 22, C_ONACC);
+    if (pc && sui_button("keys", W - 84 - 46, 6, 40, 32, "?", BTN_PLAIN)) help_open ^= 1;
 }
 
 static void draw_toast(void)
@@ -334,6 +345,13 @@ static void graph(float gx, float gy, float gw, float gh)
         m->s[drag_state].x += p->dx / zoom; m->s[drag_state].y += p->dy / zoom; doc.dirty = 1;
     }
     if (p->down && sui_captured() == &panning && p->fingers < 2) { pan_x += p->dx / zoom; pan_y += p->dy / zoom; }
+    if (p->wheel && sui_in(gx, gy, gw, gh)) {                   /* the wheel zooms round the pointer */
+        float nz = zoom * (p->wheel > 0 ? 1.15f : 1 / 1.15f);
+        if (nz < 0.5f) nz = 0.5f;
+        if (nz > 2.2f) nz = 2.2f;
+        pan_x += (p->x - gx) / nz - (p->x - gx) / zoom; pan_y += (p->y - gy) / nz - (p->y - gy) / zoom;
+        zoom = nz;
+    }
     if (p->fingers >= 2 && p->pinch != 1) {
         float cx = gx + gw / 2, cy = gy + gh / 2, nz = zoom * p->pinch;
         if (nz < 0.5f) nz = 0.5f;
@@ -435,7 +453,15 @@ static void arg_editor(DocAct *x, float px, float py, float pw)
     arg_name(&fw_actions[id], sel_arg, nm);
     sui_nine(SK_PANEL, px, py, pw, 76);
     sui_text(FONT_SEMIBOLD, 11, px + 10, py + 8, nm, C_ACCENT2);
-    sui_text(FONT_MONO, 15, px + 10, py + 26, x->arg[sel_arg], C_TEXT);
+    {
+        float tw = sui_text(FONT_MONO, 15, px + 10, py + 26, x->arg[sel_arg], C_TEXT);
+        if (pc && (t == ARG_NUM || t == ARG_TEXT)) {          /* the keyboard types into it */
+            if (typing_was != x->arg[sel_arg]) typing_fresh = 1;   /* the first key replaces the value */
+            typing = x->arg[sel_arg]; typing_num = t == ARG_NUM;
+            if ((eng_in()->ticks / 30) & 1) sui_rect(px + 10 + tw - (t == ARG_TEXT ? 7 : 0) + 1, py + 26, 2, 14, C_ACCENT);
+            sui_text(FONT_REGULAR, 10, px + pw - 10 - sui_text_w(FONT_REGULAR, 10, "TYPE TO CHANGE"), py + 9, "TYPE TO CHANGE", C_MUTED);
+        }
+    }
     if (t == ARG_NUM) {
         int v = atoi(x->arg[sel_arg]), st = arg_step(nm);
         static const char *const L[4] = { "-10", "-1", "+1", "+10" };
@@ -446,7 +472,7 @@ static void arg_editor(DocAct *x, float px, float py, float pw)
             }
         return;
     }
-    if (t == ARG_TEXT) { sui_text(FONT_REGULAR, 11, px + 10, py + 52, "Text editing comes with the keyboard support", C_MUTED); return; }
+    if (t == ARG_TEXT) { sui_text(FONT_REGULAR, 11, px + 10, py + 52, pc ? "Type the text; Enter when done" : "Connect a keyboard to change text", C_MUTED); return; }
     n = arg_options(&doc, t, opt, 40);
     if (t == ARG_EVENT && n < 40) { new_event_name(opt, n, opt[n]); n++; }
     for (i = 0; i < n; i++) if (!strcmp(opt[i], x->arg[sel_arg])) break;
@@ -491,6 +517,7 @@ static void inspector(float x, float y, float w, float h)
     float cy, top = y + 10;
     /* drag to scroll when it's taller than the screen */
     if (p->down && p->moved && p->fingers < 2 && !sui_captured() && sui_in(x, y, w, h)) insp_scroll -= p->dy;
+    if (p->wheel && sui_in(x, y, w, h)) insp_scroll -= p->wheel * 40.0f;
     if (insp_scroll > insp_content - (h - 50)) insp_scroll = insp_content - (h - 50);
     if (insp_scroll < 0) insp_scroll = 0;
     cy = top - insp_scroll;
@@ -755,7 +782,133 @@ static void play_view(void)
     if (sui_button("pause", 86, 4, 72, 32, paused ? "Resume" : "Pause", BTN_PLAIN)) paused ^= 1;
     sui_text(FONT_REGULAR, 12, 170, 13, play_ok ? "Play-testing" : "The project has an error", play_ok ? C_MUTED : C_RED);
     if (play_ok) sui_text(FONT_SEMIBOLD, 12, 260, 13, doc.title, C_TEXT);
+    if (pc) {
+        const char *k = "WASD MOVE   ARROWS / RIGHT DRAG LOOK   CLICK FIRE   SPACE JUMP   ESC STOP";
+        sui_text(FONT_MONO, 10, W - 12 - sui_text_w(FONT_MONO, 10, k), 15, k, C_MUTED);
+    }
     (void)p;
+}
+
+/* ------------------------------------------------------------------ keyboard and mouse */
+/* a key typed into the selected argument: numbers, or the text between its quotes */
+static int type_into(int ch)
+{
+    char b[DOC_STR];
+    int n;
+    if (!typing || tab != TAB_BEHAVIOUR || sel_arg < 0) return 0;
+    if (ch == 13 || ch == 27) { typing = 0; sel_arg = -1; return 1; }
+    if (typing_num) {
+        if (typing_fresh && ch != 8) typing[0] = 0;
+        n = (int)strlen(typing);
+        if (ch == 8) { if (n) typing[n - 1] = 0; if (!typing[0] || !strcmp(typing, "-")) doc_copy(typing, "0", DOC_STR); }
+        else if (((ch >= '0' && ch <= '9') || (ch == '-' && !n)) && n < 9) { typing[n] = (char)ch; typing[n + 1] = 0; }
+        else return 0;
+    } else {
+        n = (int)strlen(typing);
+        if (n >= 2 && typing[0] == '"' && typing[n - 1] == '"') { memcpy(b, typing + 1, (size_t)n - 2); b[n - 2] = 0; }
+        else doc_copy(b, typing, DOC_STR);
+        if (typing_fresh && ch != 8) b[0] = 0;
+        n = (int)strlen(b);
+        if (ch == 8) { if (n) b[n - 1] = 0; }
+        else if (ch >= 32 && ch < 127 && ch != '"' && n < DOC_STR - 3) { b[n] = (char)(ch >= 'a' && ch <= 'z' ? ch - 32 : ch); b[n + 1] = 0; }
+        else return 0;
+        snprintf(typing, DOC_STR, "\"%s\"", b);
+    }
+    typing_fresh = 0;
+    doc.dirty = 1;
+    return 1;
+}
+static void delete_selected(void)
+{
+    DocFsm *m = cur_fsm < doc.nfsms ? &doc.fsms[cur_fsm] : 0;
+    DocState *st;
+    if (!m || sel_state < 0 || sel_state >= m->ns) return;
+    st = &m->s[sel_state];
+    if (sel_trans >= 0) { doc_del_trans(st, sel_trans); sel_trans = -1; }
+    else if (sel_act >= 0) { doc_del_act(st, sel_act); sel_act = sel_arg = -1; }
+    else { doc_del_state(m, sel_state); sel_state = -1; }
+    doc.dirty = 1;
+}
+static void save_now(void) { if (screen == SCR_PROJECTS) return; save_doc(); say("SAVED"); }
+static int geom_editing(void) { return screen == SCR_EDIT && tab == TAB_GEOMETRY && geom_loaded(); }
+
+/* typed text (WM_CHAR): CTRL+S saves everywhere; the level editor takes the rest on its tab */
+static void typed(int ch)
+{
+    if (ch == 19) { save_now(); return; }                       /* CTRL+S */
+    if (help_open && ch == 27) { help_open = 0; return; }
+    if (screen == SCR_PLAY) { if (ch == 27) play_stop(); return; }
+    if (geom_editing()) { geom_char(ch); return; }
+    if (type_into(ch)) return;
+    if (ch == 27) {                                             /* ESC: close, then deselect */
+        if (pick_open) pick_open = 0;
+        else if (ev_pick >= 0) ev_pick = -1;
+        else if (sel_arg >= 0) sel_arg = -1;
+        else if (sel_act >= 0 || sel_trans >= 0) sel_act = sel_trans = -1;
+        else sel_state = -1;
+    }
+}
+static void wheel(int steps)
+{
+    if (screen == SCR_EDIT && tab == TAB_GEOMETRY && geom_loaded() && !help_open) geom_wheel(steps);
+    else sui_wheel(steps);
+}
+/* keys that type nothing: F1 the sheet, F5 play / stop, CTRL+1..4 the tabs, DELETE */
+static void shortcut_keys(void)
+{
+    static const int K[] = { KEY_F1, KEY_F5, '1', '2', '3', '4', KEY_DEL };
+    static u8 was[7];
+    int i, ctrl = eng_key_held(KEY_CTRL);
+    for (i = 0; i < 7; i++) {
+        int down = eng_key_held(K[i]), hit = down && !was[i];
+        was[i] = (u8)down;
+        if (!hit) continue;
+        if (K[i] == KEY_F1) help_open ^= 1;
+        else if (K[i] == KEY_F5) { if (screen == SCR_PLAY) play_stop(); else if (screen == SCR_EDIT) play_start(); }
+        else if (K[i] == KEY_DEL) { if (screen == SCR_EDIT && tab == TAB_BEHAVIOUR && !typing) delete_selected(); }
+        else if (ctrl && screen == SCR_EDIT) { tab = K[i] - '1'; sel_arg = -1; }
+    }
+}
+static int cursor_hand(void) { return sui_hot() || (geom_editing() && !help_open && geom_hot()); }
+
+/* the keyboard and mouse sheet */
+static void help_sheet(void)
+{
+    static const char *const R[][2] = {
+        { "STUDIO", 0 },
+        { "Save", "CTRL S" }, { "Play-test / stop", "F5" }, { "Tabs", "CTRL 1 2 3 4" },
+        { "Bigger / smaller UI", "CTRL + / CTRL -" }, { "Full screen", "F11" }, { "Close / deselect", "ESC" },
+        { "BEHAVIOUR", 0 },
+        { "Move a state", "DRAG IT" }, { "Pan / zoom", "DRAG EMPTY / WHEEL" }, { "Change a value", "CLICK IT, TYPE" },
+        { "Delete selected", "DELETE" },
+        { "LEVEL EDITOR", 0 },
+        { "Use the tool", "CLICK / SPACE" }, { "Cursor", "MOUSE / ARROWS" }, { "Pan / zoom", "RIGHT DRAG / WHEEL" },
+        { "Tools / inspect", "TAB / I" }, { "Undo / redo", "CTRL Z / CTRL Y" }, { "3D view", "V" }, { "Fly (3D)", "W A S D Q E" },
+        { "Menu", "M" }, { "Cancel", "ESC" },
+        { "PLAY-TEST", 0 },
+        { "Move / turn", "W A S D / ARROWS" }, { "Look", "RIGHT DRAG" }, { "Fire / jump", "CLICK / SPACE" },
+    };
+    int n = (int)(sizeof(R) / sizeof(R[0])), i, col = 0;
+    float pw = W - 120 > 760 ? 760 : W - 120, ph = H - 90 > 470 ? 470 : H - 90, px = (W - pw) / 2, py = (H - ph) / 2 + 10, y;
+    sui_rect(0, 0, W, H, 0xA0000000u);
+    sui_nine(SK_PANEL, px, py, pw, ph);
+    sui_text(FONT_FIRE, 18, px + 18, py + 14, "Keyboard and mouse", C_TEXT);
+    if (sui_button("helpx", px + pw - 46, py + 10, 34, 28, "X", BTN_PLAIN)) help_open = 0;
+    y = py + 50;
+    for (i = 0; i < n; i++) {
+        float cx = px + 18 + col * (pw / 2);
+        if (!R[i][1]) {
+            if (i && y > py + ph - 120 && !col) { col = 1; y = py + 50; cx = px + 18 + pw / 2; }
+            if (y > py + 50) y += 6;
+            sui_text(FONT_FIRE, 10.5f, cx, y, R[i][0], C_ACCENT2);
+            y += 18;
+            continue;
+        }
+        sui_text(FONT_REGULAR, 12, cx, y, R[i][0], C_TEXT);
+        sui_text(FONT_MONO, 11, cx + pw / 2 - 36 - sui_text_w(FONT_MONO, 11, R[i][1]), y + 1, R[i][1], C_ACCENT);
+        y += 17;
+    }
+    sui_text_c(FONT_REGULAR, 11, px + pw / 2, py + ph - 22, "F1 opens and closes this sheet", C_MUTED);
 }
 
 /* ------------------------------------------------------------------ the App */
@@ -766,11 +919,13 @@ static const HrList *hires_frame(int w, int h, int density)
     sui_begin(w, h, density);
     W = sui_w(); H = sui_h();
     sui_frame_input();
+    typing_was = typing; typing = 0;        /* the inspector names it again if it's still open */
+    sui_mute(help_open);
     if (screen == SCR_PROJECTS) projects();
     else if (screen == SCR_PLAY) play_view();
     else {
         static const char *const WH[4] = { "/ Scene", "/ Geometry", "/ Behaviour", "/ Assets" };
-        int modal = tab == TAB_BEHAVIOUR && (pick_open || ev_pick >= 0);
+        int modal = help_open || (tab == TAB_BEHAVIOUR && (pick_open || ev_pick >= 0));
         sui_mute(modal);
         if (tab == TAB_BEHAVIOUR) behaviour();
         else if (tab == TAB_SCENE) scene();
@@ -781,12 +936,15 @@ static const HrList *hires_frame(int w, int h, int density)
             if (wc) make_level(wc == 1);
         }
         else placeholder("Assets", "Model import (FBX, glTF, OBJ) with animation clips comes in", "milestone 4, along with textures and sounds.");
-        header(WH[tab]);
         sui_mute(0);
+        header(WH[tab]);
+        sui_mute(help_open);
         if (pick_open && tab == TAB_BEHAVIOUR) picker();
         if (ev_pick >= 0 && tab == TAB_BEHAVIOUR) event_picker();
         if (doc.dirty && (eng_in()->ticks % 300) == 0) save_doc();
     }
+    sui_mute(0);
+    if (help_open) help_sheet();
     draw_toast();
     return sui_end(C_BG);
 }
@@ -794,6 +952,16 @@ static const HrList *hires_frame(int w, int h, int density)
 /* pointers: to the UI, and during play also to the game's touch controls (under the top bar) */
 static void hires_pointer(int id, int ev, int x, int y, int kind)
 {
+    static int look_x, looking;
+    sui_mouse(kind != PK_TOUCH);
+    if (screen == SCR_PLAY && kind != PK_TOUCH) {              /* a mouse in a play-test: right drag looks */
+        sui_pointer(id, ev, x, y);
+        if (ev == EV_DOWN && kind == PK_MOUSE_R) { looking = 1; look_x = x; }
+        else if (ev == EV_MOVE && looking) { int d = (x - look_x) * 100 / (frame_d > 0 ? frame_d : 100); if (d) { fw_rt_look(d * 2); look_x = x; } }
+        else if (ev == EV_UP) looking = 0;
+        return;
+    }
+    if (help_open) { sui_pointer(id, ev, x, y); return; }
     if (screen == SCR_EDIT && tab == TAB_GEOMETRY && frame_d > 0 &&
         geom_pointer(id, ev, x * 100.0f / frame_d, y * 100.0f / frame_d, kind)) return;   /* the level editor's */
     sui_pointer(id, ev, x, y);
@@ -863,6 +1031,7 @@ static void frame_width(int want)
 }
 static void tick(void)
 {
+    shortcut_keys();
     frame_width(screen == SCR_EDIT && tab == TAB_GEOMETRY ? geom_frame_w() : 0);
     if (screen == SCR_PLAY && play_ok && !paused) fw_rt_tick();
     else if (screen == SCR_EDIT && tab == TAB_GEOMETRY) {
@@ -878,16 +1047,29 @@ static void draw(FrameBuf *fb)
 }
 static int ram(void) { return (int)sizeof(doc) + fw_rt_ram(); }
 
+/* the keyboard in the level editor: as in the game's editor (F1 is the Studio's keys sheet) */
+static const KeyBind KEYS_EDITOR[] = {
+    { KEY_UP, 0, 0, PAD_UP }, { KEY_DOWN, 0, 0, PAD_DOWN }, { KEY_LEFT, 0, 0, PAD_LEFT }, { KEY_RIGHT, 0, 0, PAD_RIGHT },
+    { 'W', KB_LY_POS, 1, 0 }, { 'S', KB_LY_NEG, 1, 0 }, { 'A', KB_LX_NEG, 1, 0 }, { 'D', KB_LX_POS, 1, 0 },   /* fly in 3D */
+    { ' ', 0, 1, PAD_CROSS }, { KEY_ENTER, 0, 1, PAD_CROSS }, { KEY_ESC, 0, 1, PAD_CIRCLE }, { KEY_BACKSPACE, 0, 1, PAD_CIRCLE },
+    { KEY_TAB, 0, 1, PAD_TRIANGLE }, { 'I', 0, 1, PAD_SQUARE }, { 'Q', 0, 1, PAD_L1 }, { 'E', 0, 1, PAD_R1 },
+    { KEY_PGDN, 0, 1, PAD_L2 }, { '-', 0, 1, PAD_L2 }, { KEY_PGUP, 0, 1, PAD_R2 }, { '+', 0, 1, PAD_R2 },
+    { 'V', 0, 1, PAD_SELECT }, { 'M', 0, 1, PAD_START }, { KEY_F10, 0, 1, PAD_START },
+    { 0, 0, 0, 0 }
+};
+static int keys_to_editor(void) { return geom_editing() && !help_open; }
+
 const App game_app = {
     "DEADBIRD STUDIO",
     init, tick, draw,
     fw_rt_touch_buttons, fw_rt_tap, fw_rt_look, 45,
-    0, 0, 0, 0,
+    keys_to_editor, 0, wheel, typed,
     0,
-    fw_runtime_keys, 0,
+    fw_runtime_keys, KEYS_EDITOR,
     "projects", ".game",
     ram,
     hires, hires_frame, hires_pointer, hires_back,
+    cursor_hand,
 };
 
 /* tests */
@@ -896,3 +1078,6 @@ int  studio_screen(void) { return screen; }
 int  studio_play_ok(void) { return play_ok; }
 void studio_tab(int t) { tab = t; }
 int studio_tab_now(void) { return tab; }
+void studio_set_pc(int on) { pc = on; }
+void studio_select_arg(int state, int act, int arg) { tab = TAB_BEHAVIOUR; cur_fsm = 0; sel_state = state; sel_trans = -1; sel_act = act; sel_arg = arg; }
+int  studio_help_open(void) { return help_open; }

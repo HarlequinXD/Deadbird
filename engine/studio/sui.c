@@ -361,6 +361,10 @@ static SuiPtr P;
 static const void *active, *cap;
 static float fx[4], fy[4]; static int fon[4];
 static float last_spread;
+static int wheel_acc, is_mouse, hot, hot_next;
+void sui_wheel(int steps) { wheel_acc += steps; }
+void sui_mouse(int on) { is_mouse = on; }
+int  sui_hot(void) { return hot; }
 
 void sui_pointer(int id, int ev, int x, int y)
 {
@@ -395,6 +399,8 @@ static void take_input(void)
     P.dx = P.pressed ? 0 : P.x - ox; P.dy = P.pressed ? 0 : P.y - oy;
     if (P.down && (fabsf(P.x - P.sx) > 10 || fabsf(P.y - P.sy) > 10)) P.moved = 1;
     P.fingers = fon[0] + fon[1] + fon[2] + fon[3];
+    P.wheel = wheel_acc; wheel_acc = 0;
+    P.mouse = is_mouse;
     P.pinch = 1;
     if (fon[0] && fon[1]) {
         float s = sqrtf((fx[0] - fx[1]) * (fx[0] - fx[1]) + (fy[0] - fy[1]) * (fy[0] - fy[1]));
@@ -414,6 +420,7 @@ const void *sui_captured(void) { return cap; }
 int  sui_tap(const void *id, float x, float y, float w, float h)
 {
     if (muted) return 0;
+    if (P.mouse && sui_in(x, y, w, h)) hot_next = 1;
     if (P.pressed && sui_in(x, y, w, h) && !cap) active = id;
     if (P.released && active == id) { active = 0; return !P.moved && sui_in(x, y, w, h); }
     return 0;
@@ -421,6 +428,7 @@ int  sui_tap(const void *id, float x, float y, float w, float h)
 
 void sui_frame_input(void)
 {
+    hot = hot_next; hot_next = 0;
     if (P.released) { active = 0; cap = 0; }
     take_input();
 }
@@ -442,6 +450,10 @@ int sui_button(const void *id, float x, float y, float w, float h, const char *l
     }
     if (held) { cell = SK_BUTTON_LIT; fg = 0x3C0A02; }
     if (cell >= 0) sui_nine(cell, x, y, w, h);
+    if (!held && P.mouse && !P.down && sui_in(x, y, w, h)) {     /* the mouse over it: a molten edge */
+        sui_rrect_line(x + 1, y + 1, w - 2, h - 2, 4, 1, 0xC0FF6A2Bu);
+        if (style == BTN_TAB) fg = C_TEXT;
+    }
     if (label) sui_text_c(font, 12, x + w / 2, floorf(y + h / 2 - 5), label, fg);
     return hit;
 }

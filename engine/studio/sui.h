@@ -35,6 +35,9 @@ float sui_h(void);
 /* input: platform events in screen pixels (id = finger; 0 = the mouse / first finger) */
 void  sui_pointer(int id, int ev, int x, int y);
 void  sui_frame_input(void);                            /* take this frame's input: call before drawing */
+void  sui_wheel(int steps);                             /* the mouse wheel */
+void  sui_mouse(int on);                                /* the pointer is a mouse (1) or a finger (0) */
+int   sui_hot(void);                                    /* the mouse is over something clickable (last frame) */
 typedef struct {
     float x, y;                  /* where the pointer is (dp) */
     int   down;                  /* held */
@@ -44,6 +47,8 @@ typedef struct {
     int   moved;                 /* dragged further than a tap allows since it went down */
     int   fingers;               /* fingers on the screen */
     float pinch;                 /* two fingers: ratio of their spread to last frame's (1 = none) */
+    int   wheel;                 /* mouse wheel steps this frame (+ away from you) */
+    int   mouse;                 /* it's a mouse (hover shows what's clickable) */
 } SuiPtr;
 const SuiPtr *sui_ptr(void);
 int   sui_in(float x, float y, float w, float h);       /* the pointer is inside */

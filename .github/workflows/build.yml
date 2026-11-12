@@ -93,6 +93,14 @@ jobs:
         with:
           name: Deadbird-windows
           path: platform/windows/Deadbird.exe
+      - name: Build DeadbirdStudio.exe (MSVC)
+        shell: cmd
+        working-directory: platform/windows
+        run: build_studio_msvc.bat
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DeadbirdStudio-windows
+          path: platform/windows/DeadbirdStudio.exe
 
   windows-mingw:
     name: Windows EXE (MinGW check)
@@ -105,6 +113,10 @@ jobs:
         run: |
           make -C platform/windows CC=x86_64-w64-mingw32-gcc CFLAGS="-Os -std=c99 -Wall -Wextra -Wno-unused-parameter -Werror"
           ls -la platform/windows/Deadbird.exe
+      - name: Build DeadbirdStudio.exe
+        run: |
+          make -C platform/windows DeadbirdStudio.exe CC=x86_64-w64-mingw32-gcc STUDIO_CFLAGS="-O2 -std=c99 -Wall -Wextra -Wno-unused-parameter -Werror"
+          ls -la platform/windows/DeadbirdStudio.exe
 
   ps1:
     name: PS1 disc image

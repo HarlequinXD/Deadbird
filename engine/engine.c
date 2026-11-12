@@ -43,6 +43,7 @@ void eng_init(void)
 /* ------------------------------------------------------------------ keyboard */
 void eng_key(int key, int down) { if (key > 0 && key < KEY_COUNT) keys[key] = (u8)(down != 0); }
 void eng_keys_clear(void) { memset(keys, 0, sizeof(keys)); }
+int  eng_key_held(int key) { return key > 0 && key < KEY_COUNT && keys[key]; }
 static u32 key_pad(int *lx, int *ly)
 {
     const KeyBind *k = eng_pointer_mode() ? A()->keys_pointer : A()->keys;
