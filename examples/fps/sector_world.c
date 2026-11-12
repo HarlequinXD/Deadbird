@@ -8,7 +8,15 @@
 #include "level.h"
 #include "map.h"
 
-static void w_load(const char *name) { (void)name; level_init(); }
+/* levels come from the app's loader when it sets one (the Studio's: a .map file through the map
+   builder); without one, or if it fails, Deadbird's level 1 */
+static int (*map_loader)(const char *name);
+void sector_world_set_loader(int (*load)(const char *name)) { map_loader = load; }
+static void w_load(const char *name)
+{
+    if (map_loader && map_loader(name ? name : "")) return;     /* "" : the loader restores level 1 */
+    level_init();
+}
 static void w_spawn(s32 *x, s32 *z, int *yaw) { level_spawn(x, z, yaw); }
 static s32  w_ground(s32 x, s32 z, s32 y) { return level_ground(x, z, y); }
 static int  w_collide(s32 *x, s32 *z, s32 y, s32 r, s32 *nx, s32 *nz) { return level_collide(x, z, y, r, nx, nz); }

@@ -18,9 +18,11 @@
 #include "doc.h"
 #include "hellgate_game.h"
 #include "studio_atlas.h"
+#include "geom.h"
 
 extern const FwWorld sector_world;
 void sector_world_init(void);
+void sector_world_set_loader(int (*load)(const char *name));
 
 static const char EMPTY_GAME[] =
     "game \"NEW GAME\"\ncamera first\nplayer walk 44 run 80 jump 72 gravity 5 eye 1450 hp 100 turn 70\nweapon hitscan 20000 damage 10 rate 12\n\n"
@@ -64,6 +66,26 @@ static void save_doc(void)
     n = doc_write(&doc, textbuf, (int)sizeof(textbuf));
     if (!plat_file_save(doc.file, textbuf, n)) say("COULDN'T SAVE THE PROJECT");
     doc.dirty = 0;
+    geom_save();
+}
+/* the project's level: <project>.map beside it */
+static void level_name(char *out, int cap)
+{
+    int l;
+    snprintf(out, (size_t)cap, "%s", doc.file);
+    l = (int)strlen(out);
+    if (l > 5 && !strcmp(out + l - 5, ".game")) out[l - 5] = 0;
+    l = (int)strlen(out);
+    if (l > cap - 5) out[cap - 5] = 0;
+    strcat(out, ".map");
+}
+static void make_level(int from_level1)
+{
+    char name[32];
+    level_name(name, (int)sizeof(name));
+    if (!geom_create(name, from_level1)) { say("COULDN'T CREATE THE LEVEL"); return; }
+    doc_head_set(&doc, "level", name);
+    save_doc();
 }
 static int open_doc(const char *file)
 {
@@ -72,11 +94,12 @@ static int open_doc(const char *file)
     doc_copy(doc.file, file, sizeof(doc.file));
     if (!doc_parse(&doc, textbuf, n)) return 0;
     cur_fsm = 0; sel_state = sel_trans = sel_act = sel_arg = -1; sel_type = 0;
+    geom_open(doc_head_word(&doc, "level", 1));
     pan_x = 20; pan_y = 20; zoom = 1;
     screen = SCR_EDIT; tab = TAB_BEHAVIOUR;
     return 1;
 }
-static void new_project(const char *text, int len, const char *base)
+static void new_project(const char *text, int len, const char *base, int level)
 {
     char name[32];
     int i, k = 1;
@@ -88,7 +111,7 @@ static void new_project(const char *text, int len, const char *base)
     }
     if (!plat_file_save(name, text, len)) { say("COULDN'T CREATE THE PROJECT"); return; }
     refresh_files();
-    open_doc(name);
+    if (open_doc(name) && level) make_level(level == 1);
 }
 
 /* ------------------------------------------------------------------ play */
@@ -157,15 +180,15 @@ static void projects(void)
         sui_text(FONT_SEMIBOLD, 13, cx + 12, cy + 62, TPL[i][0], C_TEXT);
         sui_text(FONT_REGULAR, 11, cx + 12, cy + 82, TPL[i][1], C_MUTED);
         if (tap) {
-            if (i == 0) new_project(HELLGATE, (int)sizeof(HELLGATE) - 1, "shooter");
-            else if (i == 3) new_project(EMPTY_GAME, (int)sizeof(EMPTY_GAME) - 1, "game");
+            if (i == 0) new_project(HELLGATE, (int)sizeof(HELLGATE) - 1, "shooter", 1);
+            else if (i == 3) new_project(EMPTY_GAME, (int)sizeof(EMPTY_GAME) - 1, "game", 2);
             else {
                 Doc *d = &doc;
                 doc.file[0] = 0;
                 doc_parse(d, HELLGATE, (int)sizeof(HELLGATE) - 1);
                 if (i == 1) { doc_head_set(d, "camera", "third"); doc_head_set(d, "game", "\"THIRD PERSON\""); }
                 else { int k; for (k = 0; k < d->ntypes; k++) if (!strcmp(d->types[k].name, "imp")) doc_type_set_line(&d->types[k], "thing", "none"); doc_head_set(d, "game", "\"EXPLORATION\""); }
-                { int n = doc_write(d, textbuf, (int)sizeof(textbuf)); static char t2[65536]; memcpy(t2, textbuf, (size_t)n); new_project(t2, n, i == 1 ? "action" : "explore"); }
+                { int n = doc_write(d, textbuf, (int)sizeof(textbuf)); static char t2[65536]; memcpy(t2, textbuf, (size_t)n); new_project(t2, n, i == 1 ? "action" : "explore", 1); }
             }
         }
     }
@@ -750,7 +773,7 @@ static const HrList *hires_frame(int w, int h, int density)
         sui_mute(modal);
         if (tab == TAB_BEHAVIOUR) behaviour();
         else if (tab == TAB_SCENE) scene();
-        else if (tab == TAB_GEOMETRY) placeholder("Level geometry", "The sector editor joins the Studio next: draw rooms, raise floors,", "paint walls and place things. Projects play on Level 1 for now.");
+        else if (tab == TAB_GEOMETRY) { int wc; geom_tab(0, 45, W, H - 45, &wc); if (wc) make_level(wc == 1); }
         else placeholder("Assets", "Model import (FBX, glTF, OBJ) with animation clips comes in", "milestone 4, along with textures and sounds.");
         header(WH[tab]);
         sui_mute(0);
@@ -813,13 +836,19 @@ static void init(void)
 {
     atlas_init();
     sector_world_init();
+    sector_world_set_loader(geom_load_level);
+    geom_set_toast(say);
     fw_set_world(&sector_world);
     fw_init();
     refresh_files();
     (void)back_tab;
 }
 static void tick(void) { if (screen == SCR_PLAY && play_ok && !paused) fw_rt_tick(); }
-static void draw(FrameBuf *fb) { if (screen == SCR_PLAY && play_ok) fw_rt_draw(fb); else if (screen == SCR_PLAY) fw_rt_draw(fb); }
+static void draw(FrameBuf *fb)
+{
+    if (screen == SCR_PLAY) fw_rt_draw(fb);
+    else if (screen == SCR_EDIT && tab == TAB_GEOMETRY && geom_in3d()) geom_draw3d(fb, (int)eng_in()->ticks);
+}
 static int ram(void) { return (int)sizeof(doc) + fw_rt_ram(); }
 
 const App game_app = {
@@ -838,3 +867,4 @@ const App game_app = {
 Doc *studio_doc(void) { return &doc; }
 int  studio_screen(void) { return screen; }
 int  studio_play_ok(void) { return play_ok; }
+void studio_tab(int t) { tab = t; }

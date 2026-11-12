@@ -28,7 +28,7 @@ int fw_runtime_load(const char *text, int len)
 {
     src = text; src_len = len;
     ok = fw_project_load(text, len, &proj);
-    if (ok) fw_start();
+    if (ok) { fw_set_level(proj.level); fw_start(); }
     end_wait = 0;
     return ok;
 }

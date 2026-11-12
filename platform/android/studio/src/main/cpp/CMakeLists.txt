@@ -16,7 +16,7 @@ file(GLOB STUDIO_SRC ${ROOT}/studio/*.c)
 file(GLOB GEN_SRC ${ROOT}/gen/*.c)
 
 add_library(studio SHARED ${ROOT}/engine/platform/android/android_main.c ${ENGINE_SRC} ${FW_SRC} ${UI_SRC} ${STUDIO_SRC}
-            ${ROOT}/examples/fps/sector_world.c ${ROOT}/game/level.c ${GEN_SRC})
+            ${ROOT}/examples/fps/sector_world.c ${ROOT}/game/level.c ${ROOT}/game/edmap.c ${GEN_SRC})
 target_include_directories(studio PRIVATE ${ROOT}/engine ${ROOT}/engine/fw ${ROOT}/engine/studio ${ROOT}/studio
                            ${ROOT}/examples/fps ${ROOT}/game ${ROOT}/gen ${ROOT}/assets)
 set_target_properties(studio PROPERTIES C_STANDARD 99)

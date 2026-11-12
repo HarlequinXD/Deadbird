@@ -78,6 +78,6 @@ fwtest: $(FWTEST_SRC) $(wildcard $(ROOT)/engine/fw/*.h) $(ROOT)/examples/fps/hel
 
 # Deadbird Studio (studio/), headless: scripted taps, pixel-art screenshots, project checks
 STUDIO_SRC := studiotest.c $(FILES) $(wildcard $(ROOT)/engine/*.c) $(FW) $(wildcard $(ROOT)/engine/studio/*.c) \
-              $(wildcard $(ROOT)/studio/*.c) $(ROOT)/examples/fps/sector_world.c $(WORLD)
+              $(wildcard $(ROOT)/studio/*.c) $(ROOT)/examples/fps/sector_world.c $(ROOT)/game/edmap.c $(WORLD)
 studiotest: $(STUDIO_SRC) $(wildcard $(ROOT)/engine/studio/*.h) $(wildcard $(ROOT)/studio/*.h)
 	$(CC) $(CFLAGS) -I$(ROOT)/engine -I$(ROOT)/engine/fw -I$(ROOT)/engine/studio -I$(ROOT)/studio -I$(ROOT)/examples/fps $(INC) $(STUDIO_SRC) -o $@ -lm

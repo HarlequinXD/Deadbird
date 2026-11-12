@@ -17,6 +17,7 @@ static int      nevents;
 static char     texts[FW_TEXTS][40];
 static int      ntexts;
 static const FwWorld *world;
+static char level_name[32];
 s32 fw_global[FW_GLOBALS];
 FwGame fw_game;
 FwPlayerCfg fw_player_cfg;
@@ -445,11 +446,18 @@ void fw_init(void)
     if (!font_up) { fw_font_init(); fw_sfx_init(); font_up = 1; }
 }
 
+void fw_set_level(const char *name)
+{
+    int i;
+    for (i = 0; i < 31 && name && name[i]; i++) level_name[i] = name[i];
+    level_name[i] = 0;
+}
+
 void fw_start(void)
 {
     int i, n;
     for (i = 0; i < FW_ACTORS; i++) act[i].used = 0;
-    if (world && world->load) world->load("");
+    if (world && world->load) world->load(level_name);
     fw_player_reset();
     n = world && world->thing_count ? world->thing_count() : 0;
     for (i = 0; i < n; i++) {

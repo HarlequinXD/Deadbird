@@ -150,6 +150,7 @@ void fw_look(int dyaw);                       /* turn the camera (touch look dra
 /* ------------------------------------------------------------------ running it */
 void fw_init(void);                           /* clears everything (protos, FSMs, actors) */
 void fw_start(void);                          /* load the world, spawn the player and the level's things */
+void fw_set_level(const char *name);          /* the level fw_start loads ("" = the world's default) */
 void fw_tick(void);                           /* input, FSMs, physics, collisions: once a tick */
 void fw_draw(FrameBuf *fb);                   /* world, actors, weapon, HUD */
 int  fw_ram_used(void);
