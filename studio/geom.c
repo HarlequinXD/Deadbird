@@ -81,13 +81,20 @@ int geom_load_level(const char *name)
 }
 
 /* each engine tick while the tab is up: the editor's update, with the pad / keys / sticks */
-int geom_tick(void)
+int geom_tick(int no_pad)
 {
     const Input *in = eng_in();
-    int r;
+    u32 pad = in->pad, press = in->press;
+    int r, lx = in->lx, ly = in->ly, rx = in->rx, ry = in->ry;
     if (!loaded) return GEOM_STAY;
+    if (no_pad) {                        /* the controller drives the Studio's pointer: keyboard only */
+        int a, b, c, d;
+        u32 dev = eng_pad_device();
+        eng_pad_sticks(&a, &b, &c, &d);
+        pad &= ~dev; press &= ~dev; lx -= a; ly -= b; rx -= c; ry -= d;
+    }
     editor_style(in->pad_style, touch_now());
-    r = editor_update(in->pad, in->press, in->lx, in->ly, in->rx, in->ry);
+    r = editor_update(pad, press, lx, ly, rx, ry);
     if (r == ED_PLAYTEST) return GEOM_PLAY;
     if (r == ED_EXIT) return GEOM_EXIT;
     return GEOM_STAY;
@@ -108,7 +115,7 @@ int geom_pointer(int id, int ev, float x, float y, int kind)
     } else if (ev != EP_HOVER && !(ptr_mask & bit)) return 0;
     if (ev == EP_UP) ptr_mask &= ~bit;
     last_kind = kind;
-    fx = (int)((x - ix) * SCREEN_W / iw); fy = (int)((y - iy) * SCREEN_H / ih);
+    fx = (int)((x - ix) * EU_W / iw); fy = (int)((y - iy) * EU_H / ih);   /* the editor's units */
     if (kind != EK_TOUCH) { hov_x = fx; hov_y = fy; }
     if (ev == EP_HOVER && (x < ix || y < iy || x >= ix + iw || y >= iy + ih)) { hov_x = hov_y = -1; return 0; }
     editor_pointer(id, ev, fx, fy, kind);
@@ -147,12 +154,13 @@ static int sk_of(int cell)
 }
 static void hires_ui(void)
 {
-    static short order[3000];
-    float s = iw / SCREEN_W;
-    int n = eu_ncmd, i, k;
+    static short order[16000];
+    float s = iw / EU_W;                          /* dp per UI unit */
+    int n = eu_ncmd, i, k, hi = sui_fullres() && eu_w;
+    float em = 9.6f * s;                          /* the PS1 font's 7-pixel capitals, as outlines */
 #define X(v) (ix + (v) * s)
 #define Y(v) (iy + (v) * s)
-    if (n > 3000) n = 3000;
+    if (n > 16000) n = 16000;
     /* the PS1's order: the deepest first; at one depth the last added first (it was prepended) */
     for (i = 0; i < n; i++) order[i] = (short)(n - 1 - i);
     for (i = 1; i < n; i++) {                     /* stable insertion sort, deepest first */
@@ -169,12 +177,13 @@ static void hires_ui(void)
         case EUC_RECT_G:
             sui_gradient(X(c->x[0]), Y(c->y[0]), (c->x[1] - c->x[0]) * s, (c->y[1] - c->y[0]) * s, col(c->c, -1), col(c->c2, -1));
             break;
-        case EUC_TRI:
-            sui_tri(X(c->x[0]), Y(c->y[0]), X(c->x[1]), Y(c->y[1]), X(c->x[2]), Y(c->y[2]), col(c->c, c->semi));
+        case EUC_TRI:          /* full res: sector fills are meshes, so no soft rims (no seams) */
+            if (hi) sui_tri_flat(X(c->x[0]), Y(c->y[0]), X(c->x[1]), Y(c->y[1]), X(c->x[2]), Y(c->y[2]), col(c->c, c->semi));
+            else sui_tri(X(c->x[0]), Y(c->y[0]), X(c->x[1]), Y(c->y[1]), X(c->x[2]), Y(c->y[2]), col(c->c, c->semi));
             break;
         case EUC_QUAD:
-            sui_tri(X(c->x[0]), Y(c->y[0]), X(c->x[1]), Y(c->y[1]), X(c->x[2]), Y(c->y[2]), col(c->c, c->semi));
-            sui_tri(X(c->x[1]), Y(c->y[1]), X(c->x[3]), Y(c->y[3]), X(c->x[2]), Y(c->y[2]), col(c->c, c->semi));
+            sui_tri_flat(X(c->x[0]), Y(c->y[0]), X(c->x[1]), Y(c->y[1]), X(c->x[2]), Y(c->y[2]), col(c->c, c->semi));
+            sui_tri_flat(X(c->x[1]), Y(c->y[1]), X(c->x[3]), Y(c->y[3]), X(c->x[2]), Y(c->y[2]), col(c->c, c->semi));
             break;
         case EUC_DISC:
             sui_circle(X(c->x[0] + 0.5f), Y(c->y[0] + 0.5f), (c->x[1] + 0.5f) * s, col(c->c, c->semi));
@@ -185,17 +194,21 @@ static void hires_ui(void)
             break;
         }
         case EUC_TEXT:
-            sui_text(FONT_REGULAR, 12, X(c->x[0]), Y(c->y[0] + 4) - 5, eu_hi_text + c->str, col(c->c, -1));
+            if (sui_fullres()) sui_text_base(FONT_SEMIBOLD, em, X(c->x[0]), Y(c->y[0] + 7), eu_hi_text + c->str, col(c->c, -1));
+            else sui_text(FONT_REGULAR, 12, X(c->x[0]), Y(c->y[0] + 4) - 5, eu_hi_text + c->str, col(c->c, -1));
             break;
         case EUC_TEXT_C:
-            sui_text_c(FONT_REGULAR, 12, X(c->x[0]), Y(c->y[0] + 4) - 5, eu_hi_text + c->str, col(c->c, -1));
+            if (sui_fullres()) {
+                const char *t = eu_hi_text + c->str;
+                sui_text_base(FONT_SEMIBOLD, em, X(c->x[0]) - sui_text_base_w(FONT_SEMIBOLD, em, t) / 2, Y(c->y[0] + 7), t, col(c->c, -1));
+            } else sui_text_c(FONT_REGULAR, 12, X(c->x[0]), Y(c->y[0] + 4) - 5, eu_hi_text + c->str, col(c->c, -1));
             break;
         case EUC_KIT:
             sui_nine(sk_of((int)c->c), X(c->x[0]), Y(c->y[0]), (c->x[1] - c->x[0]) * s, (c->y[1] - c->y[0]) * s);
             break;
         case EUC_TEX:
             sui_frame_part(X(c->x[0]), Y(c->y[0]), (c->x[1] - c->x[0]) * s, (c->y[1] - c->y[0]) * s,
-                           (float)c->x[0] / SCREEN_W, (float)c->y[0] / SCREEN_H, (float)c->x[1] / SCREEN_W, (float)c->y[1] / SCREEN_H);
+                           (float)c->x[2] / SCREEN_W, (float)c->y[2] / SCREEN_H, (float)c->x[3] / SCREEN_W, (float)c->y[3] / SCREEN_H);
             break;
         }
     }
@@ -218,16 +231,27 @@ void geom_tab(float x, float y, float w, float h, int *wants_create)
         if (sui_button("mk0", cx + 10, y + 160, 210, 40, "Empty room", BTN_PLAIN)) *wants_create = 2;
         return;
     }
-    /* square pixels: the frame takes the area's shape (as wide as VRAM allows), fills its
-       height, and sits in the middle; a screen wider than that gets thin dark sides */
+    /* the frame takes the area's shape (as wide as VRAM allows) */
     want_w = (int)(SCREEN_H * w / h) & ~1;
     if (want_w < 320) want_w = 320;
     if (want_w > SCREEN_W_MAX) want_w = SCREEN_W_MAX;
-    ih = h; iw = h * SCREEN_W / SCREEN_H;
-    if (iw > w) { iw = w; ih = w * SCREEN_H / SCREEN_W; }
-    ix = x + (w - iw) / 2; iy = y + (h - ih) / 2;
-    if (iw < w || ih < h) sui_rect(x, y, w, h, 0xff0a0606u);
-    sui_frame_image(ix, iy, iw, ih);
+    if (sui_fullres()) {
+        /* full resolution: the editor is laid out on the whole area at 1.5 dp a unit (its UI and
+           2D map drawn crisp); only the 3D view is the PS1 frame, stretched over the area */
+        eu_w = (int)(w / 1.5f); eu_h = (int)(h / 1.5f);
+        if (eu_h < SCREEN_H) { eu_h = SCREEN_H; eu_w = (int)(SCREEN_H * w / h); }
+        ix = x; iy = y; iw = w; ih = h;
+        if (editor_in_3d()) sui_frame_image(ix, iy, iw, ih);
+        else sui_rect(ix, iy, iw, ih, 0xff070304u);
+    } else {
+        /* square pixels: fills the height, sits in the middle; a wider screen gets dark sides */
+        eu_w = eu_h = 0;
+        ih = h; iw = h * SCREEN_W / SCREEN_H;
+        if (iw > w) { iw = w; ih = w * SCREEN_H / SCREEN_W; }
+        ix = x + (w - iw) / 2; iy = y + (h - ih) / 2;
+        if (iw < w || ih < h) sui_rect(x, y, w, h, 0xff0a0606u);
+        sui_frame_image(ix, iy, iw, ih);
+    }
     sui_clip(ix, iy, iw, ih);
     hires_ui();
     sui_unclip();

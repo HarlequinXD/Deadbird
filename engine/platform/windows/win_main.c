@@ -12,8 +12,9 @@
  *   - the mouse as a pointer (pointer mode) and as KEY_MOUSE_L
  *   - F11 or ALT+ENTER fullscreen
  * Apps with a full-resolution UI (App.hires: the Studio) are drawn with the software rasteriser
- * (engine/studio/hr_soft.c) on a pixel-art canvas scaled up to the window by a whole number
- * (CTRL + / CTRL - / CTRL 0 change it); the mouse, wheel, typed text and keys go to the app.
+ * (engine/studio/hr_soft.c) at the window's own resolution, sized by Windows' display scale
+ * (CTRL + / CTRL - / CTRL 0 change it in 10% steps); the mouse, wheel, typed text and keys go to
+ * the app; an Xbox controller too (its stick clicks as PAD_L3 / PAD_R3).
  * User files live in a folder named by the game (App.files_dir) next to the exe.
  */
 #define WIN32_LEAN_AND_MEAN
@@ -100,23 +101,30 @@ static void to_screen(LPARAM lp, int *x, int *y)
 #ifdef WIN_HIRES
 static u32 *hr_px; static int hr_cap, hr_w, hr_h, hr_shown;
 static BITMAPINFO hbmi;
-static int ui_scale;                         /* window pixels per canvas pixel; 0: by the window's size */
-static int hires_on(void) { const App *a = eng_app(); return a->hires && a->hires(); }
-static int scale_for(int h)
+static int ui_pct = 100;                     /* the UI's size, % of the screen's own scale (CTRL + / - / 0) */
+/* density for the app: Windows' scale for this screen (96 dpi = 100) times the user's size */
+static int density_now(void)
 {
-    int s = ui_scale ? ui_scale : (h + 310) / 620;      /* about 600 canvas lines: 1080p 2x, 1440p 2x, 2160p 3x */
-    if (s < 1) s = 1;
-    if (s > 6) s = 6;
-    return s;
+    HDC dc = GetDC(wnd);
+    int dpi = dc ? GetDeviceCaps(dc, LOGPIXELSY) : 96, d;
+    if (dc) ReleaseDC(wnd, dc);
+    if (dpi < 72) dpi = 96;
+    d = dpi * ui_pct / 96;
+    return d < 50 ? 50 : d > 400 ? 400 : d;
 }
-static void scale_load(void) { char b[8]; int n = plat_file_load("studio-ui.cfg", b, 7); if (n > 0) { b[n] = 0; ui_scale = b[0] >= '0' && b[0] <= '6' ? b[0] - '0' : 0; } }
-static void scale_set(int s)
+static void scale_load(void)
 {
-    char b[2];
-    if (s > 6) s = 6;
-    ui_scale = s < 0 ? 0 : s;
-    b[0] = (char)('0' + ui_scale); b[1] = 0;
-    plat_file_save("studio-ui.cfg", b, 1);
+    char b[8]; int n = plat_file_load("studio-ui.cfg", b, 7), v = 0, i;
+    if (n <= 0) return;
+    for (i = 0; i < n && b[i] >= '0' && b[i] <= '9'; i++) v = v * 10 + b[i] - '0';
+    if (v >= 50 && v <= 300) ui_pct = v;
+}
+static void scale_set(int pct)
+{
+    char b[8];
+    ui_pct = pct < 50 ? 50 : pct > 300 ? 300 : pct;
+    wsprintfA(b, "%d", ui_pct);
+    plat_file_save("studio-ui.cfg", b, lstrlenA(b));
     InvalidateRect(wnd, NULL, FALSE);
 }
 /* the app's list onto its canvas, then the canvas scaled up over the window */
@@ -129,7 +137,7 @@ static void present_hires(HDC dc, int redraw)
     if (w <= 0 || h <= 0) return;
     if (redraw || !hr_shown) {
         const App *a = eng_app();
-        const HrList *l = a->hires_frame(w, h, scale_for(h) * 100);
+        const HrList *l = a->hires_frame(w, h, density_now());
         HrFrameSrc fr;
         int cw = l->vw > 0 ? l->vw : w, ch = l->vh > 0 ? l->vh : h;
         if (cw * ch > hr_cap) {
@@ -272,12 +280,9 @@ static LRESULT CALLBACK wndproc(HWND h, UINT msg, WPARAM wp, LPARAM lp)
         if (wp == VK_F11 || (wp == VK_RETURN && (lp & (1 << 29)))) { if (!(lp & (1 << 30))) toggle_fullscreen(); return 0; }
 #ifdef WIN_HIRES
         if (hires_on() && (GetKeyState(VK_CONTROL) & 0x8000)) {   /* CTRL + / - / 0: the UI's size */
-            RECT rc; int cur;
-            GetClientRect(h, &rc);
-            cur = scale_for(rc.bottom);
-            if (wp == VK_OEM_PLUS || wp == VK_ADD) { scale_set(cur + 1); return 0; }
-            if (wp == VK_OEM_MINUS || wp == VK_SUBTRACT) { scale_set(cur > 1 ? cur - 1 : 1); return 0; }
-            if (wp == '0' || wp == VK_NUMPAD0) { scale_set(0); return 0; }
+            if (wp == VK_OEM_PLUS || wp == VK_ADD) { scale_set(ui_pct + 10); return 0; }
+            if (wp == VK_OEM_MINUS || wp == VK_SUBTRACT) { scale_set(ui_pct - 10); return 0; }
+            if (wp == '0' || wp == VK_NUMPAD0) { scale_set(100); return 0; }
         }
 #endif
         eng_key(key_of(wp), 1);
@@ -397,6 +402,8 @@ static u32 read_input(void)
                 if (b & XB_RB) pad |= PAD_R1;
                 if (b & XB_START) pad |= PAD_START;
                 if (b & XB_BACK) pad |= PAD_SELECT;
+                if (b & XB_LTHUMB) pad |= PAD_L3;
+                if (b & XB_RTHUMB) pad |= PAD_R3;
                 if (st.pad.rt > 60) pad |= PAD_R2;
                 if (st.pad.lt > 60) pad |= PAD_L2;
                 stick(st.pad.lx, st.pad.ly, 7849, &lx, &ly);
@@ -412,6 +419,7 @@ static u32 read_input(void)
         }
     }
     eng_set_analog(lx, ly, rx, ry);
+    eng_set_pad_device(pad);                 /* what the controller alone pressed (apps that mix it with a mouse) */
     return pad;
 }
 

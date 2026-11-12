@@ -3,20 +3,21 @@
 #include "edui.h"
 #include "gte.h"
 
-ERect eu_clip = { 0, 0, 320, SCREEN_H };                 /* (eu_begin sets it to the frame) */
+ERect eu_clip = { 0, 0, 320, 240 };                 /* (eu_begin sets it to the frame) */
 static FrameBuf *FB;
 
 /* ---- high-resolution capture (see edui.h) */
-#define MAXCMD 3000
+#define MAXCMD 16000
 #define MAXTXT 24000
 int eu_hires, eu_ncmd;
+int eu_w, eu_h;
 EuCmd eu_cmd[MAXCMD];
 char eu_hi_text[MAXTXT];
 static int ntxt;
 static EuCmd *rec(int kind, int ot)
 {
     EuCmd *c;
-    if (!eu_hires || ot > EU_HI_OT) return 0;
+    if (!eu_hires || (ot > EU_HI_OT && !eu_w)) return 0;   /* laid out at full res: everything */
     if (eu_ncmd >= MAXCMD) return (EuCmd *)-1;          /* full: drop it (still not drawn low-res) */
     c = &eu_cmd[eu_ncmd++];
     memset(c, 0, sizeof(*c));
@@ -37,7 +38,7 @@ static u16 rec_str(const char *s)
 #define MAXHIT 160
 static ERect hits[2][MAXHIT]; static int hit_id[2][MAXHIT], nhit[2], hcur;
 
-void eu_begin(FrameBuf *fb) { FB = fb; eu_ncmd = 0; ntxt = 1; eu_hi_text[0] = 0; hcur ^= 1; nhit[hcur] = 0; eu_clip.x0 = 0; eu_clip.y0 = 0; eu_clip.x1 = SCREEN_W; eu_clip.y1 = SCREEN_H; }
+void eu_begin(FrameBuf *fb) { FB = fb; eu_ncmd = 0; ntxt = 1; eu_hi_text[0] = 0; hcur ^= 1; nhit[hcur] = 0; eu_clip.x0 = 0; eu_clip.y0 = 0; eu_clip.x1 = EU_W; eu_clip.y1 = EU_H; }
 FrameBuf *eu_fb(void) { return FB; }
 
 void eu_hit(int x0, int y0, int x1, int y1, int id)
@@ -378,8 +379,14 @@ void eu_tex(int x0, int y0, int x1, int y1, u16 tpage, u16 clut, int u0, int v0,
 {
     POLY *p;
     EuCmd *r = rec(EUC_TEX, ot);              /* the tile itself still goes into the frame, in front */
-    if (r && REC(r)) { r->x[0] = (s16)x0; r->y[0] = (s16)y0; r->x[1] = (s16)x1; r->y[1] = (s16)y1; }
-    if (r) ot = 0;
+    if (r) {
+        ot = 0;
+        x0 = EU_TO_FX(x0); y0 = EU_TO_FY(y0); x1 = EU_TO_FX(x1); y1 = EU_TO_FY(y1);   /* where it lands in the frame */
+        if (REC(r)) {
+            r->x[0] = (s16)EU_FROM_FX(x0); r->y[0] = (s16)EU_FROM_FY(y0); r->x[1] = (s16)EU_FROM_FX(x1); r->y[1] = (s16)EU_FROM_FY(y1);
+            r->x[2] = (s16)x0; r->y[2] = (s16)y0; r->x[3] = (s16)x1; r->y[3] = (s16)y1;
+        }
+    }
     p = prim_alloc(FB);
     if (!p) return;
     memset(p, 0, sizeof(*p));

@@ -28,6 +28,10 @@ void  sui_nine(int cell, float x, float y, float w, float h);
 void  sui_sprite(float x, float y, float w, float h, int u, int v, int uw, int vh, u32 tint);
 
 void  sui_begin(int w_px, int h_px, int density);      /* density: px per dp x 100 */
+/* full resolution (a PC): drawn in screen pixels with outline fonts instead of a pixel-art canvas
+   scaled up; the layout stays in dp */
+void  sui_set_fullres(int on);
+int   sui_fullres(void);
 const HrList *sui_end(u32 clear_rgb);
 float sui_w(void);                                      /* screen size in dp */
 float sui_h(void);
@@ -66,6 +70,7 @@ void  sui_rrect_line(float x, float y, float w, float h, float r, float t, u32 c
 void  sui_gradient(float x, float y, float w, float h, u32 top, u32 bottom);
 void  sui_circle(float cx, float cy, float r, u32 c);
 void  sui_tri(float x0, float y0, float x1, float y1, float x2, float y2, u32 c);
+void  sui_tri_flat(float x0, float y0, float x1, float y1, float x2, float y2, u32 c);   /* no soft rim (meshes) */
 void  sui_line(float x0, float y0, float x1, float y1, float t, u32 c);
 void  sui_bezier(float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3, float t, u32 c);
 void  sui_polyline(const float *xy, int n, float t, u32 c);     /* dp points */
@@ -76,6 +81,9 @@ void  sui_frame_part(float x, float y, float w, float h, float u0, float v0, flo
 float sui_text(int font, float size, float x, float y, const char *s, u32 c);
 float sui_text_w(int font, float size, const char *s);
 void  sui_text_c(int font, float size, float cx, float y, const char *s, u32 c);   /* centred on cx */
+/* full resolution only: an em size and a baseline (dp) */
+float sui_text_base(int font, float em, float x, float base, const char *s, u32 c);
+float sui_text_base_w(int font, float em, const char *s);
 /* clipping (nests) */
 void  sui_clip(float x, float y, float w, float h);
 void  sui_unclip(void);

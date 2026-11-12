@@ -63,7 +63,13 @@ static int pc = 1;
 #else
 static int pc;
 #endif
-static int help_open;                       /* the keyboard and mouse sheet (F1) */
+static int help_open;                       /* the keyboard, mouse and controller sheet (F1, Y) */
+/* an Xbox controller: a pointer for the Studio's screens (the level editor and play-tests take the
+   pad as it is; on the Geometry tab a right stick click swaps between editing and the pointer) */
+static int padp_on, padp_down, padp_geom, pad_synth;
+static float padp_x = -1, padp_y;
+static int frame_w, frame_h, frame_d;          /* the screen the UI was last laid out for */
+static void hires_pointer(int id, int ev, int x, int y, int kind);
 static char *typing, *typing_was; static int typing_num, typing_fresh;   /* the argument the keyboard edits */
 
 static void say(const char *s) { doc_copy(toast, s, sizeof(toast)); toast_t = 150; }
@@ -340,7 +346,7 @@ static void graph(float gx, float gy, float gw, float gh)
     }
     /* pressing a node selects it; dragging moves it; empty space pans; two fingers zoom */
     if (hit_node >= 0) { drag_state = hit_node; insp_scroll = 0; sel_state = hit_node; sel_trans = -1; sel_act = sel_arg = -1; sui_capture(&drag_state); }
-    else if (p->pressed && sui_in(gx, gy, gw, gh) && !sui_captured() && linking < 0) { panning = 1; sui_capture(&panning); }
+    else if (p->pressed && sui_in(gx, gy + 44, gw, gh - 44) && !sui_captured() && linking < 0) { panning = 1; sui_capture(&panning); }   /* not under the chips row (+ State) */
     if (p->down && sui_captured() == &drag_state && drag_state >= 0 && drag_state < m->ns && p->moved && p->fingers < 2) {
         m->s[drag_state].x += p->dx / zoom; m->s[drag_state].y += p->dy / zoom; doc.dirty = 1;
     }
@@ -869,53 +875,127 @@ static void shortcut_keys(void)
         else if (ctrl && screen == SCR_EDIT) { tab = K[i] - '1'; sel_arg = -1; }
     }
 }
+/* the controller */
+static void pad_send(int ev)
+{
+    if (frame_d <= 0) return;
+    pad_synth = 1;
+    hires_pointer(0, ev, (int)(padp_x * frame_d / 100.0f), (int)(padp_y * frame_d / 100.0f), PK_MOUSE_L);
+    pad_synth = 0;
+}
+static void pad_controls(void)
+{
+    static u32 prev;
+    static int wheel_t;
+    u32 pad = eng_pad_device(), press = pad & ~prev, rel = prev & ~pad;
+    int lx, ly, rx, ry, moved = 0;
+    prev = pad;
+    eng_pad_sticks(&lx, &ly, &rx, &ry);
+    if (screen == SCR_PLAY) { if (press & PAD_SELECT) play_stop(); return; }    /* the game has the rest */
+    if (geom_editing() && (press & PAD_R3)) {
+        padp_geom ^= 1;
+        if (padp_geom) { padp_on = 1; if (padp_x < 0) { padp_x = W / 2; padp_y = H / 2; } pad_send(EV_HOVER); }
+        say(padp_geom ? "POINTER - CLICK THE RIGHT STICK TO EDIT AGAIN" : "EDITING WITH THE CONTROLLER");
+        return;
+    }
+    if (!geom_editing()) padp_geom = 0;
+    if (geom_editing() && !padp_geom) { padp_on = 0; return; }            /* the editor reads the pad */
+    if (!pad && !rel && lx * lx + ly * ly < 400 * 400 && ry * ry < 1800 * 1800) return;
+    if (padp_x < 0) { padp_x = W / 2; padp_y = H / 2; }
+    /* the left stick (faster the further it's pushed) and the d-pad move the pointer */
+    {
+        float sx = lx / 4096.0f, sy = -ly / 4096.0f, m = sqrtf(sx * sx + sy * sy), sp = 3 + 15 * m * m;
+        float dx = m > 0.08f ? sx / m * sp * m : 0, dy = m > 0.08f ? sy / m * sp * m : 0;
+        if (pad & PAD_LEFT) dx -= 3;
+        if (pad & PAD_RIGHT) dx += 3;
+        if (pad & PAD_UP) dy -= 3;
+        if (pad & PAD_DOWN) dy += 3;
+        if (dx || dy) {
+            padp_x = fminf(fmaxf(padp_x + dx, 0), W - 1); padp_y = fminf(fmaxf(padp_y + dy, 0), H - 1);
+            moved = 1;
+        }
+    }
+    if (moved || (press & PAD_CROSS)) padp_on = 1;
+    if (moved) pad_send(padp_down ? EV_MOVE : EV_HOVER);
+    if (press & PAD_CROSS) { pad_send(EV_DOWN); padp_down = 1; }                       /* A: click, hold to drag */
+    if ((rel & PAD_CROSS) && padp_down) { pad_send(EV_UP); padp_down = 0; }
+    if (ry * ry > 1800 * 1800) {                                                        /* right stick: the wheel */
+        if (wheel_t <= 0) { wheel(ry > 0 ? 1 : -1); wheel_t = 6 - (ry * ry > 3600 * 3600 ? 3 : 0); }
+        else wheel_t--;
+    } else wheel_t = 0;
+    if (press & (PAD_TRIANGLE | PAD_SELECT)) help_open ^= 1;                           /* Y / View: the sheet */
+    if (press & PAD_CIRCLE) {                                                           /* B: back */
+        if (help_open) help_open = 0;
+        else if (geom_editing()) { padp_geom = 0; padp_on = 0; say("EDITING WITH THE CONTROLLER"); }
+        else typed(27);
+    }
+    if (screen != SCR_EDIT) return;
+    if (press & PAD_START) play_start();                                                 /* START: play */
+    if ((press & PAD_SQUARE) && tab == TAB_BEHAVIOUR && !typing) delete_selected();      /* X: delete */
+    if (press & (PAD_L1 | PAD_R1)) { tab = (tab + (press & PAD_R1 ? 1 : 3)) % 4; sel_arg = -1; }   /* LB / RB: tabs */
+}
+static void draw_pad_pointer(void)
+{
+    float x = padp_x, y = padp_y;
+    if (!padp_on || padp_x < 0) return;
+    sui_tri(x - 1, y - 2, x - 1, y + 21, x + 15, y + 15, 0xC0000000u);                 /* shadow, outline */
+    sui_tri(x, y, x, y + 17, x + 12, y + 13, padp_down ? C_ACCENT : 0xFFF0D2);
+    sui_circle(x, y, 2, C_ACCENT);
+}
 static int cursor_hand(void) { return sui_hot() || (geom_editing() && !help_open && geom_hot()); }
 
-/* the keyboard and mouse sheet */
+/* the keyboard, mouse and controller sheet ("|" starts a column) */
 static void help_sheet(void)
 {
     static const char *const R[][2] = {
         { "STUDIO", 0 },
         { "Save", "CTRL S" }, { "Play-test / stop", "F5" }, { "Tabs", "CTRL 1 2 3 4" },
-        { "Bigger / smaller UI", "CTRL + / CTRL -" }, { "Full screen", "F11" }, { "Close / deselect", "ESC" },
+        { "Bigger / smaller UI", "CTRL + / -" }, { "Full screen", "F11" }, { "Close / deselect", "ESC" },
         { "BEHAVIOUR", 0 },
-        { "Move a state", "DRAG IT" }, { "Pan / zoom", "DRAG EMPTY / WHEEL" }, { "Change a value", "CLICK IT, TYPE" },
+        { "Move a state", "DRAG IT" }, { "Pan / zoom", "DRAG / WHEEL" }, { "Change a value", "CLICK, TYPE" },
         { "Delete selected", "DELETE" },
+        { "|", 0 },
         { "LEVEL EDITOR", 0 },
-        { "Use the tool", "CLICK / SPACE" }, { "Cursor", "MOUSE / ARROWS" }, { "Pan / zoom", "RIGHT DRAG / WHEEL" },
-        { "Tools / inspect", "TAB / I" }, { "Undo / redo", "CTRL Z / CTRL Y" }, { "3D view", "V" }, { "Fly (3D)", "W A S D Q E" },
+        { "Use the tool", "CLICK / SPACE" }, { "Cursor", "MOUSE / ARROWS" }, { "Pan / zoom", "R-DRAG / WHEEL" },
+        { "Tools / inspect", "TAB / I" }, { "Undo / redo", "CTRL Z / Y" }, { "3D view", "V" }, { "Fly (3D)", "WASD Q E" },
         { "Menu", "M" }, { "Cancel", "ESC" },
         { "PLAY-TEST", 0 },
-        { "Move / turn", "W A S D / ARROWS" }, { "Look", "RIGHT DRAG" }, { "Fire / jump", "CLICK / SPACE" },
+        { "Move / turn", "WASD / ARROWS" }, { "Look", "RIGHT DRAG" }, { "Fire / jump", "CLICK / SPACE" },
+        { "|", 0 },
+        { "XBOX CONTROLLER", 0 },
+        { "Pointer", "LEFT STICK / D-PAD" }, { "Click / drag", "A" }, { "Back / close", "B" },
+        { "Scroll / zoom", "RIGHT STICK" }, { "Tabs", "LB / RB" }, { "Play-test", "START" },
+        { "Stop playing", "VIEW" }, { "Delete selected", "X" }, { "This sheet", "Y" },
+        { "Level editor", "AS IN THE GAME" }, { "Editor <> pointer", "RIGHT STICK CLICK" },
     };
     int n = (int)(sizeof(R) / sizeof(R[0])), i, col = 0;
-    float pw = W - 120 > 760 ? 760 : W - 120, ph = H - 90 > 470 ? 470 : H - 90, px = (W - pw) / 2, py = (H - ph) / 2 + 10, y;
+    float pw = W - 80 > 1080 ? 1080 : W - 80, ph = H - 90 > 520 ? 520 : H - 90, px = (W - pw) / 2, py = (H - ph) / 2 + 10, y, cw = (pw - 36) / 3;
     sui_rect(0, 0, W, H, 0xA0000000u);
     sui_nine(SK_PANEL, px, py, pw, ph);
-    sui_text(FONT_FIRE, 18, px + 18, py + 14, "Keyboard and mouse", C_TEXT);
+    sui_text(FONT_FIRE, 18, px + 18, py + 14, "Keyboard, mouse and controller", C_TEXT);
     if (sui_button("helpx", px + pw - 46, py + 10, 34, 28, "X", BTN_PLAIN)) help_open = 0;
     y = py + 50;
     for (i = 0; i < n; i++) {
-        float cx = px + 18 + col * (pw / 2);
+        float cx = px + 18 + col * cw;
+        if (!R[i][1] && R[i][0][0] == '|') { col++; y = py + 50; continue; }
         if (!R[i][1]) {
-            if (i && y > py + ph - 120 && !col) { col = 1; y = py + 50; cx = px + 18 + pw / 2; }
             if (y > py + 50) y += 6;
             sui_text(FONT_FIRE, 10.5f, cx, y, R[i][0], C_ACCENT2);
             y += 18;
             continue;
         }
-        sui_text(FONT_REGULAR, 12, cx, y, R[i][0], C_TEXT);
-        sui_text(FONT_MONO, 11, cx + pw / 2 - 36 - sui_text_w(FONT_MONO, 11, R[i][1]), y + 1, R[i][1], C_ACCENT);
+        sui_text(FONT_REGULAR, 11.5f, cx, y, R[i][0], C_TEXT);
+        sui_text(FONT_MONO, 10, cx + cw - 14 - sui_text_w(FONT_MONO, 10, R[i][1]), y + 1, R[i][1], C_ACCENT);
         y += 17;
     }
-    sui_text_c(FONT_REGULAR, 11, px + pw / 2, py + ph - 22, "F1 opens and closes this sheet", C_MUTED);
+    sui_text_c(FONT_REGULAR, 11, px + pw / 2, py + ph - 22, "F1 or Y opens and closes this sheet", C_MUTED);
 }
 
 /* ------------------------------------------------------------------ the App */
-static int frame_w, frame_h, frame_d;
 static const HrList *hires_frame(int w, int h, int density)
 {
     frame_w = w; frame_h = h; frame_d = density;
+    sui_set_fullres(pc);                    /* a PC: drawn at the screen's resolution, outline fonts */
     sui_begin(w, h, density);
     W = sui_w(); H = sui_h();
     sui_frame_input();
@@ -946,6 +1026,7 @@ static const HrList *hires_frame(int w, int h, int density)
     sui_mute(0);
     if (help_open) help_sheet();
     draw_toast();
+    draw_pad_pointer();
     return sui_end(C_BG);
 }
 
@@ -954,6 +1035,7 @@ static void hires_pointer(int id, int ev, int x, int y, int kind)
 {
     static int look_x, looking;
     sui_mouse(kind != PK_TOUCH);
+    if (!pad_synth) padp_on = 0;                               /* a real mouse or finger: no pad pointer */
     if (screen == SCR_PLAY && kind != PK_TOUCH) {              /* a mouse in a play-test: right drag looks */
         sui_pointer(id, ev, x, y);
         if (ev == EV_DOWN && kind == PK_MOUSE_R) { looking = 1; look_x = x; }
@@ -1032,10 +1114,11 @@ static void frame_width(int want)
 static void tick(void)
 {
     shortcut_keys();
+    pad_controls();
     frame_width(screen == SCR_EDIT && tab == TAB_GEOMETRY ? geom_frame_w() : 0);
     if (screen == SCR_PLAY && play_ok && !paused) fw_rt_tick();
     else if (screen == SCR_EDIT && tab == TAB_GEOMETRY) {
-        int r = geom_tick();
+        int r = geom_tick(padp_geom);
         if (r == GEOM_PLAY) play_start();
         else if (r == GEOM_EXIT) tab = TAB_SCENE;
     }
@@ -1079,5 +1162,7 @@ int  studio_play_ok(void) { return play_ok; }
 void studio_tab(int t) { tab = t; }
 int studio_tab_now(void) { return tab; }
 void studio_set_pc(int on) { pc = on; }
+int  studio_pad_pointer(float *x, float *y) { *x = padp_x; *y = padp_y; return padp_on; }
+void studio_pad_pointer_set(float x, float y) { padp_x = x; padp_y = y; }
 void studio_select_arg(int state, int act, int arg) { tab = TAB_BEHAVIOUR; cur_fsm = 0; sel_state = state; sel_trans = -1; sel_act = act; sel_arg = arg; }
 int  studio_help_open(void) { return help_open; }

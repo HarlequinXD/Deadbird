@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
 #include "engine.h"
 #include "hr_soft.h"
 #include "gpu.h"
@@ -25,22 +26,24 @@ int  studio_tab_now(void);
 void studio_set_pc(int on);
 int  studio_help_open(void);
 void studio_select_arg(int state, int act, int arg);
+int  studio_pad_pointer(float *x, float *y);
+void studio_pad_pointer_set(float x, float y);
 extern int screen_w;
 extern EmMap ED;
 extern s32 ed_cx, ed_cz;
 
-#define SW 2340
-#define SH 1080
-#define DENS 263                          /* 420 dpi */
+static int SW = 2340, SH = 1080, DENS = 263;   /* a Galaxy S23 (420 dpi); the PC part: 1920 x 1080 */
 static const char *out;
 static const HrList *last;
 static int fails;
 static void expect(int ok, const char *what) { printf("%s: %s\n", ok ? "ok  " : "FAIL", what); if (!ok) fails++; }
 
+static u32 xpad;                         /* an Xbox controller's buttons, as the Windows layer reports them */
 static void frame(void)
 {
     static s16 mix[736];
-    eng_frame(0);
+    eng_set_pad_device(xpad);
+    eng_frame(xpad);
     snd_mix(mix, 368);
     last = game_app.hires_frame(SW, SH, DENS);
 }
@@ -48,6 +51,7 @@ static void run(int n) { while (n-- > 0) frame(); }
 static float PS(void) { return DENS / 100.0f; }
 static void ptr(int ev, float x, float y) { game_app.hires_pointer(0, ev, (int)(x * PS()), (int)(y * PS()), 0); }
 static void mptr(int ev, float x, float y) { game_app.hires_pointer(0, ev, (int)(x * PS()), (int)(y * PS()), PK_MOUSE_L); }
+static void button(u32 b) { xpad |= b; frame(); xpad &= ~b; frame(); }
 static void key(int k) { eng_key(k, 1); frame(); eng_key(k, 0); frame(); }
 static void esc(void) { eng_key(KEY_ESC, 1); game_app.text(27); frame(); eng_key(KEY_ESC, 0); frame(); }   /* as Windows sends it */
 static void type(const char *t) { while (*t) { game_app.text((unsigned char)*t++); frame(); } }
@@ -62,16 +66,20 @@ static void drag(float x0, float y0, float x1, float y1)
 
 static void shot(const char *name)
 {
-    static u32 px[1024 * 512];
-    static unsigned char row[2048 * 3 + 4];
+    static u32 px[2048 * 1200];
+    static unsigned char row[2400 * 3 + 4];
     unsigned char h[54] = { 'B', 'M' };
     char path[512];
-    int vw = last->vw, vh = last->vh, W2 = vw * 2, H2 = vh * 2, pitch = (W2 * 3 + 3) & ~3, size = 54 + pitch * H2, x, y, dx, dy;
+    int vw = last->vw, vh = last->vh, k = vw > 1100 ? 1 : 2, W2 = vw * k, H2 = vh * k, pitch = (W2 * 3 + 3) & ~3, size = 54 + pitch * H2, x, y, dx, dy;
     HrFrameSrc fr;
     FILE *f;
     eng_display_area(&dx, &dy);
     fr.vram = gpu_vram(); fr.stride = VRAM_W; fr.x = dx; fr.y = dy; fr.w = SCREEN_W; fr.h = SCREEN_H;
-    hr_soft_draw(last, px, vw, vh, &fr);
+    {
+        clock_t t0 = clock();
+        hr_soft_draw(last, px, vw, vh, &fr);
+        if (getenv("HRTIME")) printf("      %s: drawn in %.1f ms (%d x %d)\n", name, (clock() - t0) * 1000.0 / CLOCKS_PER_SEC, vw, vh);
+    }
     snprintf(path, sizeof(path), "%s/%s.bmp", out, name);
     if (!(f = fopen(path, "wb"))) return;
     h[2] = size & 255; h[3] = (size >> 8) & 255; h[4] = (size >> 16) & 255; h[10] = 54; h[14] = 40;
@@ -79,7 +87,7 @@ static void shot(const char *name)
     fwrite(h, 1, 54, f);
     for (y = H2 - 1; y >= 0; y--) {
         for (x = 0; x < W2; x++) {
-            u32 c = px[(y / 2) * vw + x / 2];
+            u32 c = px[(y / k) * vw + x / k];
             row[x * 3] = (unsigned char)(c >> 16); row[x * 3 + 1] = (unsigned char)(c >> 8); row[x * 3 + 2] = (unsigned char)c;
         }
         fwrite(row, 1, (size_t)pitch, f);
@@ -226,8 +234,10 @@ int main(int argc, char **argv)
     tap(44, 20);
     run(2);
 
-    /* a PC: the mouse, the wheel and the keyboard */
+    /* a PC: full resolution (1920 x 1080), the mouse, the wheel and the keyboard */
     studio_set_pc(1);
+    SW = 1920; SH = 1080; DENS = 100;
+    run(2);
     key(KEY_F5); run(30);
     expect(studio_screen() == 2, "F5 starts a play-test");
     shot("st_20_pc_play");
@@ -283,6 +293,42 @@ int main(int argc, char **argv)
         type("\x1a"); run(2);                                /* CTRL+Z */
         printf("      sectors %d -> %d after CTRL+Z\n", n0s, ED.nsecs);
         shot("st_26_pc_editor");
+        key('V'); run(20);                                    /* V: the 3D view, still the PS1's pixels */
+        shot("st_27_pc_3d");
+        key('V'); run(3);
+    }
+    {   /* an Xbox controller */
+        float px0, py0, px1, py1;
+        DocFsm *m = &d->fsms[0];
+        int ns;
+        button(PAD_START); run(2);                            /* START in the level editor: its menu, as in the game */
+        expect(editor_panel_scroll() == 0, "START opens the level editor's menu");
+        button(PAD_CIRCLE); run(2);
+        expect(editor_panel_scroll() < 0, "B closes it");
+        button(PAD_R3); run(2);                               /* right stick click: the Studio's pointer */
+        studio_pad_pointer(&px0, &py0);
+        eng_set_analog(4096, 4096, 0, 0); run(20); eng_set_analog(0, 0, 0, 0); run(1);
+        expect(studio_pad_pointer(&px1, &py1) && px1 > px0 + 50 && py1 < py0 - 50, "the left stick moves the pointer (right and up)");
+        shot("st_28_pad_pointer");
+        button(PAD_R1); run(2);
+        expect(studio_tab_now() == 2, "RB: the next tab");
+        button(PAD_TRIANGLE); run(1);
+        expect(studio_help_open(), "Y opens the controls sheet");
+        shot("st_29_controls");
+        button(PAD_CIRCLE); run(1);
+        expect(!studio_help_open(), "B closes it");
+        ns = m->ns;
+        studio_pad_pointer_set(last->vw - 353, 67);           /* over + State (300 from the inspector, 96 wide) */
+        eng_set_analog(200, 0, 0, 0); run(2); eng_set_analog(0, 0, 0, 0);
+        button(PAD_CROSS); run(2);
+        expect(m->ns == ns + 1, "A clicks what the pointer is on (+ State)");
+        shot("st_30_pad_added_state");
+        button(PAD_START); run(30);
+        expect(studio_screen() == 2, "START plays");
+        button(PAD_SELECT); run(2);
+        expect(studio_screen() == 1, "VIEW stops");
+        button(PAD_L1); run(2);
+        expect(studio_tab_now() == 1, "LB: the tab before (the level editor, the controller editing it)");
     }
     printf(fails ? "studiotest: %d FAILURES\n" : "studiotest: all passed\n", fails);
     return fails ? 1 : 0;

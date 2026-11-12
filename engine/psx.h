@@ -50,6 +50,8 @@ extern int screen_w;
 
 /* Pad buttons (same bit layout as a PS1 digital pad, active high here) */
 #define PAD_SELECT   (1u << 0)
+#define PAD_L3       (1u << 1)       /* stick clicks (an analog pad / an Xbox controller) */
+#define PAD_R3       (1u << 2)
 #define PAD_START    (1u << 3)
 #define PAD_UP       (1u << 4)
 #define PAD_RIGHT    (1u << 5)

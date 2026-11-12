@@ -43,6 +43,10 @@ void eng_init(void)
 /* ------------------------------------------------------------------ keyboard */
 void eng_key(int key, int down) { if (key > 0 && key < KEY_COUNT) keys[key] = (u8)(down != 0); }
 void eng_keys_clear(void) { memset(keys, 0, sizeof(keys)); }
+static u32 dev_pad;
+void eng_set_pad_device(u32 bits) { dev_pad = bits; }
+u32  eng_pad_device(void) { return dev_pad; }
+void eng_pad_sticks(int *lx, int *ly, int *rx, int *ry) { *lx = an_lx; *ly = an_ly; *rx = an_rx; *ry = an_ry; }
 int  eng_key_held(int key) { return key > 0 && key < KEY_COUNT && keys[key]; }
 static u32 key_pad(int *lx, int *ly)
 {

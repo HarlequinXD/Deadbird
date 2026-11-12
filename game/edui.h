@@ -12,6 +12,17 @@ enum { L_TOP = 2, L_POP_TEXT = 6, L_POP = 10, L_POP_BG = 14, L_BAR_TEXT = 20, L_
        L_CURSOR = 50, L_THING = 70, L_VERT = 90, L_WALL = 110, L_SEL = 105, L_PROP = 120, L_FILL = 200,
        L_GRID = 300, L_BG = 1000 };
 
+/* the UI's extent: the frame's (320..512 x 240), or larger when the Studio lays the editor out at
+   full resolution (eu_w / eu_h set) and only the 3D view stays in the PS1 frame */
+extern int eu_w, eu_h;
+#define EU_W (eu_w ? eu_w : SCREEN_W)
+#define EU_H (eu_h ? eu_h : SCREEN_H)
+/* UI <-> frame pixels */
+#define EU_TO_FX(x) ((x) * SCREEN_W / EU_W)
+#define EU_TO_FY(y) ((y) * SCREEN_H / EU_H)
+#define EU_FROM_FX(x) ((x) * EU_W / SCREEN_W)
+#define EU_FROM_FY(y) ((y) * EU_H / SCREEN_H)
+
 typedef struct { int x0, y0, x1, y1; } ERect;
 extern ERect eu_clip;                         /* lines and polygons are clipped to this */
 

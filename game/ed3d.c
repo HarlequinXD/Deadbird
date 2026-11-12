@@ -294,30 +294,31 @@ void ed3d_update(u32 pad, u32 press)
        right half looks, a tap picks */
     for (i = 0; i < ed_nptr; i++) {
         EdPtr *e = &ed_ptr[i];
+        int fx_ = EU_TO_FX(e->x), fy_ = EU_TO_FY(e->y);     /* in the frame (the UI may be laid out larger) */
         if (e->kind == EK_MOUSE_R) {
-            if (e->ev == EP_DOWN) { rdrag = 1; lx0 = e->x; ly0 = e->y; }
-            else if (e->ev == EP_MOVE && rdrag) { yaw = (yaw + (e->x - lx0) * 10) & 4095; pitch += (e->y - ly0) * 8; lx0 = e->x; ly0 = e->y; }
+            if (e->ev == EP_DOWN) { rdrag = 1; lx0 = fx_; ly0 = fy_; }
+            else if (e->ev == EP_MOVE && rdrag) { yaw = (yaw + (fx_ - lx0) * 10) & 4095; pitch += (fy_ - ly0) * 8; lx0 = fx_; ly0 = fy_; }
             else if (e->ev == EP_UP) rdrag = 0;
             continue;
         }
         if (e->kind == EK_MOUSE_L) {
-            if (e->ev == EP_HOVER || e->ev == EP_MOVE) { if (!rdrag && e->y > 14 && e->y < ed_bar_y()) { pick_sx = e->x; pick_sy = e->y; pick_free = 1; } }
+            if (e->ev == EP_HOVER || e->ev == EP_MOVE) { if (!rdrag && e->y > ed_top_h() && e->y < ed_bar_y()) { pick_sx = fx_; pick_sy = fy_; pick_free = 1; } }
             if (e->ev == EP_DOWN) { if (eu_hit_at(e->x, e->y) >= 0) { /* the bars handle it */ } }
-            if (e->ev == EP_UP && e->y > 14 && e->y < ed_bar_y() && eu_hit_at(e->x, e->y) < 0) { pick_sx = e->x; pick_sy = e->y; pick_free = 1; press |= PAD_CROSS; }
+            if (e->ev == EP_UP && e->y > ed_top_h() && e->y < ed_bar_y() && eu_hit_at(e->x, e->y) < 0) { pick_sx = fx_; pick_sy = fy_; pick_free = 1; press |= PAD_CROSS; }
             continue;
         }
         /* touch */
         if (e->ev == EP_DOWN) {
-            if (eu_hit_at(e->x, e->y) >= 0 || e->y < 14 || e->y >= ed_bar_y()) continue;
-            tap_id = e->id; tap_x = e->x; tap_y = e->y; tap_moved = 0;
-            if (e->x < (SCREEN_W - ed_rail_r()) / 2 && move_id < 0) { move_id = e->id; mx0 = e->x; my0 = e->y; mvx = mvy = 0; }
-            else if (look_id < 0) { look_id = e->id; lx0 = e->x; ly0 = e->y; }
+            if (eu_hit_at(e->x, e->y) >= 0 || e->y < ed_top_h() || e->y >= ed_bar_y()) continue;
+            tap_id = e->id; tap_x = fx_; tap_y = fy_; tap_moved = 0;
+            if (e->x < (EU_W - ed_rail_r()) / 2 && move_id < 0) { move_id = e->id; mx0 = fx_; my0 = fy_; mvx = mvy = 0; }
+            else if (look_id < 0) { look_id = e->id; lx0 = fx_; ly0 = fy_; }
         } else if (e->ev == EP_MOVE) {
-            if (e->id == tap_id && ((e->x - tap_x) * (e->x - tap_x) + (e->y - tap_y) * (e->y - tap_y)) > 36) tap_moved = 1;
-            if (e->id == look_id) { yaw = (yaw + (e->x - lx0) * 12) & 4095; pitch += (e->y - ly0) * 10; lx0 = e->x; ly0 = e->y; }
-            if (e->id == move_id) { mvx = e->x - mx0; mvy = e->y - my0; }
+            if (e->id == tap_id && ((fx_ - tap_x) * (fx_ - tap_x) + (fy_ - tap_y) * (fy_ - tap_y)) > 36) tap_moved = 1;
+            if (e->id == look_id) { yaw = (yaw + (fx_ - lx0) * 12) & 4095; pitch += (fy_ - ly0) * 10; lx0 = fx_; ly0 = fy_; }
+            if (e->id == move_id) { mvx = fx_ - mx0; mvy = fy_ - my0; }
         } else if (e->ev == EP_UP) {
-            if (e->id == tap_id && !tap_moved) { pick_sx = e->x; pick_sy = e->y; pick_free = 1; }
+            if (e->id == tap_id && !tap_moved) { pick_sx = fx_; pick_sy = fy_; pick_free = 1; }
             if (e->id == tap_id) tap_id = -1;
             if (e->id == look_id) look_id = -1;
             if (e->id == move_id) { move_id = -1; mvx = mvy = 0; }
@@ -411,6 +412,7 @@ static void outline(void)
     } else return;
     for (k = 0; k < 4; k++) if (!project(px[k], ph[k], pz[k], &x[k], &y[k])) ok = 0;
     if (!ok) return;
+    for (k = 0; k < 4; k++) { x[k] = (s16)EU_FROM_FX(x[k]); y[k] = (s16)EU_FROM_FY(y[k]); }   /* frame -> UI */
     for (k = 0; k < 4; k++) eu_line(x[k], y[k], x[(k + 1) & 3], y[(k + 1) & 3], c, 1, 32);
 }
 static void markers(void)
@@ -423,11 +425,12 @@ static void markers(void)
         u32 c;
         if (t->type == TH_WAY) continue;
         if (!project(t->x, (si >= 0 ? em_floor_at(&ED, si, t->x, t->z) : 0) + 900, t->z, &x, &y)) continue;
+        x = (s16)EU_FROM_FX(x); y = (s16)EU_FROM_FY(y);
         c = t->type == TH_START ? RGB(90, 240, 100) : t->type == TH_TROOPER ? RGB(235, 60, 45) : t->type == TH_KEY ? RGB(60, 210, 240) :
             t->type == TH_SHARD ? RGB(180, 120, 255) : RGB(255, 210, 40);
         eu_tri(x, y - 5, x + 4, y, x - 4, y, c, -1, 34);
         eu_tri(x - 4, y, x + 4, y, x, y + 5, c, -1, 34);
-        if (y > 16 && y < 210 && x > 0 && x < 290) eu_text(t->type == TH_START ? "START" : t->type == TH_TROOPER ? "TROOPER" : t->type == TH_EXIT ? "EXIT" : "", x - 10, y + 7, c, 34);
+        if (y > ed_top_h() + 2 && y < ed_bar_y() - 16 && x > 0 && x < EU_W - 30) eu_text(t->type == TH_START ? "START" : t->type == TH_TROOPER ? "TROOPER" : t->type == TH_EXIT ? "EXIT" : "", x - 10, y + 7, c, 34);
     }
 }
 void ed3d_draw(FrameBuf *fb, int t)
@@ -438,13 +441,13 @@ void ed3d_draw(FrameBuf *fb, int t)
     level_set_ot_bias(40);
     level_draw(fb, &view, &pr, t);
     level_set_ot_bias(0);
-    eu_clip.y0 = 14; eu_clip.y1 = 226;
+    eu_clip.y0 = ed_top_h(); eu_clip.y1 = ed_bar_y();
     markers();
     outline();
-    eu_clip.y0 = 0; eu_clip.y1 = SCREEN_H;
+    eu_clip.y0 = 0; eu_clip.y1 = EU_H;
     /* crosshair */
     if (!pick_free) {
-        int cx = SCREEN_W / 2, cy = SCREEN_H / 2;
+        int cx = EU_W / 2, cy = EU_H / 2;
         eu_rect(cx - 2, cy, cx + 3, cy + 1, RGB(255, 200, 120), 31); eu_rect(cx, cy - 2, cx + 1, cy + 3, RGB(255, 200, 120), 31);
     }
     /* what's picked, top left */
@@ -462,7 +465,7 @@ void ed3d_draw(FrameBuf *fb, int t)
     if (b[0] && !ed_overlay_busy()) { int y = ed_top_h() + 2; eu_kit(KIT_PLAQUE, 1, y - 1, 10 + eu_text_w(b), y + 14, 29); eu_text(b, 5, y + 3, RGB(255, 210, 160), 28); }
     /* the paint tile, bottom right */
     if (!ed_overlay_busy()) {   /* the paint tile, bottom right (left of the touch rail) */
-        u16 tp, cl; int u, v, R = SCREEN_W - ed_rail_r(), B = ed_bar_y() - 2;
+        u16 tp, cl; int u, v, R = EU_W - ed_rail_r(), B = ed_bar_y() - 2;
         ed_tile_tex(ed3d_tile, &tp, &cl, &u, &v);
         eu_panel(R - 46, B - 56, R - 2, B, 30);
         eu_tex(R - 40, B - 50, R - 8, B - 18, tp, cl, u, v, u + 63, v + 63, 28);

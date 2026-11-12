@@ -1,7 +1,9 @@
 /* Studio UI: geometry, text and widgets on a pixel-art canvas (see sui.h). Not built for the PS1:
    floats are fine here. */
 #include "sui.h"
+#include "ui_fonts.h"
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define SUI_PI 3.14159265f
@@ -23,9 +25,26 @@ static const char *fchars; static int fnbase, fcw = 8, fch = 10, fadv = 7, fx0, 
 static s16 clipst[16][4];
 static int nclip;
 static int cur_tex = -1;
+static int fullres;                            /* drawn at the screen's resolution (sui_set_fullres) */
+void sui_set_fullres(int on) { fullres = on; }
+int  sui_fullres(void) { return fullres; }
 
 /* ------------------------------------------------------------------ the app's art */
-void sui_set_atlas(const u32 *rgba, int w, int h) { atlas = rgba; AW = w; AH = h; }
+/* the atlas the lists use: the app's pixel art at the top left, the glyph cache under it */
+#define GLYPH_H 1024
+static u32 *big; static int base_w, base_h, atlas_serial = 1;
+static void glyphs_clear(void);
+void sui_set_atlas(const u32 *rgba, int w, int h)
+{
+    int y, bw = w > 1024 ? w : 1024, bh = h + GLYPH_H;
+    free(big);
+    big = (u32 *)calloc((size_t)bw * bh, 4);
+    if (!big) { atlas = rgba; AW = w; AH = h; return; }
+    for (y = 0; y < h; y++) memcpy(big + (size_t)y * bw, rgba + (size_t)y * w, (size_t)w * 4);
+    atlas = big; AW = bw; AH = bh; base_w = w; base_h = h;
+    glyphs_clear();
+    atlas_serial++;
+}
 void sui_set_font(const char *chars, int nbase, int cw, int ch, int adv, int x0, int y0, int ey, int fire_dx)
 {
     fchars = chars; fnbase = nbase; fcw = cw; fch = ch; fadv = adv; fx0 = x0; fy0 = y0; fey = ey; ffire = fire_dx;
@@ -70,11 +89,17 @@ void sui_begin(int w, int h, int density)
 {
     /* the canvas: about one pixel per dp, whole screen pixels per canvas pixel when they come close */
     float d = density > 0 ? density / 100.0f : 1;
-    if (d < 1) d = 1;
-    PS = d;
-    S = 1;
+    if (d < 0.5f) d = 0.5f;
     Wpx = w; Hpx = h;
-    Hdp = floorf(h / PS + 0.5f); Wdp = floorf(w * Hdp / h + 0.5f);
+    if (fullres) {                       /* full resolution: drawn in screen pixels, laid out in dp */
+        PS = S = d;
+        Wdp = w / d; Hdp = h / d;
+    } else {
+        if (d < 1) d = 1;
+        PS = d;
+        S = 1;
+        Hdp = floorf(h / PS + 0.5f); Wdp = floorf(w * Hdp / h + 0.5f);
+    }
     nv = nc = 0; nclip = 0; cur_tex = -1;
     new_cmd(HR_TEX_ATLAS);
 }
@@ -85,8 +110,8 @@ const HrList *sui_end(u32 clear)
 {
     list.v = vert; list.cmd = cmd; list.ncmd = nc;
     list.clear = gpu(SUI_RGB(clear));
-    list.atlas = atlas; list.atlas_w = AW; list.atlas_h = AH; list.atlas_serial = 1;
-    list.vw = (int)Wdp; list.vh = (int)Hdp;
+    list.atlas = atlas; list.atlas_w = AW; list.atlas_h = AH; list.atlas_serial = atlas_serial;
+    list.vw = fullres ? Wpx : (int)Wdp; list.vh = fullres ? Hpx : (int)Hdp;
     return &list;
 }
 
@@ -232,6 +257,11 @@ void sui_circle(float cx, float cy, float r, u32 c)
     for (i = 0; i < n; i++) { float a = (float)(2 * SUI_PI * i / n); p[i * 2] = (cx + cosf(a) * r) * S; p[i * 2 + 1] = (cy + sinf(a) * r) * S; }
     poly(p, n, c >> 24 ? c : SUI_RGB(c));
 }
+void sui_tri_flat(float x0, float y0, float x1, float y1, float x2, float y2, u32 c)
+{
+    u32 g = gpu(c >> 24 ? c : SUI_RGB(c));
+    tri_px(x0 * S, y0 * S, g, x1 * S, y1 * S, g, x2 * S, y2 * S, g);
+}
 void sui_tri(float x0, float y0, float x1, float y1, float x2, float y2, u32 c)
 {
     float p[6];
@@ -341,9 +371,158 @@ static int glyph_at(int ch, int *gx, int *gy)
     return 1;
 }
 static int tscale(float size) { return size >= 30 ? 3 : size >= 18 ? 2 : 1; }
-float sui_text_w(int font, float size, const char *s) { (void)font; return (float)strlen(s) * fadv * tscale(size); }
+
+/* ---- full-resolution text: outlines (ui_fonts.h) rasterised per pixel size into the atlas */
+typedef struct { u32 key; s16 x, y, w, h, ox, oy; } Glyph;      /* ox, oy: from the pen on the baseline */
+#define NGLYPH 4096
+static Glyph gcache[NGLYPH];
+static int shelf_x, shelf_y, shelf_h;
+static void glyphs_clear(void)
+{
+    int y;
+    memset(gcache, 0, sizeof(gcache));
+    shelf_x = 0; shelf_y = base_h; shelf_h = 0;
+    if (big) for (y = base_h; y < AH; y++) memset(big + (size_t)y * AW, 0, (size_t)AW * 4);
+}
+/* exact-area coverage of a line (font-rs's accumulation rasteriser) */
+static float acc[200 * 200];
+static void acc_line(int W, int H, float x0, float y0, float x1, float y1)
+{
+    float dir = 1, dxdy, x;
+    int y, ys, ye;
+    if (y0 == y1) return;
+    if (y0 > y1) { float t; dir = -1; t = x0; x0 = x1; x1 = t; t = y0; y0 = y1; y1 = t; }
+    dxdy = (x1 - x0) / (y1 - y0);
+    x = x0;
+    if (y0 < 0) { x -= y0 * dxdy; y0 = 0; }
+    if (y1 > H) y1 = (float)H;
+    ys = (int)y0; ye = (int)ceilf(y1);
+    for (y = ys; y < ye; y++) {
+        int row = y * (W + 2);
+        float dy = fminf((float)(y + 1), y1) - fmaxf((float)y, y0), xn = x + dxdy * dy, d = dy * dir;
+        float a0x = x < xn ? x : xn, a1x = x < xn ? xn : x, x0f = floorf(a0x);
+        int x0i = (int)x0f, x1i = (int)ceilf(a1x);
+        if (x0i < 0) x0i = 0;
+        if (x1i > W) x1i = W;
+        if (x1i <= x0i + 1) {
+            float xm = 0.5f * (x + xn) - x0f;
+            acc[row + x0i] += d - d * xm;
+            acc[row + x0i + 1] += d * xm;
+        } else {
+            float sl = 1.0f / (a1x - a0x), xf0 = a0x - x0f, a0 = 0.5f * sl * (1 - xf0) * (1 - xf0), xf1 = a1x - ceilf(a1x) + 1, am = 0.5f * sl * xf1 * xf1;
+            int xi;
+            acc[row + x0i] += d * a0;
+            if (x1i == x0i + 2) acc[row + x0i + 1] += d * (1 - a0 - am);
+            else {
+                float a1 = sl * (1.5f - xf0), a2;
+                acc[row + x0i + 1] += d * (a1 - a0);
+                for (xi = x0i + 2; xi < x1i - 1; xi++) acc[row + xi] += d * sl;
+                a2 = a1 + (x1i - x0i - 3) * sl;
+                acc[row + x1i - 1] += d * (1 - a2 - am);
+            }
+            acc[row + x1i] += d * am;
+        }
+        x = xn;
+    }
+}
+static const Glyph *glyph(int font, int px, int ch)
+{
+    const UiFont *f = &ui_fonts[font];
+    const UiGlyph *g;
+    u32 key = ((u32)font << 24 | (u32)px << 8 | (u32)ch) + 1;
+    int h = (int)((key * 2654435761u) >> 20) & (NGLYPH - 1), n, c, k, start, W, H, x0, y0, x1, y1, X, Y;
+    float sc = (float)px / f->upm, mnx = 1e9f, mny = 1e9f, mxx = -1e9f, mxy = -1e9f, sum;
+    Glyph *e;
+    for (n = 0; n < NGLYPH; n++, h = (h + 1) & (NGLYPH - 1)) {
+        if (gcache[h].key == key) return &gcache[h];
+        if (!gcache[h].key) break;
+    }
+    if (n == NGLYPH || !big || ch < UI_FONT_FIRST || ch > UI_FONT_LAST) return 0;
+    e = &gcache[h];
+    memset(e, 0, sizeof(*e));
+    e->key = key;
+    g = &f->g[ch - UI_FONT_FIRST];
+    if (!g->ncont) return e;
+    start = g->first ? f->cont[g->first - 1] : 0;
+    for (k = start; k < f->cont[g->first + g->ncont - 1]; k++) {
+        float x = f->pts[k * 2] * sc, y = -f->pts[k * 2 + 1] * sc;
+        mnx = fminf(mnx, x); mxx = fmaxf(mxx, x); mny = fminf(mny, y); mxy = fmaxf(mxy, y);
+    }
+    x0 = (int)floorf(mnx); y0 = (int)floorf(mny); x1 = (int)ceilf(mxx); y1 = (int)ceilf(mxy);
+    W = x1 - x0 + 1; H = y1 - y0 + 1;
+    if (W > 196 || H > 198 || W * H > 200 * 200 - 2 * H) return e;
+    if (shelf_x + W + 1 > AW) { shelf_x = 0; shelf_y += shelf_h + 1; shelf_h = 0; }
+    if (shelf_y + H + 1 > AH) { glyphs_clear(); return glyph(font, px, ch); }   /* full: start again */
+    memset(acc, 0, sizeof(float) * (size_t)(W + 2) * (H + 1));
+    for (c = 0; c < g->ncont; c++) {
+        int a = (g->first + c) ? f->cont[g->first + c - 1] : 0, b = f->cont[g->first + c], i;
+        for (i = a; i < b; i++) {
+            int j = i + 1 < b ? i + 1 : a;
+            acc_line(W, H, f->pts[i * 2] * sc - x0, -f->pts[i * 2 + 1] * sc - y0, f->pts[j * 2] * sc - x0, -f->pts[j * 2 + 1] * sc - y0);
+        }
+    }
+    for (Y = 0; Y < H; Y++) {
+        u32 *o = big + (size_t)(shelf_y + Y) * AW + shelf_x;
+        sum = 0;
+        for (X = 0; X < W; X++) {
+            int a;
+            sum += acc[Y * (W + 2) + X];
+            a = (int)(fminf(fabsf(sum), 1.0f) * 255.0f + 0.5f);
+            o[X] = (u32)a << 24 | 0xffffffu;
+        }
+    }
+    e->x = (s16)shelf_x; e->y = (s16)shelf_y; e->w = (s16)W; e->h = (s16)H; e->ox = (s16)x0; e->oy = (s16)y0;
+    shelf_x += W + 1;
+    if (H > shelf_h) shelf_h = H;
+    atlas_serial++;
+    return e;
+}
+static int em_px(float em) { int p = (int)(em * S + 0.5f); return p < 4 ? 4 : p > 160 ? 160 : p; }
+static float vtext_w(int font, float em, const char *s)
+{
+    const UiFont *f = &ui_fonts[font];
+    float sc = (float)em_px(em) / f->upm, w = 0;
+    for (; *s; s++) { int ch = (u8)*s; if (ch >= UI_FONT_FIRST && ch <= UI_FONT_LAST) w += f->g[ch - UI_FONT_FIRST].adv * sc; }
+    return w / S;
+}
+/* text with its baseline at base (dp); returns the width (dp) */
+static float vtext(int font, float em, float x, float base, const char *s, u32 col)
+{
+    const UiFont *f = &ui_fonts[font];
+    int px = em_px(em), fire = font == FONT_FIRE;
+    float sc = (float)px / f->upm, pen = x * S, by = floorf(base * S + 0.5f), x0 = pen, cap = f->cap * sc;
+    u32 c = gpu(col >> 24 ? col : SUI_RGB(col));
+    for (; *s; s++) {
+        int ch = (u8)*s;
+        const Glyph *e;
+        if (ch < UI_FONT_FIRST || ch > UI_FONT_LAST) continue;
+        if (ch != ' ' && (e = glyph(font, px, ch)) && e->w) {
+            float gx = floorf(pen + 0.5f) + e->ox, gy = by + e->oy, u0 = (float)e->x / AW, v0 = (float)e->y / AH, u1 = (float)(e->x + e->w) / AW, v1 = (float)(e->y + e->h) / AH;
+            u32 ct = c, cb = c;
+            if (fire) {          /* molten: white-gold at the top, ember red at the baseline */
+                float t0 = (gy - (by - cap)) / cap, t1 = (gy + e->h - (by - cap)) / cap;
+                #define FIREC(t) gpu(0xff000000u | (u32)(255) << 16 | (u32)(int)(230 - 150 * fminf(fmaxf(t, 0), 1)) << 8 | (u32)(int)(140 - 120 * fminf(fmaxf(t, 0), 1)))
+                ct = FIREC(t0); cb = FIREC(t1);
+                #undef FIREC
+            }
+            use_tex(HR_TEX_ATLAS);
+            v(gx, gy, u0, v0, ct); v(gx + e->w, gy, u1, v0, ct); v(gx + e->w, gy + e->h, u1, v1, cb);
+            v(gx, gy, u0, v0, ct); v(gx + e->w, gy + e->h, u1, v1, cb); v(gx, gy + e->h, u0, v1, cb);
+        }
+        pen += f->g[ch - UI_FONT_FIRST].adv * sc;
+    }
+    return (pen - x0) / S;
+}
+float sui_text_base(int font, float em, float x, float base, const char *s, u32 c) { return vtext(font, em, x, base, s, c); }
+float sui_text_base_w(int font, float em, const char *s) { return vtext_w(font, em, s); }
+/* where the baseline goes so the text sits in the pixel font's cell (y = its top) */
+static float cell_base(int font, float size, float y) { const UiFont *f = &ui_fonts[font]; return y + (10.0f * tscale(size) + size * f->cap / f->upm) / 2; }
+
+float sui_text_w(int font, float size, const char *s) { if (fullres) return vtext_w(font, size, s); return (float)strlen(s) * fadv * tscale(size); }
 float sui_text(int font, float size, float x, float y, const char *s, u32 col)
 {
+    if (fullres) return vtext(font, size, x, cell_base(font, size, y), s, col);
+    {
     int k = tscale(size), gx, gy;
     float x0 = x;
     x = floorf(x + 0.5f); y = floorf(y + 0.5f);
@@ -351,6 +530,7 @@ float sui_text(int font, float size, float x, float y, const char *s, u32 col)
         if (*s != ' ' && glyph_at((u8)*s, &gx, &gy))
             sui_sprite(x, y, (float)fcw * k, (float)fch * k, gx + (font == FONT_FIRE ? ffire : 0), gy, fcw, fch, font == FONT_FIRE ? 0xffffff : col);
     return x - x0;
+    }
 }
 void sui_text_c(int font, float size, float cx, float y, const char *s, u32 c) { sui_text(font, size, floorf(cx - sui_text_w(font, size, s) / 2), y, s, c); }
 

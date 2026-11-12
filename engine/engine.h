@@ -53,7 +53,12 @@ void eng_char(int ch);
 /* keyboard: key down / up (app.h KEY_* or upper-case ASCII), mapped by the game's KeyBinds */
 void eng_key(int key, int down);
 void eng_keys_clear(void);
-int  eng_key_held(int key);                   /* a key (app.h KEY_* or upper-case ASCII) is down */
+int  eng_key_held(int key);
+/* the controller on its own (no keyboard bindings mixed in): the platform reports its buttons;
+   the sticks are the analog values it gave eng_set_analog (-4096..4096, up and right positive) */
+void eng_set_pad_device(u32 bits);
+u32  eng_pad_device(void);
+void eng_pad_sticks(int *lx, int *ly, int *rx, int *ry);                   /* a key (app.h KEY_* or upper-case ASCII) is down */
 /* tests / tools: drive the touch stick directly */
 void eng_set_stick(int active, int ox, int oy, int x, int y);
 int  eng_ram_used(void);
