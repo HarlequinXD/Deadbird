@@ -280,6 +280,15 @@ void sui_frame_image(float x, float y, float w, float h)
     v(x0, y0, 0, 0, c); v(x1, y1, 1, 1, c); v(x0, y1, 0, 1, c);
 }
 
+void sui_frame_part(float x, float y, float w, float h, float u0, float v0, float u1, float v1)
+{
+    u32 c = 0xffffffffu;
+    float x0 = x * S, y0 = y * S, x1 = (x + w) * S, y1 = (y + h) * S;
+    use_tex(HR_TEX_FRAME);
+    v(x0, y0, u0, v0, c); v(x1, y0, u1, v0, c); v(x1, y1, u1, v1, c);
+    v(x0, y0, u0, v0, c); v(x1, y1, u1, v1, c); v(x0, y1, u0, v1, c);
+}
+
 /* ------------------------------------------------------------------ sprites, 9-slices, text */
 void sui_sprite(float x, float y, float w, float h, int u, int vv, int uw, int vh, u32 tint)
 {

@@ -42,6 +42,25 @@ int  eu_badge_w(u32 button, int style);
 /* textured quad from VRAM (texture tiles in the palette and the 3D view's HUD) */
 void eu_tex(int x0, int y0, int x1, int y1, u16 tpage, u16 clut, int u0, int v0, int u1, int v1, int ot);
 
+/* high resolution (the Studio): with eu_hires set, what's drawn at the UI's depths (bars, rails,
+   buttons, panels, text: ot <= EU_HI_OT) is recorded in frame coordinates instead of drawn into the
+   PS1 frame, for the Studio to draw in its own crisp UI over the frame; the level stays in the
+   frame. Texture tiles are still drawn into the frame and recorded as a window onto it. */
+enum { EU_HI_OT = L_MAP_TEXT + 1 };
+enum { EUC_RECT, EUC_TRI, EUC_QUAD, EUC_RECT_G, EUC_DISC, EUC_RING, EUC_TEXT, EUC_TEXT_C, EUC_KIT, EUC_TEX };
+typedef struct {
+    u8  kind;
+    s8  semi;                     /* -1 opaque, else SEMI_* */
+    s16 ot;
+    s16 x[4], y[4];               /* rect: x0 y0 x1 y1 in x[0] y[0] x[1] y[1]; disc / ring: centre, x[1] = r */
+    u32 c, c2;                    /* 0xRRGGBB; c2: gradient bottom; kit: the cell */
+    u16 str;                      /* text: offset in eu_hi_text */
+} EuCmd;
+extern int eu_hires;
+extern int eu_ncmd;
+extern EuCmd eu_cmd[];
+extern char eu_hi_text[];
+
 /* hit areas: drawn things register a rectangle and an id; a tap is looked up against the last frame */
 void eu_hit(int x0, int y0, int x1, int y1, int id);
 int  eu_hit_at(int x, int y);                 /* -1 if none */

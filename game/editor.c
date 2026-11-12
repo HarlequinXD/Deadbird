@@ -1007,6 +1007,8 @@ static void draw_top(const char *what)
 #define ROW_H row_h
 #define H_ADJ 2100
 static int (*panel_adjustable)(int);     /* the inspector: rows that get - / + buttons on touch */
+static int panel_n;                      /* rows in the open list panel */
+int editor_panel_scroll(void) { return ov ? ov_scroll : -1; }
 static int panel_rows(void) { return (PY1 - PY0 - 18 - (touch_lay ? 10 : 0)) / ROW_H; }
 static void list_panel(const char *title, int n, const char *(*label)(int, char *), const char *(*value)(int, char *), int x0)
 {
@@ -1014,8 +1016,10 @@ static void list_panel(const char *title, int n, const char *(*label)(int, char 
     char a[48], b[48];
     if (ov_sel >= n) ov_sel = n - 1;
     if (ov_sel < 0) ov_sel = 0;
-    if (ov_sel < ov_scroll) ov_scroll = ov_sel;
+    panel_n = n;
+    if (ov_sel < ov_scroll) ov_scroll = ov_sel;   /* the view follows the selection (a drag moves both) */
     if (ov_sel >= ov_scroll + rows) ov_scroll = ov_sel - rows + 1;
+    if (ov_scroll > n - rows) ov_scroll = n - rows > 0 ? n - rows : 0;
     eu_panel(x0, PY0, PX1, PY1, L_POP_BG);
     eu_text(title, x0 + 5, PY0 + 5, RGB(255, 160, 60), L_POP_TEXT);
     for (i = 0; i < rows && ov_scroll + i < n; i++) {
@@ -2060,8 +2064,17 @@ static void pointer_events(void)
             if (drag_moved && mode == M_MAP && !ov && (drag_hit < 0) && in_map(drag_x, drag_y)) {
                 vx -= ((s32)dx << 10) / ppm(); vz += ((s32)dy << 10) / ppm();
                 drag_x = e->x; drag_y = e->y;
-            } else if (drag_moved && ov == OV_INSPECT) {      /* drag the panel's list */
-                if (dy > 10) { ov_sel = ov_sel > 0 ? ov_sel - 1 : 0; drag_y = e->y; } else if (dy < -10) { ov_sel++; drag_y = e->y; }
+            } else if (drag_moved && (ov == OV_INSPECT || ov == OV_TOOLS || ov == OV_MENU)) {   /* drag the panel's list */
+                int rows = panel_rows(), top = panel_n - rows > 0 ? panel_n - rows : 0, sc = ov_scroll;
+                while (dy <= -ROW_H) { sc++; drag_y -= ROW_H; dy += ROW_H; }      /* finger up: the list follows it, later rows come in */
+                while (dy >= ROW_H) { sc--; drag_y += ROW_H; dy -= ROW_H; }
+                sc = clampv(sc, 0, top);
+                if (sc != ov_scroll) {
+                    ov_scroll = sc;
+                    ov_sel = clampv(ov_sel, ov_scroll, ov_scroll + rows - 1);   /* the lit row stays in view */
+                    if (ov_sel >= panel_n) ov_sel = panel_n - 1;
+                    snd_play(SFX_UI_MOVE, 1800, 0, 4096);
+                }
             }
             continue;
         }
@@ -2190,11 +2203,15 @@ static void draw_dpad(void)
     static const int DX[4] = { 0, 1, 0, -1 }, DY[4] = { -1, 0, 1, 0 };
     /* the touch stick's forged ring (ui atlas) round a dark face */
     eu_disc(cx, cy, 24, RGB(40, 46, 46), SEMI_SUB, L_POP_BG + 3);
-    ui_sprite(eu_fb(), cx - 31, cy - 31, 62, 62, 0, 0, 64, 64, 128, 128, 128, 0, 0, L_POP_BG + 2);
+    if (eu_hires) {                                   /* the Studio: a clean ring in its own look */
+        eu_ring(cx, cy, 28, RGB(150, 70, 40), L_POP_BG + 2);
+        eu_ring(cx, cy, 26, RGB(70, 30, 22), L_POP_BG + 2);
+    } else ui_sprite(eu_fb(), cx - 31, cy - 31, 62, 62, 0, 0, 64, 64, 128, 128, 128, 0, 0, L_POP_BG + 2);
     for (k = 0; k < 4; k++) {
         int bx = cx + DX[k] * 17, by = cy + DY[k] * 17;
         u32 lit = (touch_hold == (k == 0 ? PAD_UP : k == 1 ? PAD_RIGHT : k == 2 ? PAD_DOWN : PAD_LEFT));
-        if (lit) ui_sprite(eu_fb(), bx - 11, by - 11, 22, 22, 32, 144, 32, 32, 230, 110, 50, 1, 0, L_POP_BG + 1);
+        if (lit && eu_hires) eu_disc(bx, by, 10, RGB(160, 60, 20), SEMI_ADD, L_POP_BG + 1);
+        else if (lit) ui_sprite(eu_fb(), bx - 11, by - 11, 22, 22, 32, 144, 32, 32, 230, 110, 50, 1, 0, L_POP_BG + 1);
         eu_tri(bx + DX[k] * 6, by + DY[k] * 6, bx - DY[k] * 6 - DX[k] * 2, by + DX[k] * 6 - DY[k] * 2, bx + DY[k] * 6 - DX[k] * 2, by - DX[k] * 6 - DY[k] * 2, lit ? RGB(255, 170, 60) : RGB(160, 120, 100), -1, L_POP_BG + 1);
         eu_hit(bx - 12, by - 12, bx + 12, by + 12, H_DPAD + k);
     }

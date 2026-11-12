@@ -1,8 +1,10 @@
 /*
  * The Studio's Geometry tab: Deadbird's own level editor (game/editor.c), embedded. The same
  * tools, d-pad cursor, tool rail, inspector, 3D view and controls as the editor in the game, on
- * the project's level file (<project>.map). It draws into the engine's frame (the PS1-style
- * 320..512 x 240 picture), which the tab shows scaled up; touches on it go to the editor.
+ * the project's level file (<project>.map). The level is drawn into the engine's frame (the
+ * PS1-style 320..512 x 240 picture), which the tab shows scaled up; the editor's bars, buttons,
+ * panels and text are recorded instead (edui.h, eu_hires) and drawn here in the Studio's own
+ * crisp UI over it. Touches go to the editor in frame coordinates.
  */
 #include <stdio.h>
 #include <string.h>
@@ -13,6 +15,8 @@
 #include "files.h"
 #include "level.h"
 #include "sui.h"
+#include "edui.h"
+#include "ui.h"
 
 static char mapfile[32];
 static int loaded, last_kind = EK_TOUCH;          /* the Studio is touch first; a mouse switches it */
@@ -33,7 +37,7 @@ int geom_open(const char *file)
     loaded = 0; ptr_mask = 0;
     snprintf(mapfile, sizeof(mapfile), "%s", file ? file : "");
     if (!mapfile[0]) return 0;
-    ed_quiet = 1;
+    ed_quiet = 1; eu_hires = 1;
     if (!editor_open_file(mapfile, eng_in()->pad_style, touch_now())) return 0;
     loaded = 1;
     return 1;
@@ -104,6 +108,91 @@ int geom_pointer(int id, int ev, float x, float y, int kind)
     return 1;
 }
 
+/* ---- the editor's UI, recorded in frame coordinates (edui.h), drawn crisp over the frame */
+static u32 col(u32 rgb, int semi)
+{
+    rgb &= 0xffffffu;
+    if (semi < 0) return 0xff000000u | rgb;
+    if (semi == SEMI_SUB) {                   /* darkens by the colour: black, that strong */
+        u32 m = ((rgb >> 16 & 255) + (rgb >> 8 & 255) + (rgb & 255)) / 3;
+        return ((m * 3 > 255 ? 255 : m * 3) << 24);
+    }
+    if (semi == SEMI_ADD) return 0xa0000000u | rgb;
+    if (semi == SEMI_QADD) return 0x50000000u | rgb;
+    return 0x80000000u | rgb;
+}
+static int sk_of(int cell)
+{
+    switch (cell) {
+    case KIT_PANEL: return SK_PANEL;
+    case KIT_BTN: return SK_BUTTON;
+    case KIT_BTN_LIT: return SK_BUTTON_LIT;
+    case KIT_BTN_HOT: return SK_BUTTON_HOT;
+    case KIT_BAR: return SK_BAR;
+    case KIT_ROW: return SK_ROW;
+    case KIT_FIELD: return SK_FIELD;
+    case KIT_SEL: return SK_SELECT;
+    default: return SK_PLAQUE;
+    }
+}
+static void hires_ui(void)
+{
+    static short order[3000];
+    float s = iw / SCREEN_W;
+    int n = eu_ncmd, i, k;
+#define X(v) (ix + (v) * s)
+#define Y(v) (iy + (v) * s)
+    if (n > 3000) n = 3000;
+    /* the PS1's order: the deepest first; at one depth the last added first (it was prepended) */
+    for (i = 0; i < n; i++) order[i] = (short)(n - 1 - i);
+    for (i = 1; i < n; i++) {                     /* stable insertion sort, deepest first */
+        short t = order[i];
+        for (k = i; k > 0 && eu_cmd[order[k - 1]].ot < eu_cmd[t].ot; k--) order[k] = order[k - 1];
+        order[k] = t;
+    }
+    for (i = 0; i < n; i++) {
+        const EuCmd *c = &eu_cmd[order[i]];
+        switch (c->kind) {
+        case EUC_RECT:
+            sui_rect(X(c->x[0]), Y(c->y[0]), (c->x[1] - c->x[0]) * s, (c->y[1] - c->y[0]) * s, col(c->c, c->semi));
+            break;
+        case EUC_RECT_G:
+            sui_gradient(X(c->x[0]), Y(c->y[0]), (c->x[1] - c->x[0]) * s, (c->y[1] - c->y[0]) * s, col(c->c, -1), col(c->c2, -1));
+            break;
+        case EUC_TRI:
+            sui_tri(X(c->x[0]), Y(c->y[0]), X(c->x[1]), Y(c->y[1]), X(c->x[2]), Y(c->y[2]), col(c->c, c->semi));
+            break;
+        case EUC_QUAD:
+            sui_tri(X(c->x[0]), Y(c->y[0]), X(c->x[1]), Y(c->y[1]), X(c->x[2]), Y(c->y[2]), col(c->c, c->semi));
+            sui_tri(X(c->x[1]), Y(c->y[1]), X(c->x[3]), Y(c->y[3]), X(c->x[2]), Y(c->y[2]), col(c->c, c->semi));
+            break;
+        case EUC_DISC:
+            sui_circle(X(c->x[0] + 0.5f), Y(c->y[0] + 0.5f), (c->x[1] + 0.5f) * s, col(c->c, c->semi));
+            break;
+        case EUC_RING: {
+            float r = (c->x[1] + 0.5f) * s, t = s < 1.5f ? 1.5f : s;
+            sui_rrect_line(X(c->x[0] + 0.5f) - r, Y(c->y[0] + 0.5f) - r, r * 2, r * 2, r, t, col(c->c, -1));
+            break;
+        }
+        case EUC_TEXT:
+            sui_text(FONT_REGULAR, 12, X(c->x[0]), Y(c->y[0] + 4) - 5, eu_hi_text + c->str, col(c->c, -1));
+            break;
+        case EUC_TEXT_C:
+            sui_text_c(FONT_REGULAR, 12, X(c->x[0]), Y(c->y[0] + 4) - 5, eu_hi_text + c->str, col(c->c, -1));
+            break;
+        case EUC_KIT:
+            sui_nine(sk_of((int)c->c), X(c->x[0]), Y(c->y[0]), (c->x[1] - c->x[0]) * s, (c->y[1] - c->y[0]) * s);
+            break;
+        case EUC_TEX:
+            sui_frame_part(X(c->x[0]), Y(c->y[0]), (c->x[1] - c->x[0]) * s, (c->y[1] - c->y[0]) * s,
+                           (float)c->x[0] / SCREEN_W, (float)c->y[0] / SCREEN_H, (float)c->x[1] / SCREEN_W, (float)c->y[1] / SCREEN_H);
+            break;
+        }
+    }
+#undef X
+#undef Y
+}
+
 /* the tab: the editor's picture filling the area under the Studio's bar; or, with no level
    yet, a way to make one */
 void geom_tab(float x, float y, float w, float h, int *wants_create)
@@ -129,6 +218,9 @@ void geom_tab(float x, float y, float w, float h, int *wants_create)
     ix = x + (w - iw) / 2; iy = y + (h - ih) / 2;
     if (iw < w || ih < h) sui_rect(x, y, w, h, 0xff0a0606u);
     sui_frame_image(ix, iy, iw, ih);
+    sui_clip(ix, iy, iw, ih);
+    hires_ui();
+    sui_unclip();
 }
 int geom_frame_w(void) { return loaded ? want_w : 0; }
 void geom_view(float *x, float *y, float *w, float *h) { *x = ix; *y = iy; *w = iw; *h = ih; }

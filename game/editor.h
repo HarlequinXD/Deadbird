@@ -36,4 +36,6 @@ void editor_char(int ch);
 /* storage: engine/files.h (plain .map text files in the levels folder) */
 #include "files.h"
 
+int  editor_panel_scroll(void);       /* the open list panel's first row (-1: none open) */
+
 #endif

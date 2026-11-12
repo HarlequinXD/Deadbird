@@ -5,10 +5,39 @@
 
 ERect eu_clip = { 0, 0, 320, SCREEN_H };                 /* (eu_begin sets it to the frame) */
 static FrameBuf *FB;
+
+/* ---- high-resolution capture (see edui.h) */
+#define MAXCMD 3000
+#define MAXTXT 24000
+int eu_hires, eu_ncmd;
+EuCmd eu_cmd[MAXCMD];
+char eu_hi_text[MAXTXT];
+static int ntxt;
+static EuCmd *rec(int kind, int ot)
+{
+    EuCmd *c;
+    if (!eu_hires || ot > EU_HI_OT) return 0;
+    if (eu_ncmd >= MAXCMD) return (EuCmd *)-1;          /* full: drop it (still not drawn low-res) */
+    c = &eu_cmd[eu_ncmd++];
+    memset(c, 0, sizeof(*c));
+    c->kind = (u8)kind; c->ot = (s16)ot; c->semi = -1;
+    return c;
+}
+#define REC(c) ((c) != (EuCmd *)-1)
+static u16 rec_str(const char *s)
+{
+    int n = (int)strlen(s);
+    u16 at;
+    if (ntxt + n + 1 > MAXTXT) return (u16)(ntxt ? ntxt - 1 : 0);
+    at = (u16)ntxt;
+    memcpy(eu_hi_text + ntxt, s, (size_t)n + 1);
+    ntxt += n + 1;
+    return at;
+}
 #define MAXHIT 160
 static ERect hits[2][MAXHIT]; static int hit_id[2][MAXHIT], nhit[2], hcur;
 
-void eu_begin(FrameBuf *fb) { FB = fb; hcur ^= 1; nhit[hcur] = 0; eu_clip.x0 = 0; eu_clip.y0 = 0; eu_clip.x1 = SCREEN_W; eu_clip.y1 = SCREEN_H; }
+void eu_begin(FrameBuf *fb) { FB = fb; eu_ncmd = 0; ntxt = 1; eu_hi_text[0] = 0; hcur ^= 1; nhit[hcur] = 0; eu_clip.x0 = 0; eu_clip.y0 = 0; eu_clip.x1 = SCREEN_W; eu_clip.y1 = SCREEN_H; }
 FrameBuf *eu_fb(void) { return FB; }
 
 void eu_hit(int x0, int y0, int x1, int y1, int id)
@@ -39,7 +68,13 @@ static POLY *flat_prim(int semi)
 }
 static void put_tri(s32 x0, s32 y0, s32 x1, s32 y1, s32 x2, s32 y2, u32 c, int semi, int ot)
 {
-    POLY *p = flat_prim(semi);
+    POLY *p;
+    EuCmd *r = rec(EUC_TRI, ot);
+    if (r) {
+        if (REC(r)) { r->x[0] = (s16)x0; r->y[0] = (s16)y0; r->x[1] = (s16)x1; r->y[1] = (s16)y1; r->x[2] = (s16)x2; r->y[2] = (s16)y2; r->c = c; r->semi = (s8)semi; }
+        return;
+    }
+    p = flat_prim(semi);
     if (!p) return;
     p->v[0].x = (s16)x0; p->v[0].y = (s16)y0; p->v[1].x = (s16)x1; p->v[1].y = (s16)y1; p->v[2].x = (s16)x2; p->v[2].y = (s16)y2;
     p->v[0].r = (u8)(c >> 16); p->v[0].g = (u8)(c >> 8); p->v[0].b = (u8)c;
@@ -47,7 +82,21 @@ static void put_tri(s32 x0, s32 y0, s32 x1, s32 y1, s32 x2, s32 y2, u32 c, int s
 }
 static void put_quad(s32 x0, s32 y0, s32 x1, s32 y1, s32 x2, s32 y2, s32 x3, s32 y3, u32 c, int semi, int ot)
 {
-    POLY *p = flat_prim(semi);
+    POLY *p;
+    EuCmd *r = rec(EUC_QUAD, ot);
+    if (r) {
+        if (REC(r)) {
+            r->x[0] = (s16)x0; r->y[0] = (s16)y0; r->x[1] = (s16)x1; r->y[1] = (s16)y1;
+            r->x[2] = (s16)x2; r->y[2] = (s16)y2; r->x[3] = (s16)x3; r->y[3] = (s16)y3; r->c = c; r->semi = (s8)semi;
+            if (x0 == x2 && x1 == x3 && y0 == y1 && y2 == y3) {          /* an upright rectangle */
+                r->kind = EUC_RECT;
+                r->x[0] = (s16)(x0 < x1 ? x0 : x1); r->x[1] = (s16)(x0 < x1 ? x1 : x0);
+                r->y[0] = (s16)(y0 < y2 ? y0 : y2); r->y[1] = (s16)(y0 < y2 ? y2 : y0);
+            }
+        }
+        return;
+    }
+    p = flat_prim(semi);
     if (!p) return;
     p->code |= PF_QUAD;
     p->v[0].x = (s16)x0; p->v[0].y = (s16)y0; p->v[1].x = (s16)x1; p->v[1].y = (s16)y1;
@@ -105,7 +154,12 @@ void eu_line_semi(int x0, int y0, int x1, int y1, u32 rgb, int ot)
     else put_quad(a, b, a + 1, b, c, d + (d >= b ? 1 : -1), c + 1, d + (d >= b ? 1 : -1), rgb, SEMI_ADD, ot);
 }
 void eu_rect(int x0, int y0, int x1, int y1, u32 rgb, int ot) { if (x1 > x0 && y1 > y0) put_quad(x0, y0, x1, y0, x0, y1, x1, y1, rgb, -1, ot); }
-void eu_rect_g(int x0, int y0, int x1, int y1, u32 top, u32 bot, int ot) { quad_g(FB, x0, y0, x1, y1, top, bot, NO_SEMI, ot); }
+void eu_rect_g(int x0, int y0, int x1, int y1, u32 top, u32 bot, int ot)
+{
+    EuCmd *r = rec(EUC_RECT_G, ot);
+    if (r) { if (REC(r)) { r->x[0] = (s16)x0; r->y[0] = (s16)y0; r->x[1] = (s16)x1; r->y[1] = (s16)y1; r->c = top; r->c2 = bot; } return; }
+    quad_g(FB, x0, y0, x1, y1, top, bot, NO_SEMI, ot);
+}
 void eu_rect_semi(int x0, int y0, int x1, int y1, u32 rgb, int mode, int ot) { if (x1 > x0 && y1 > y0) put_quad(x0, y0, x1, y0, x0, y1, x1, y1, rgb, mode, ot); }
 void eu_frame(int x0, int y0, int x1, int y1, u32 rgb, int ot)
 {
@@ -155,9 +209,17 @@ static void row(int x0, int x1, int y, u32 c, int semi, int ot)   /* pixels x0..
     put_quad(x0, y, x1 + 1, y, x0, y + 1, x1 + 1, y + 1, c, semi, ot);
 }
 static int half_w(int r, int dy) { int w = r; long long lim = (long long)r * r + r; if (dy < -r || dy > r) return -1; while (w >= 0 && (long long)w * w + (long long)dy * dy > lim) w--; return w; }
+static int rec_round(int kind, int cx, int cy, int r, u32 rgb, int semi, int ot)
+{
+    EuCmd *c = rec(kind, ot);
+    if (!c) return 0;
+    if (REC(c)) { c->x[0] = (s16)cx; c->y[0] = (s16)cy; c->x[1] = (s16)r; c->c = rgb; c->semi = (s8)semi; }
+    return 1;
+}
 void eu_disc(int cx, int cy, int r, u32 rgb, int semi, int ot)
 {
     int i, dy;
+    if (rec_round(EUC_DISC, cx, cy, r, rgb, semi, ot)) return;
     if (r <= 40) {
         for (dy = -r; dy <= r; dy++) { int w = half_w(r, dy); if (w >= 0) row(cx - w, cx + w, cy + dy, rgb, semi, ot); }
         return;
@@ -170,6 +232,7 @@ void eu_disc(int cx, int cy, int r, u32 rgb, int semi, int ot)
 void eu_ring(int cx, int cy, int r, u32 rgb, int ot)
 {
     int i, n, st, dy;
+    if (rec_round(EUC_RING, cx, cy, r, rgb, -1, ot)) return;
     if (r <= 40) {
         for (dy = -r; dy <= r; dy++) {
             int wo = half_w(r, dy), wi = half_w(r - 1, dy);
@@ -187,18 +250,34 @@ void eu_ring(int cx, int cy, int r, u32 rgb, int ot)
     }
 }
 
-void eu_text(const char *s, int x, int y, u32 rgb, int ot) { text_rgb(FB, s, x, y, rgb, ot); }
+static int rec_text(int kind, const char *s, int x, int y, u32 rgb, int ot)
+{
+    EuCmd *c = rec(kind, ot);
+    if (!c) return 0;
+    if (REC(c)) { c->x[0] = (s16)x; c->y[0] = (s16)y; c->c = rgb; c->str = rec_str(s); }
+    return 1;
+}
+void eu_text(const char *s, int x, int y, u32 rgb, int ot) { if (!rec_text(EUC_TEXT, s, x, y, rgb, ot)) text_rgb(FB, s, x, y, rgb, ot); }
 int  eu_text_w(const char *s) { return (int)strlen(s) * 7; }
-void eu_text_c(const char *s, int cx, int y, u32 rgb, int ot) { text_rgb(FB, s, cx - eu_text_w(s) / 2, y, rgb, ot); }
+void eu_text_c(const char *s, int cx, int y, u32 rgb, int ot) { if (!rec_text(EUC_TEXT_C, s, cx, y, rgb, ot)) text_rgb(FB, s, cx - eu_text_w(s) / 2, y, rgb, ot); }
+static int rec_kit(int cell, int x0, int y0, int x1, int y1, int ot)
+{
+    EuCmd *c = rec(EUC_KIT, ot);
+    if (!c) return 0;
+    if (REC(c)) { c->x[0] = (s16)x0; c->y[0] = (s16)y0; c->x[1] = (s16)x1; c->y[1] = (s16)y1; c->c = (u32)cell; }
+    return 1;
+}
 
 void eu_kit(int cell, int x0, int y0, int x1, int y1, int ot)
 {
+    if (rec_kit(cell, x0, y0, x1, y1, ot)) return;
     if (ui_nine(FB, cell, x0, y0, x1, y1, 128, ot)) return;
     eu_rect_g(x0, y0, x1, y1, RGB(46, 18, 14), RGB(22, 8, 8), ot);      /* (no kit: flat) */
     eu_frame(x0, y0, x1, y1, RGB(96, 40, 26), ot);
 }
 void eu_panel(int x0, int y0, int x1, int y1, int ot)
 {
+    if (rec_kit(KIT_PANEL, x0, y0, x1, y1, ot)) return;
     if (ui_nine(FB, KIT_PANEL, x0, y0, x1, y1, 128, ot)) return;
     eu_rect_g(x0 + 1, y0 + 1, x1 - 1, y1 - 1, RGB(34, 10, 8), RGB(12, 4, 6), ot);
     eu_frame(x0, y0, x1, y1, RGB(150, 46, 18), ot);
@@ -208,6 +287,10 @@ void eu_panel(int x0, int y0, int x1, int y1, int ot)
 void eu_button(int x0, int y0, int x1, int y1, const char *label, int lit, int ot)
 {
     /* lit (selected / held): the hot red plate with bone corners */
+    if (rec_kit(lit ? KIT_BTN_HOT : KIT_BTN, x0, y0, x1, y1, ot + 1)) {
+        if (label) eu_text_c(label, (x0 + x1) / 2 + 1, (y0 + y1) / 2 - 4, lit ? RGB(255, 240, 210) : RGB(225, 185, 155), ot - 1);
+        return;
+    }
     if (ui_nine(FB, lit ? KIT_BTN_HOT : KIT_BTN, x0, y0, x1, y1, lit ? 150 : 128, ot + 1)) {
         if (label) eu_text_c(label, (x0 + x1) / 2 + 1, (y0 + y1) / 2 - 4, lit ? RGB(255, 240, 210) : RGB(225, 185, 155), ot - 1);
         return;
@@ -293,7 +376,11 @@ void eu_badge(u32 b, int x, int y, int style, int ot)
 
 void eu_tex(int x0, int y0, int x1, int y1, u16 tpage, u16 clut, int u0, int v0, int u1, int v1, int ot)
 {
-    POLY *p = prim_alloc(FB);
+    POLY *p;
+    EuCmd *r = rec(EUC_TEX, ot);              /* the tile itself still goes into the frame, in front */
+    if (r && REC(r)) { r->x[0] = (s16)x0; r->y[0] = (s16)y0; r->x[1] = (s16)x1; r->y[1] = (s16)y1; }
+    if (r) ot = 0;
+    p = prim_alloc(FB);
     if (!p) return;
     memset(p, 0, sizeof(*p));
     p->code = PF_TEX | PF_QUAD | PF_RAW;

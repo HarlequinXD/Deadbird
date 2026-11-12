@@ -66,6 +66,7 @@ void  sui_bezier(float x0, float y0, float x1, float y1, float x2, float y2, flo
 void  sui_polyline(const float *xy, int n, float t, u32 c);     /* dp points */
 void  sui_bezier_point(float x0, float y0, float x1, float y1, float x2, float y2, float x3, float y3, float k, float *x, float *y);
 void  sui_frame_image(float x, float y, float w, float h);   /* the engine's PS1 frame (game view) */
+void  sui_frame_part(float x, float y, float w, float h, float u0, float v0, float u1, float v1);   /* a part of it (uv 0..1) */
 /* text: size picks the pixel scale (under 18: 1x, else 2x...), y = top; upper case; returns the width */
 float sui_text(int font, float size, float x, float y, const char *s, u32 c);
 float sui_text_w(int font, float size, const char *s);
