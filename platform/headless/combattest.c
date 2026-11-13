@@ -34,7 +34,7 @@ static void blade(VECTOR *a, VECTOR *b)
     SVECTOR s;
     s.vx = (s16)(DEMON_MOUNT_X + DEMON_MOUNT_DX * 90 / 4096); s.vy = (s16)DEMON_MOUNT_Y; s.vz = (s16)(DEMON_MOUNT_Z + DEMON_MOUNT_DZ * 90 / 4096);
     mat_apply(&pl.world[DEMON_MOUNT_BONE], &s, a);
-    s.vx = (s16)(DEMON_MOUNT_X + DEMON_MOUNT_DX * 480 / 4096); s.vz = (s16)(DEMON_MOUNT_Z + DEMON_MOUNT_DZ * 480 / 4096);
+    s.vx = (s16)(DEMON_MOUNT_X + DEMON_MOUNT_DX * 529 / 4096); s.vz = (s16)(DEMON_MOUNT_Z + DEMON_MOUNT_DZ * 529 / 4096);
     mat_apply(&pl.world[DEMON_MOUNT_BONE], &s, b);
 }
 
@@ -60,8 +60,11 @@ static void combo(int *count)
         {
             VECTOR a, b;
             blade(&a, &b);
+            VECTOR up;
             at.ox = pl.x; at.oz = pl.z;
-            n = attack_update(&at, &a, &b, ev, 4);
+            /* the hitbox as in the game: the bar's depth along the mount bone's Z */
+            up.vx = pl.world[DEMON_MOUNT_BONE].m[0][2]; up.vy = pl.world[DEMON_MOUNT_BONE].m[1][2]; up.vz = pl.world[DEMON_MOUNT_BONE].m[2][2]; up.pad = 0;
+            n = attack_update_box(&at, &a, &b, &up, ev, 4);
         }
         for (i = 0; i < n; i++) {
             count[ev[i].kind]++;

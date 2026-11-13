@@ -129,6 +129,8 @@ static void typed(int ch) { if (gs == GS_EDITOR) editor_char(ch); }
 static int fps_shown;
 int  game_phase(void) { return gs; }
 void game_debug_side_cam(int on) { debug_side_cam = on; }
+static int debug_hitbox;
+void game_debug_hitbox(int on) { debug_hitbox = on; }
 int  game_debug_player_yaw(void) { return pl.yaw; }
 /* tests: put Deadbird next to trooper i (facing him), report state */
 void game_debug_near_enemy(int i, s32 dist)
@@ -382,7 +384,7 @@ static void saw_blade(VECTOR *base, VECTOR *tip)
     s.vx = (s16)(DEMON_MOUNT_X + DEMON_MOUNT_DX * 90 / 4096); s.vy = (s16)DEMON_MOUNT_Y;
     s.vz = (s16)(DEMON_MOUNT_Z + DEMON_MOUNT_DZ * 90 / 4096);
     mat_apply(&pl.world[DEMON_MOUNT_BONE], &s, base);
-    s.vx = (s16)(DEMON_MOUNT_X + DEMON_MOUNT_DX * 480 / 4096); s.vz = (s16)(DEMON_MOUNT_Z + DEMON_MOUNT_DZ * 480 / 4096);
+    s.vx = (s16)(DEMON_MOUNT_X + DEMON_MOUNT_DX * 529 / 4096); s.vz = (s16)(DEMON_MOUNT_Z + DEMON_MOUNT_DZ * 529 / 4096);   /* the bar's nose */
     mat_apply(&pl.world[DEMON_MOUNT_BONE], &s, tip);
 }
 
@@ -400,7 +402,13 @@ static void saw_combat(void)
     if (!pl.atk_active) return;
     saw_blade(&base, &tip);
     saw_attack.ox = pl.x; saw_attack.oz = pl.z;
-    n = attack_update(&saw_attack, &base, &tip, ev, 4);
+    {   /* the hitbox turns with the bar: the bar is a flat plate whose depth (the chain's run, +-67
+           units, 70 with the teeth) lies along the mount bone's Z axis; it's only ~18 thick */
+        const MATRIX *w = &pl.world[DEMON_MOUNT_BONE];
+        VECTOR up;
+        up.vx = w->m[0][2]; up.vy = w->m[1][2]; up.vz = w->m[2][2]; up.pad = 0;
+        n = attack_update_box(&saw_attack, &base, &tip, &up, ev, 4);
+    }
     if (lock_ei >= 0 && n < 4 && pl.atk_t >= pl_swing_strike(pl.atk) + 1) {   /* locked on and the blade is down: it lands */
         Enemy *le = enemy_get(lock_ei);
         s32 dx = le->x - pl.x, dz = le->z - pl.z;
@@ -881,6 +889,32 @@ static void draw_touch(FrameBuf *fb)
 }
 
 /* the shinigami held in the great tank: hangs arms out, head bowed, slowly turning */
+/* debug: the chainsaw's hitbox drawn over the scene, its long edges green, the nose's sweep yellow */
+static void draw_hitbox(FrameBuf *fb, const MATRIX *view, const PROJ *pr)
+{
+    int k;
+    if (!saw_attack.live) return;
+    for (k = 0; k < saw_attack.rays; k++) {
+        VECTOR c0, c1;
+        SVECTOR s0, s1;
+        s16 x0, y0, x1, y1;
+        s32 dx, dy, l;
+        s0.vx = (s16)saw_attack.ray[k][0].vx; s0.vy = (s16)saw_attack.ray[k][0].vy; s0.vz = (s16)saw_attack.ray[k][0].vz;
+        s1.vx = (s16)saw_attack.ray[k][1].vx; s1.vy = (s16)saw_attack.ray[k][1].vy; s1.vz = (s16)saw_attack.ray[k][1].vz;
+        mat_apply(view, &s0, &c0); mat_apply(view, &s1, &c1);
+        if (!rot_trans_pers(pr, &c0, &x0, &y0) || !rot_trans_pers(pr, &c1, &x1, &y1)) continue;
+        dx = x1 - x0; dy = y1 - y0; l = (s32)isqrt((u32)(dx * dx + dy * dy));
+        if (!l) continue;
+        {   /* a 2-pixel line as two triangles */
+            int nx = (int)(-dy * 2 / l), ny = (int)(dx * 2 / l);
+            u32 col = k < 4 ? RGB(60, 255, 90) : RGB(255, 230, 40);
+            if (!nx && !ny) nx = 1;
+            tri_f(fb, x0, y0, x1, y1, x1 + nx, y1 + ny, col, NO_SEMI, 1);
+            tri_f(fb, x0, y0, x1 + nx, y1 + ny, x0 + nx, y0 + ny, col, NO_SEMI, 1);
+        }
+    }
+}
+
 static void draw_captive(FrameBuf *fb, const MATRIX *view, const DrawCtx *ctx0)
 {
     static MATRIX pose[DEMON_NBONES], world[DEMON_NBONES];
@@ -1025,6 +1059,7 @@ have_view:
         model_draw_mats(&saw_body, &sawm, &ctx, fb);
         model_draw_mats(&saw_chain[(chain_ph >> 4) & (SAW_CHAIN_FRAMES - 1)], &sawm, &ctx, fb);
     }
+    if (debug_hitbox) draw_hitbox(fb, &view, pr);
     PROF_END(PROF_PLAYER);
     }
     {

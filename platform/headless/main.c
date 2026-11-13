@@ -86,6 +86,7 @@ int main(int argc, char **argv)
 
     if (getenv("WIDE")) screen_w = atoi(getenv("WIDE"));   /* WIDE=512: a phone's frame width */
     eng_init();
+    game_debug_hitbox(getenv("HITBOX") != 0);   /* HITBOX=1: draw the chainsaw's hitbox */
     printf("static game RAM: %d bytes of %d (PS1 main RAM)\n", eng_ram_used(), RAM_BUDGET);
     printf("VRAM: %d bytes\n", VRAM_W * VRAM_H * 2);
 

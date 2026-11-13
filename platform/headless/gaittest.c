@@ -14,6 +14,8 @@
 #include "soldier_mesh.h"
 #include <string.h>
 #include <stdlib.h>
+#include "combat.h"
+#include "draw2d.h"
 
 #define COLS 8
 #define CW 150
@@ -53,6 +55,45 @@ static void shot(const Model *m, int row, int col, int behind)
         mat_mul(&cam[DEMON_MOUNT_BONE], &mount, &sawm);
         model_draw_mats(&saw_body, &sawm, &ctx, &fb);
         model_draw_mats(&saw_chain, &sawm, &ctx, &fb);
+    }
+    if (getenv("HITBOX") && m->nbones == DEMON_NBONES && m->bones == (const DBONE *)demon_bones) {
+        /* HITBOX=1: the chainsaw's hitbox (as the game builds it) drawn over her, green */
+        static Attack at;
+        CombatEvent ev[2];
+        VECTOR a, b, up;
+        SVECTOR s;
+        int k;
+        s.vx = (s16)(DEMON_MOUNT_X + DEMON_MOUNT_DX * 90 / 4096); s.vy = (s16)DEMON_MOUNT_Y; s.vz = (s16)(DEMON_MOUNT_Z + DEMON_MOUNT_DZ * 90 / 4096);
+        mat_apply(&pl.world[DEMON_MOUNT_BONE], &s, &a);
+        s.vx = (s16)(DEMON_MOUNT_X + DEMON_MOUNT_DX * 529 / 4096); s.vz = (s16)(DEMON_MOUNT_Z + DEMON_MOUNT_DZ * 529 / 4096);
+        mat_apply(&pl.world[DEMON_MOUNT_BONE], &s, &b);
+        up.vx = pl.world[DEMON_MOUNT_BONE].m[0][2]; up.vy = pl.world[DEMON_MOUNT_BONE].m[1][2]; up.vz = pl.world[DEMON_MOUNT_BONE].m[2][2]; up.pad = 0;
+        attack_begin(&at, TEAM_NEUTRAL, 1, 0, 0, 0, 70);
+        attack_update_box(&at, &a, &b, &up, ev, 0);
+        for (k = 0; k < at.rays && k < 4; k++) {
+            VECTOR c0, c1; SVECTOR s0, s1; s16 x0, y0, x1, y1;
+            s0.vx = (s16)at.ray[k][0].vx; s0.vy = (s16)at.ray[k][0].vy; s0.vz = (s16)at.ray[k][0].vz;
+            s1.vx = (s16)at.ray[k][1].vx; s1.vy = (s16)at.ray[k][1].vy; s1.vz = (s16)at.ray[k][1].vz;
+            mat_apply(&view, &s0, &c0); mat_apply(&view, &s1, &c1);
+            if (!rot_trans_pers(&ctx.proj, &c0, &x0, &y0) || !rot_trans_pers(&ctx.proj, &c1, &x1, &y1)) continue;
+            tri_f(&fb, x0, y0, x1, y1, x1, y1 + 1, RGB(60, 255, 90), NO_SEMI, 0);
+            tri_f(&fb, x0, y0, x1, y1 + 1, x0, y0 + 1, RGB(60, 255, 90), NO_SEMI, 0);
+        }
+        {   /* and its two ends, so the box reads as a box */
+            static const s8 E[4] = { 0, 1, 2, 3 };
+            int e, j;
+            for (e = 0; e < 2; e++)
+                for (j = 0; j < 4; j++) {
+                    const VECTOR *p0 = &at.ray[E[j]][e], *p1 = &at.ray[E[(j + 1) & 3]][e];
+                    VECTOR c0, c1; SVECTOR s0, s1; s16 x0, y0, x1, y1;
+                    s0.vx = (s16)p0->vx; s0.vy = (s16)p0->vy; s0.vz = (s16)p0->vz;
+                    s1.vx = (s16)p1->vx; s1.vy = (s16)p1->vy; s1.vz = (s16)p1->vz;
+                    mat_apply(&view, &s0, &c0); mat_apply(&view, &s1, &c1);
+                    if (!rot_trans_pers(&ctx.proj, &c0, &x0, &y0) || !rot_trans_pers(&ctx.proj, &c1, &x1, &y1)) continue;
+                    tri_f(&fb, x0, y0, x1, y1, x1, y1 + 1, RGB(60, 255, 90), NO_SEMI, 0);
+                    tri_f(&fb, x0, y0, x1, y1 + 1, x0, y0 + 1, RGB(60, 255, 90), NO_SEMI, 0);
+                }
+        }
     }
     gpu_draw_ot(&fb);
     for (y = 0; y < CH; y++)

@@ -4,11 +4,11 @@
  *   Targets  - anything that can be hurt registers a CombatTarget: a standing cylinder (feet
  *              position, radius, height) with hit points, a team and an on_hit callback that
  *              applies the damage, knockback, stagger and its own reaction.
- *   Attacks  - a weapon swing is an Attack: a blade segment (clamp -> nose) the attacker moves
- *              every frame while the swing is "live". attack_update RAYCASTS: a row of points on
- *              the blade each cast a ray from last frame's position to this frame's (the path the
- *              chain cut, so fast swings can't skip through things), plus one along the bar.
- *              The first ray to reach something reports:
+ *   Attacks  - a weapon swing is an Attack: a HITBOX, an oriented box fitted around the blade
+ *              (clamp -> nose, the blade's depth across it, its thickness through it) that the
+ *              attacker moves every frame while the swing is "live". attack_update sweeps the box
+ *              from last frame's pose to this one in steps no longer than it is thick (fast swings
+ *              can't skip through things). What it reaches first reports:
  *                COMBAT_HIT_TARGET  a target of another team (each target once per swing)
  *                COMBAT_HIT_WALL / _PROP / _FLOOR  level geometry (once per swing)
  *              with the contact point and surface normal, so the attacker can play sparks, blood,
@@ -59,7 +59,9 @@ typedef struct {
     int have_prev, world_done;
     s32 ox, oz;                /* attacker's position: knockback pushes away from here (set each frame) */
     u32 hit_mask;              /* targets already hit by this swing */
-    int rays;                  /* this frame's rays (for debug drawing) */
+    VECTOR up;                 /* last frame's "up" across the blade (have_up: given) */
+    int have_up;
+    int rays;                  /* this frame's box edges + nose path (debug drawing, level tests) */
     VECTOR ray[7][2];
 } Attack;
 
@@ -77,6 +79,8 @@ void attack_begin(Attack *at, int team, int move, int damage, int knockback, int
    per swing like any other; returns 1 if it landed (fills ev) */
 int  attack_force(Attack *at, CombatTarget *t, const VECTOR *where, CombatEvent *ev);
 int  attack_update(Attack *at, const VECTOR *a, const VECTOR *b, CombatEvent *ev, int max);
+/* the same with the blade's "up" (across its depth, 4096 = 1) so the hitbox turns with the weapon */
+int  attack_update_box(Attack *at, const VECTOR *a, const VECTOR *b, const VECTOR *up, CombatEvent *ev, int max);
 void attack_end(Attack *at);
 
 #endif

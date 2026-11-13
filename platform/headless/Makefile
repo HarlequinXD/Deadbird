@@ -17,7 +17,7 @@ clean:
 
 
 # side-on walk/run contact sheet driven by the real locomotion code
-GAIT_SRC := gaittest.c $(ENG) $(ROOT)/game/player.c $(ROOT)/game/fk.c \
+GAIT_SRC := gaittest.c $(ENG) $(ROOT)/game/player.c $(ROOT)/game/fk.c $(ROOT)/game/combat.c \
             $(ROOT)/game/fkclips.c $(ROOT)/game/level.c $(ROOT)/game/fx.c $(ROOT)/game/hud.c $(ROOT)/game/assets.c $(GEN)
 gaittest: $(GAIT_SRC) $(wildcard $(ROOT)/game/*.h)
 	$(CC) $(CFLAGS) $(INC) $(GAIT_SRC) -o $@

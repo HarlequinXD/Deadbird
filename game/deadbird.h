@@ -19,6 +19,7 @@ int  game_debug_player_hp(void);
 int  game_debug_goto_exit(void);          /* puts her by the level's exit (0 = it has none) */
 int  game_debug_state(void);              /* gs */
 void game_debug_side_cam(int on);         /* side-on camera */
+void game_debug_hitbox(int on);           /* draw the chainsaw's hitbox (its edges and the nose's sweep) */
 int  game_debug_player_yaw(void);         /* player facing (4096 = 360) */
 
 #endif
