@@ -37,6 +37,7 @@
 static Model demon, saw_body, saw_chain[SAW_CHAIN_FRAMES];
 static int chain_ph;                   /* chainsaw chain: strip frame = chain_ph >> 4 */
 static int land_shake_t = 99, land_shake_amp;   /* camera jolt: landings and blade hits */
+static int cam_punch_t = 99, cam_punch_amp;     /* camera zoom-in on a blade hit, easing back out */
 static Attack saw_attack;                 /* the chainsaw's live hitbox (combat.h) */
 static CombatTarget player_tgt;           /* Deadbird as a target for the troopers' lasers */
 static int php = 100, hurt_flash, dead_t;  /* her health, red flash when hit, death timer */
@@ -413,11 +414,20 @@ static void saw_combat(void)
         const CombatEvent *e = &ev[i];
         int pan = pan_of(e->at.vx, e->at.vz);
         if (e->kind == COMBAT_HIT_TARGET) {                       /* flesh: blood, the engine bogs down */
+            int mv = saw_attack.move, stop = mv >= 3 ? 9 : mv == 2 ? 5 : 4;   /* the trooper hangs as long (enemy.c) */
             fx_hit(&e->at, saw_attack.damage, 0);
+            if (mv >= 3) fx_hit(&e->at, saw_attack.damage, 0);    /* the finisher: twice the spray */
             snd_play(SFX_RIP, 4096, pan, 3900 + rnd(400));
-            player_hit_react(&pl, 0, 0, 0, 5);
-            land_shake_t = 0; land_shake_amp = 70 + saw_attack.move * 10;    /* jolt, like a landing */
-            rumble = 200;
+            snd_play(SFX_SLAM, 2600 + mv * 450, pan, 2300 - mv * 150);   /* the body blow under it: a low thud */
+            if (mv >= 3) snd_play(SFX_GORE, 3200, pan, 3400);
+            player_hit_react(&pl, 0, 0, 0, stop);
+            land_shake_t = 0; land_shake_amp = 70 + mv * 18;                 /* jolt, like a landing */
+            cam_punch_t = 0; cam_punch_amp = mv >= 3 ? 34 : 18 + mv * 4;      /* the camera leans into it */
+            {   /* blood on the floor at his feet, a bit more with every hit */
+                const CombatTarget *t = e->target;
+                if (t) fx_blood_pool(t->x + (e->at.vx - pl.x) / 6, t->y, t->z + (e->at.vz - pl.z) / 6, 120 + mv * 60);
+            }
+            rumble = mv >= 3 ? 255 : 170 + mv * 20;
         } else if (e->kind == COMBAT_HIT_FLOOR && saw_attack.move == 3) {   /* the slam bites the floor */
             fx_hit(&e->at, 70, 1); fx_hit(&e->at, 70, 1);
             snd_play(SFX_SLAM, 4096, pan, 4096);
@@ -592,6 +602,7 @@ static void cine_step(void)
     if (cine.title_t) cine.title_t++;
     chain_ph += 26;
     if (land_shake_t < 99) land_shake_t++;
+    if (cam_punch_t < 99) cam_punch_t++;
     level_update();
     if ((cine.vt16 >> 4) >= 236 && cine.ei < 0) {      /* the plant is finished: the score */
         int i;
@@ -988,6 +999,10 @@ static void draw_world(FrameBuf *fb, PROJ *pr)
 have_view:
 
     pr->h = 250; pr->ofx = SCREEN_W / 2; pr->ofy = SCREEN_H / 2; pr->near_z = 120;
+    if (cam_punch_t < 10) {   /* blade hit: a quick zoom in (a longer lens), easing back out */
+        int k = cam_punch_t < 2 ? 4096 : (10 - cam_punch_t) * 4096 / 8;
+        pr->h += (250 * cam_punch_amp / 256) * k >> 12;
+    }
     ctx.proj = *pr; ctx.ot_shift = 4; ctx.cull_sign = 1; ctx.r = ctx.g = ctx.b = 128;
 
     quad_g(fb, 0, 0, SCREEN_W, SCREEN_H, RGB(3, 4, 7), RGB(1, 1, 3), NO_SEMI, OT_LEN - 1);

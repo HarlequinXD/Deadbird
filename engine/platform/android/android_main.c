@@ -7,6 +7,7 @@
  * key go to the engine (engine/engine.h), which runs the game's touch controls.
  */
 #include <android_native_app_glue.h>
+#include <jni.h>
 #include <android/log.h>
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
@@ -529,6 +530,76 @@ static double now_s(void)
     return ts.tv_sec + ts.tv_nsec * 1e-9;
 }
 
+/* ---------------------------------------------------------------- the phone's vibration motor
+   The game's rumble (0..255 a tick: blade hits, landings, getting shot) becomes short buzzes of
+   the phone, through JNI (this is a NativeActivity: no Java of our own). Android 8+ gets the
+   strength too (VibrationEffect.createOneShot); older phones a plain buzz. Rate-limited: a buzz
+   starts on a fresh kick of the rumble, not every tick. */
+static JNIEnv *vib_env;
+static jobject vib_obj;
+static jclass vib_fx_cls;
+static jmethodID vib_one_shot, vib_fx, vib_ms;
+static int vib_last, vib_quiet;
+
+static int jni_clear(JNIEnv *env)
+{
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); return 1; }
+    return 0;
+}
+
+static void vib_init(struct android_app *app)
+{
+    JNIEnv *env;
+    jobject act = app->activity->clazz, v;
+    jclass ctx, vc;
+    jmethodID gss, has;
+    jstring name;
+    if ((*app->activity->vm)->AttachCurrentThread(app->activity->vm, &env, 0) != JNI_OK) return;
+    vib_env = env;
+    ctx = (*env)->GetObjectClass(env, act);
+    gss = (*env)->GetMethodID(env, ctx, "getSystemService", "(Ljava/lang/String;)Ljava/lang/Object;");
+    if (jni_clear(env) || !gss) return;
+    name = (*env)->NewStringUTF(env, "vibrator");
+    v = (*env)->CallObjectMethod(env, act, gss, name);
+    (*env)->DeleteLocalRef(env, name);
+    if (jni_clear(env) || !v) return;
+    vc = (*env)->GetObjectClass(env, v);
+    has = (*env)->GetMethodID(env, vc, "hasVibrator", "()Z");
+    if (jni_clear(env) || !has || !(*env)->CallBooleanMethod(env, v, has) || jni_clear(env)) return;
+    if (app->activity->sdkVersion >= 26) {
+        jclass fc = (*env)->FindClass(env, "android/os/VibrationEffect");
+        if (jni_clear(env) || !fc) return;
+        vib_fx_cls = (jclass)(*env)->NewGlobalRef(env, fc);
+        vib_one_shot = (*env)->GetStaticMethodID(env, fc, "createOneShot", "(JI)Landroid/os/VibrationEffect;");
+        vib_fx = (*env)->GetMethodID(env, vc, "vibrate", "(Landroid/os/VibrationEffect;)V");
+        if (jni_clear(env) || !vib_one_shot || !vib_fx) return;
+    } else {
+        vib_ms = (*env)->GetMethodID(env, vc, "vibrate", "(J)V");
+        if (jni_clear(env) || !vib_ms) return;
+    }
+    vib_obj = (*env)->NewGlobalRef(env, v);
+}
+
+static void vib_update(void)
+{
+    int r = eng_rumble_level();
+    JNIEnv *env = vib_env;
+    if (vib_quiet > 0) vib_quiet--;
+    if (vib_obj && env && r > 40 && (r > vib_last + 30 || !vib_quiet)) {
+        jlong ms = 12 + r / 7;                               /* 18 .. 48 ms */
+        if (vib_fx) {
+            jobject fx = (*env)->CallStaticObjectMethod(env, vib_fx_cls, vib_one_shot, ms, (jint)(r < 1 ? 1 : r));
+            if (!jni_clear(env) && fx) { (*env)->CallVoidMethod(env, vib_obj, vib_fx, fx); jni_clear(env); }
+            if (fx) (*env)->DeleteLocalRef(env, fx);
+        } else {
+            (*env)->CallVoidMethod(env, vib_obj, vib_ms, ms);
+            jni_clear(env);
+        }
+        vib_quiet = 6;                                       /* ticks before the same rumble buzzes again */
+    }
+    vib_last = r;
+}
+
 void android_main(struct android_app *app)
 {
     double next = 0;
@@ -537,6 +608,7 @@ void android_main(struct android_app *app)
     G.dpy = EGL_NO_DISPLAY; G.ctx = EGL_NO_CONTEXT; G.surf = EGL_NO_SURFACE;
 
     lvl_init(app);
+    vib_init(app);
     G.density = app->config ? AConfiguration_getDensity(app->config) : 320;
     if (G.density <= 0 || G.density > 1000) G.density = 320;
     if (!game_started) {
@@ -552,7 +624,11 @@ void android_main(struct android_app *app)
         struct android_poll_source *src;
         while (ALooper_pollOnce(G.ready ? 0 : -1, 0, &events, (void **)&src) >= 0) {
             if (src) src->process(app, src);
-            if (app->destroyRequested) { display_term(); return; }
+            if (app->destroyRequested) {
+                display_term();
+                if (vib_env) (*app->activity->vm)->DetachCurrentThread(app->activity->vm);
+                return;
+            }
         }
         if (!G.ready) continue;
         /* fixed 60 Hz game tick (PS1 NTSC field rate), render every display frame */
@@ -561,7 +637,7 @@ void android_main(struct android_app *app)
             int steps = 0;
             if (next == 0 || t - next > 0.25) next = t;
             while (t >= next && steps < 4) {
-                eng_frame(read_pad()); next += 1.0 / 60.0; steps++;
+                eng_frame(read_pad()); vib_update(); next += 1.0 / 60.0; steps++;
             }
         }
         present();

@@ -43,6 +43,10 @@ static void on_hit(CombatTarget *t, const Hit *h)
     if (e->state == E_FATAL || e->state == E_CUT || e->state == E_DEAD) return;
     e->tgt.hp -= h->damage;
     e->hurt_t = 0;
+    /* hit-stop: he hangs on the blade with her for a moment (longer on the finisher), shaking,
+       and only then is the knockback let go - the impact reads as weight */
+    e->freeze = h->move >= 3 ? 9 : h->move == 2 ? 5 : 4;
+    e->shake_x = h->dir_x; e->shake_z = h->dir_z;
     e->body.vx += h->dir_x * (h->knockback / 16) >> 12 << 4;            /* knocked back: slides on his feet */
     e->body.vz += h->dir_z * (h->knockback / 16) >> 12 << 4;
     e->yaw = player_input_angle(-h->dir_x, -h->dir_z) & 4095;        /* turns toward whoever hit him */
@@ -322,6 +326,7 @@ void enemy_update(Player *pl, int frozen)
         e->dist = d;
         if (e->state == E_CUT) { enemy_cut_step(e); continue; }
         if (frozen || e->state == E_FATAL) { e->t++; enemy_skeleton(e); continue; }
+        if (e->freeze > 0) { e->freeze--; continue; }                       /* hit-stop: held mid-impact */
         if (d > 22000 && e->state == E_IDLE) { e->t++; continue; }           /* far away: sleep */
         face = player_input_angle(dx, dz) & 4095;
         e->t++; e->hurt_t++;
@@ -609,7 +614,11 @@ void enemy_draw(FrameBuf *fb, const MATRIX *view, const DrawCtx *ctx)
                 ox = e->x - e->pose_x; oy = e->y - e->pose_y; oz = e->z - e->pose_z;
             } else pose_now(e);
         }
-        if (e->state != E_CUT && e->hurt_t < 6) { dc.r = 200; dc.g = 110; dc.b = 110; }   /* hit flash */
+        if (e->state != E_CUT && e->freeze > 0) {                          /* hit-stop: white-hot, shaking */
+            int a = (e->freeze & 1 ? 1 : -1) * (4 + e->freeze * 3);
+            dc.r = 240; dc.g = 220; dc.b = 200;
+            ox += e->shake_x * a >> 12; oz += e->shake_z * a >> 12;
+        } else if (e->state != E_CUT && e->hurt_t < 6) { dc.r = 200; dc.g = 110; dc.b = 110; }   /* hit flash */
         if (e->state == E_CUT) {
             half_xform(e, -e->up_rot, e->cut_px, e->cut_py, e->cut_pz, e->up_x, e->up_y, e->up_z, &up);
             half_xform(e, e->lo_rot, e->x, e->y, e->z, e->x, e->y, e->z, &lo);
