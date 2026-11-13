@@ -88,7 +88,9 @@ int main(int argc, const char **argv)
         fps_acc += ticks + 1; fps_frames++;
         if (fps_acc >= 60) { eng_show_fps(show_fps ? (fps_frames * 60 + fps_acc / 2) / fps_acc : 0); fps_acc = fps_frames = 0; }
         if (!show_fps) eng_show_fps(0);
-        if (ticks > 5) ticks = 5;
+        /* at most 2 catch-up ticks: real-time speed down to 20 fps; below that the game slows
+           down instead - more catch-up work would only make the next frame later still */
+        if (ticks > 2) ticks = 2;
         while (ticks-- > 0) eng_step(pad);
     }
     return 0;

@@ -1006,10 +1006,33 @@ static void draw_pickups(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t
     }
 }
 
+/* the rooms the last level_draw could see (through the doorways from the camera's room) */
+static u32 last_vis = 0xffffffffu;
+
+/* can a ball at (x, y, z), radius r, be on screen? in a room that can be seen, in front of the
+   camera, inside the screen's edges and nearer than the fog. The same test the level's own chunks
+   pass, for the things in it (enemies, pickups) */
+int level_ball_visible(const MATRIX *view, const PROJ *pr, s32 x, s32 y, s32 z, s32 r)
+{
+    SVECTOR s; VECTOR c;
+    s32 hw = SCREEN_W / 2 + 8, hh = SCREEN_H / 2 + 8;
+    int a = level_area_at(x, z);
+    if (a >= 0 && a < 32 && !(last_vis & (1u << a))) return 0;
+    s.vx = (s16)x; s.vy = (s16)y; s.vz = (s16)z;
+    mat_apply(view, &s, &c);
+    if (c.vz < -r || c.vz - r > FOG_FAR) return 0;
+    if (c.vx * pr->h > (c.vz * hw) + r * (pr->h + hw)) return 0;
+    if (-c.vx * pr->h > (c.vz * hw) + r * (pr->h + hw)) return 0;
+    if (c.vy * pr->h > (c.vz * hh) + r * (pr->h + hh)) return 0;
+    if (-c.vy * pr->h > (c.vz * hh) + r * (pr->h + hh)) return 0;
+    return 1;
+}
+
 void level_draw(FrameBuf *fb, const MATRIX *view, const PROJ *pr, int t)
 {
     int i, k;
     u32 seen = visible_mask(view, pr), vis = all_rooms ? 0xffffffffu : seen;
+    last_vis = vis;
     for (i = 0; i < 8; i++) pulse_now[i] = pulse(i, t);
     screen_du = ((t / SCREEN_FRAME_TICKS) & 1) * 64;
 #ifdef PSX_GTE

@@ -531,9 +531,10 @@ void enemy_draw(FrameBuf *fb, const MATRIX *view, const DrawCtx *ctx)
         Enemy *e = &enemies[i];
         SVECTOR s; VECTOR c;
         DrawCtx dc = *ctx;
-        s.vx = (s16)e->x; s.vy = (s16)(e->y - 900); s.vz = (s16)e->z;
-        mat_apply(view, &s, &c);
-        if (c.vz < -1500 || c.vz > 16000) continue;                         /* behind or in the fog */
+        (void)s; (void)c;
+        /* only troopers that can be seen: in a room the level can see, on screen, before the fog
+           (a sliced one's halves spread out, so a bigger ball) */
+        if (!level_ball_visible(view, &ctx->proj, e->x, e->y - 900, e->z, e->state == E_CUT ? 2400 : 1300)) continue;
         if (e->state != E_CUT && e->hurt_t < 6) { dc.r = 200; dc.g = 110; dc.b = 110; }   /* hit flash */
         if (e->state == E_CUT) {
             half_xform(e, -e->up_rot, e->cut_px, e->cut_py, e->cut_pz, e->up_x, e->up_y, e->up_z, &up);
