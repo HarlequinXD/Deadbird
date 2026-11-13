@@ -89,138 +89,191 @@ def loft(pts, radii, n, mat, ref=(0, 0, 1), rot=0.0, cap0=True, cap1=True, smoot
 DOME = .45
 
 # ---------------------------------------------------------------- MODEL (Y up, faces +Z, metres)
-# A hulking demon brute on Deadbird's bone names (so the same animations drive him), with his own
-# proportions: a huge fat body, a thick neck that rolls down onto his shoulders with the head sunk
-# into it, long fat arms with a cannon strapped on top of each forearm, short stubby legs, bull
-# horns. +X = his left.
+# A hulking demon brute, built as ONE welded mesh: a single surface of shared vertices from the
+# hooves to the tips of the horns. The body is one loft of rings - hips, gut, chest, shoulders, the
+# fat neck rolls, the head - the arms and legs are grown out of holes in it, and the horns, tusks
+# and the cannons' mounts are extruded out of the skin. Every vertex follows one bone (Deadbird's
+# bone names, at his own joints); faces that join two bones stretch as he bends, as on the PS1.
+# +X = his left.
+VB = []                       # each vertex's bone
+
+
+def addv(p, t=0.0):
+    V.append(np.asarray(p, float)); VT.append(t); VB.append(BONE[0]); return len(V) - 1
+
+
 S2 = math.sqrt(2)
 PART = ['torso']
 BONE = ['pelvis']
 
 
-def cube(c, h, mat, smooth=0.0):
-    """axis-aligned box: centre c, half sizes h"""
-    c = np.asarray(c, float)
-    ids = {}
-    for sx in (-1, 1):
-        for sy in (-1, 1):
-            for sz in (-1, 1):
-                ids[(sx, sy, sz)] = addv(c + (sx * h[0], sy * h[1], sz * h[2]))
-    for ax in range(3):
-        for sg in (-1, 1):
-            o = [k for k in range(3) if k != ax]
-            q = []
-            for du, dv in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
-                key = [0, 0, 0]; key[ax] = sg; key[o[0]] = du; key[o[1]] = dv
-                q.append(ids[tuple(key)])
-            face(q, mat, c, smooth=smooth)
+def cen(R):
+    return sum(V[i] for i in R) / len(R)
+
+
+def ring(c, rx, rz, n=8, front=0.0):
+    """a horizontal ring round a vertical axis; k = 0 at +X, n/4 at the front (+Z). front pushes the
+    front half forward (a jaw, a brow)"""
+    out = []
+    for k in range(n):
+        a = 2 * math.pi * k / n
+        z = rz * math.sin(a)
+        out.append(addv((c[0] + rx * math.cos(a), c[1], c[2] + z + front * max(0.0, math.sin(a)) ** 2)))
+    return out
+
+
+def bridge(A, B, mat, smooth=.75, skip=()):
+    ins = (cen(A) + cen(B)) / 2
+    n = len(A)
+    for k in range(n):
+        if k not in skip:
+            face([A[k], A[(k + 1) % n], B[(k + 1) % n], B[k]], mat, ins, smooth=smooth)
+
+
+def fan(R, mat, out, lift=0.0, smooth=.7):
+    """close a ring with a fan round a new centre vertex (lift > 0: domed, < 0: recessed)"""
+    c = addv(cen(R) + nrm(np.asarray(out, float)) * lift)
+    for k in range(len(R)):
+        face([R[k], R[(k + 1) % len(R)], c], mat, outward=out, smooth=smooth)
+    return c
+
+
+def follow(loop, center, axis, r1, r2, n=None, grid=None):
+    """a new ring round 'axis' at 'center', its vertices in the same order and at the same angles as
+    'loop' (evened out to a regular n-gon on a grid offset by 'grid' degrees), radii r1 / r2"""
+    n = n or len(loop)
+    axis = nrm(np.asarray(axis, float))
+    e1 = nrm(np.cross(axis, (0, 0, 1)) if abs(axis[2]) < .9 else np.cross(axis, (1, 0, 0)))
+    e1 = (0, 1, 0) if abs(axis[0]) > .9 else ((1, 0, 0) if abs(axis[1]) > .9 else e1)
+    e1 = np.asarray(e1, float); e2 = np.cross(axis, e1)
+    c0 = cen(loop)
+    ang = [math.atan2((V[i] - c0) @ e2, (V[i] - c0) @ e1) for i in loop]
+    d = (ang[1] - ang[0] + math.pi) % (2 * math.pi) - math.pi
+    sg = 1 if d > 0 else -1
+    step = 2 * math.pi / n
+    off = math.radians(grid) if grid is not None else 0.0
+    a0 = off + step * round((ang[0] - off) / step)
+    c = np.asarray(center, float)
+    return [addv(c + r1 * math.cos(a0 + sg * step * k) * e1 + r2 * math.sin(a0 + sg * step * k) * e2) for k in range(n)]
+
+
+def extrude(q, offs, mat, smooth=.5):
+    """push a quad out: a new quad at q + offs, joined by its 4 sides; returns the new quad"""
+    top = [addv(V[i] + offs) for i in q]
+    ins = cen(q) - np.asarray(offs, float) * .5
+    for k in range(4):
+        face([q[k], q[(k + 1) % 4], top[(k + 1) % 4], top[k]], mat, ins, smooth=smooth)
+    return top
 
 
 # joints
-HIP_Y, KNEE_Y, ANKLE_Y = .66, .38, .12
+HIP_Y, KNEE_Y, ANKLE_Y = .66, .38, .14
 SH = (.44, 1.5, 0)
 ARM_L = [SH, (.88, 1.49, -.01), (1.3, 1.49, 0)]          # T-pose: long arms straight out
 ARM_R = [(-x, y, z) for x, y, z in ARM_L]
 LEG = {1: [(.22, HIP_Y, 0), (.26, KNEE_Y, .03), (.27, ANKLE_Y, .02)]}
 LEG[-1] = [(-x, y, z) for x, y, z in LEG[1]]
 
-# pelvis: the bottom of the gut, the hips
-loft([(0, .52, .01), (0, .88, .05)], [(.34, .29), (.43, .4)], 8, 'skin',
-     ref=(0, 0, 1), rot=math.pi / 8, cap0=True, cap1=False, smooth=.8)
-
-# torso: the gut swelling out front, a heavy chest, sloping into the shoulders
+# ---- the body: one loft of 8-vertex rings, hips to crown
+PART[0] = 'pelvis'; BONE[0] = 'pelvis'
+H = ring((0, .64, .02), .36, .31)                        # hips (the legs grow out of its underside)
+CROTCH = addv((0, .5, .01))
+B1 = ring((0, .9, .05), .43, .41)                        # the bottom of the gut
 BONE[0] = 'torso'
-loft([(0, .87, .05), (0, 1.16, .07), (0, 1.47, .0)], [(.43, .4), (.46, .41), (.42, .3)], 8, 'skin',
-     ref=(0, 0, 1), rot=math.pi / 8, cap0=False, cap1=False, smooth=.8)
-
-# neck: a fat trunk of rolls from the shoulders up into the jaw (creases between the rolls)
-PART[0] = 'neck'
+B2 = ring((0, 1.14, .07), .46, .42)                      # the gut at its widest
+CH = ring((0, 1.33, .02), .45, .33)                      # chest
+SHR = ring((0, 1.62, .0), .41, .3)                       # shoulders: the first, biggest roll
 BONE[0] = 'neck'
-loft([(0, 1.45, -.005), (0, 1.56, .0), (0, 1.62, .01), (0, 1.69, .02), (0, 1.76, .04)],
-     [(.44, .32), (.3, .235), (.36, .29), (.24, .21), (.27, .245)], 6, 'skin',
-     ref=(0, 0, 1), rot=math.pi / 6, cap0=False, cap1=False, smooth=.75)
-
-# head: sunk low and forward into the neck - a squashed skull lattice, an underbite with tusks,
-# bull horns sweeping out and forward
-PART[0] = 'head'
+N1 = ring((0, 1.665, .02), .31, .245)                    # a crease
+N2 = ring((0, 1.725, .05), .29, .26)                     # a roll, sloping up into the jaw
 BONE[0] = 'head'
-HC = np.array((0, 1.84, .1))
-HEADPTS = {
-    (0, 1, 0): (0, .1, -.01),     (1, 1, 0): (.11, .085, -.01),
-    (0, 1, 1): (0, .085, .11),    (1, 1, 1): (.1, .07, .1),
-    (0, 1, -1): (0, .07, -.11),   (1, 1, -1): (.1, .06, -.1),
-    (1, 0, 0): (.15, .0, -.0),
-    (1, 0, 1): (.12, -.01, .14),  (0, 0, 1): (0, .0, .16),
-    (1, 0, -1): (.12, .0, -.11),  (0, 0, -1): (0, .0, -.13),
-    (0, -1, 0): (0, -.1, .0),     (1, -1, 0): (.14, -.09, .0),
-    (1, -1, 1): (.13, -.1, .15),  (0, -1, 1): (0, -.11, .17),
-    (1, -1, -1): (.11, -.06, -.1), (0, -1, -1): (0, -.07, -.1),
-}
-HV = {}
-for ix in (-1, 0, 1):
-    for iy in (-1, 0, 1):
-        for iz in (-1, 0, 1):
-            if (ix, iy, iz) == (0, 0, 0):
-                continue
-            x, y, z = HEADPTS[(abs(ix), iy, iz)]
-            HV[(ix, iy, iz)] = addv(HC + (np.sign(ix) * x, y, z), 0.0)
-for axis in range(3):
-    for sg in (-1, 1):
-        o = [k for k in range(3) if k != axis]
-        for u0 in (-1, 0):
-            for v0 in (-1, 0):
-                quad = []
-                for du, dv in ((0, 0), (1, 0), (1, 1), (0, 1)):
-                    key = [0, 0, 0]; key[axis] = sg; key[o[0]] = u0 + du; key[o[1]] = v0 + dv
-                    quad.append(HV[tuple(key)])
-                face(quad, 'skin', HC, smooth=.55)
-for s in (1, -1):
-    loft([(s * .1, 1.74, .27), (s * .115, 1.83, .29)], [.026, 0], 3, 'tusk', ref=(0, 0, 1), rot=math.pi / 2, cap0=False)
-    loft([(s * .13, 1.9, .02), (s * .3, 1.95, .04), (s * .42, 2.08, .16), (s * .44, 2.22, .26)],
-         [.06, .048, .03, 0], 3, 'horn', ref=(0, 1, 0), rot=math.pi / 2, cap0=False)
+J = ring((0, 1.785, .09), .21, .2, front=.07)            # jaw, jutting out (an underbite)
+E = ring((0, 1.9, .1), .17, .17, front=.02)              # eyes
+BR = ring((0, 1.955, .09), .155, .16, front=.03)         # brow
+CR = ring((0, 2.0, .05), .12, .12)                       # crown
+PART[0] = 'pelvis'; bridge(H, B1, 'skin')
+PART[0] = 'torso'; bridge(B1, B2, 'skin'); bridge(B2, CH, 'skin')
+bridge(CH, SHR, 'skin', skip=(7, 0, 3, 4))               # the arm holes
+PART[0] = 'neck'; bridge(SHR, N1, 'skin'); bridge(N1, N2, 'skin'); bridge(N2, J, 'skin')
+PART[0] = 'head'; bridge(J, E, 'skin', skip=(1, 2)); bridge(E, BR, 'skin'); bridge(BR, CR, 'skin', skip=(0, 3))
+TOP = fan(CR, 'skin', (0, 1, 0), .03)
 
-# arms: fat upper arm, a heavier forearm with a cannon strapped along the top, a big fist
-PART[0] = 'arm'
+# tusks: out of the jaw, inset then drawn to a point
+for k, s in ((1, 1), (2, -1)):
+    q = [J[k], J[k + 1], E[k + 1], E[k]]
+    c = cen(q)
+    inset = [addv(c + (V[i] - c) * (.32, .22, .32) + (s * -.01, -.035, .012)) for i in q]   # low on the jaw
+    for a in range(4):
+        face([q[a], q[(a + 1) % 4], inset[(a + 1) % 4], inset[a]], 'skin', c - (0, 0, .05), smooth=.6)
+    tip = addv(cen(inset) + (s * .012, .065, .03))
+    for a in range(4):
+        face([inset[a], inset[(a + 1) % 4], tip], 'tusk', cen(inset) - (0, 0, .03), smooth=.3)
+
+# horns: out of the sides of the brow, sweeping out, up and forward to a point
+for k, s in ((0, 1), (3, -1)):
+    q = [BR[k], BR[k + 1], CR[k + 1], CR[k]]
+    r1 = follow(q, cen(q) + (s * .15, .03, .02), (s, .3, 0), .055, .055, grid=45)
+    r2 = follow(r1, cen(q) + (s * .3, .12, .1), (s, .8, .4), .035, .035, grid=45)
+    PART[0] = 'head'
+    bridge(q, r1, 'horn', smooth=.6); bridge(r1, r2, 'horn', smooth=.6)
+    tip = addv(cen(q) + (s * .33, .3, .22))
+    for a in range(4):
+        face([r2[a], r2[(a + 1) % 4], tip], 'horn', cen(r2) - (s * .05, .05, 0), smooth=.5)
+
+# ---- arms: grown out of the arm holes; a cannon mount pushed up out of each forearm
 FISTS = []
-for A in (ARM_L, ARM_R):
+for A, hole in ((ARM_L, [CH[7], CH[0], CH[1], SHR[1], SHR[0], SHR[7]]),
+                (ARM_R, [CH[3], CH[4], CH[5], SHR[5], SHR[4], SHR[3]])):
     sh, el, wr = map(np.array, A)
     s = np.sign(sh[0])
     sd = 'L' if s > 0 else 'R'
-    BONE[0] = 'upper_arm_' + sd
-    loft([sh - (s * .08, 0, 0), (sh + el) / 2, el + (s * .03, 0, 0)], [(.17, .16), (.16, .155), (.13, .13)], 6, 'skin',
-         ref=(0, 1, 0), rot=math.pi / 6, cap0='dome', cap1=False, smooth=.8)
-    BONE[0] = 'forearm_' + sd
-    loft([el - (s * .02, 0, 0), el + (wr - el) * .45, wr], [(.13, .13), (.155, .15), (.11, .11)], 6, 'skin',
-         ref=(0, 1, 0), rot=math.pi / 6, cap0=False, cap1=False, smooth=.8)
-    PART[0] = 'cannon'
-    loft([el + (s * .06, .2, 0), wr + (s * .24, .2, 0)], [.085, .085], 6, 'metal', ref=(0, 1, 0), rot=math.pi / 6,
-         cap0=True, cap1=False, smooth=.7)                                  # barrel (open muzzle)
-    loft([wr + (s * .18, .2, 0), wr + (s * .25, .2, 0)], [.11, .11], 6, 'metal', ref=(0, 1, 0), rot=math.pi / 6,
-         cap0=True, cap1=True, smooth=.6)                                   # muzzle ring
-    cube(el + (wr - el) * .5 + (0, .13, 0), (.13, .04, .07), 'metal')      # breech block on the forearm
-    PART[0] = 'hand'
-    BONE[0] = 'fist_' + sd
-    FIST = (wr - (s * .02, 0, 0), wr + (s * .16, 0, 0))
-    FISTS.append(FIST)
-    loft(list(FIST), [(.12, .1), (.115, .1)], 4, 'skin', ref=(0, 0, 1), rot=math.pi / 4, smooth=.2, cap0=False, cap1='dome')
+    ax = (s, 0, 0)
     PART[0] = 'arm'
+    BONE[0] = 'upper_arm_' + sd
+    EL = follow(hole, el, ax, .14, .14, grid=30)
+    BONE[0] = 'forearm_' + sd
+    FA = follow(EL, el + (wr - el) * .5, ax, .16, .155, grid=30)
+    BONE[0] = 'fist_' + sd
+    WR = follow(FA, wr, ax, .11, .11, grid=30)
+    FE = follow(WR, wr + (s * .17, 0, 0), ax, .12, .1, grid=30)
+    bridge(hole, EL, 'skin')
+    bridge(EL, FA, 'skin', skip=(3,))
+    bridge(FA, WR, 'skin')
+    PART[0] = 'hand'
+    bridge(WR, FE, 'skin', smooth=.3)
+    fan(FE, 'skin', ax, .05, smooth=.3)
+    FISTS.append((wr, wr + (s * .17, 0, 0)))
+    # the cannon: a mount pushed up out of the forearm's top, a barrel out of its front face
+    PART[0] = 'cannon'
+    BONE[0] = 'forearm_' + sd
+    q = [EL[3], EL[4], FA[4], FA[3]]
+    top = extrude(q, (0, .13, 0), 'metal')
+    face(top, 'metal', outward=(0, 1, 0), smooth=0)
+    F[-3]['dead'] = True                                     # the mount's front face (side 2): the barrel grows out of it
+    front = [FA[3], FA[4], top[2], top[3]]
+    b1 = follow(front, cen(front) * (1, 1, 1) + (s * (1.32 - abs(cen(front)[0])), .0, 0), ax, .1, .1, grid=45)
+    b2 = follow(b1, cen(b1) + (s * .2, 0, 0), ax, .125, .125, grid=45)
+    b3 = follow(b2, cen(b2) + (s * .09, 0, 0), ax, .125, .125, grid=45)
+    bridge(front, b1, 'metal', smooth=.85); bridge(b1, b2, 'metal', smooth=.85); bridge(b2, b3, 'metal', smooth=.85)
+    fan(b3, 'metal', ax, -.05, smooth=.2)                    # the bore: a recessed cone
+F[:] = [f for f in F if not f.get('dead')]
 MOUNT_POS = (FISTS[1][0] + FISTS[1][1]) / 2
 MOUNT_DIR = nrm(FISTS[1][1] - FISTS[1][0])
 
-# legs: short and fat, cloven hooves
+# ---- legs: grown out of the hips (split at the crotch), short and fat, cloven hooves
 PART[0] = 'leg'
-for s in (1, -1):
+for s, loop in ((1, [H[0], H[1], H[2], CROTCH, H[6], H[7]]), (-1, [H[2], H[3], H[4], H[5], H[6], CROTCH])):
     sd = 'L' if s > 0 else 'R'
     hp, kn, an = map(np.array, LEG[s])
     BONE[0] = 'thigh_' + sd
-    loft([hp + (0, .05, 0), kn], [(.19, .18), (.15, .15)], 6, 'skin', ref=(0, 0, 1), rot=math.pi / 6,
-         cap0=False, cap1='dome', smooth=.8)
+    K = follow(loop, kn, (0, -1, 0), .15, .155, grid=30)
     BONE[0] = 'calf_' + sd
-    loft([kn + (0, .02, 0), an + (0, .02, .01)], [(.14, .15), (.1, .1)], 6, 'skin', ref=(0, 0, 1), rot=math.pi / 6,
-         cap0=False, cap1=False, smooth=.8)
+    AN = follow(K, an + (0, .02, .01), (0, -1, 0), .11, .11, grid=30)
     BONE[0] = 'hoof_' + sd
-    loft([an + (0, .04, .01), (an[0], 0, an[2] + .05)], [(.11, .11), (.14, .17)], 4, 'hoof', ref=(0, 0, 1),
-         rot=math.pi / 4, cap0=False, cap1=True, smooth=.2)
+    HF = follow(AN, (an[0], 0, an[2] + .05), (0, -1, 0), .15, .17, grid=30)
+    bridge(loop, K, 'skin'); bridge(K, AN, 'skin')
+    bridge(AN, HF, 'hoof', smooth=.3)
+    fan(HF, 'hoof', (0, -1, 0), 0, smooth=0)
 P = np.array(V); TP = np.array(VT)
 
 # ---------------------------------------------------------------- skeleton (rigid parts, pivots at joints)
@@ -237,12 +290,23 @@ BNAMES = [b[0] for b in SKEL]
 BIDX = {n: i for i, n in enumerate(BNAMES)}
 BPIV = np.array([b[2] for b in SKEL], float)
 BPAR = [BIDX[b[1]] if b[1] else -1 for b in SKEL]
-VBONE = np.full(len(V), -1)
+# one welded mesh: each vertex follows its own bone; a face that joins bones is drawn with the
+# last of them (the engine places the bones' vertices in order, so the others are placed already)
+VBONE = np.array([BIDX[b] for b in VB])
+used_v = sorted({i for f in F for i in f['v']})
+assert len(used_v) == len(V), 'unused vertices'
 for f in F:
-    for vi in f['v']:
-        assert VBONE[vi] in (-1, BIDX[f['bone']]), ('vertex shared across bones', f['bone'])
-        VBONE[vi] = BIDX[f['bone']]
-assert (VBONE >= 0).all()
+    f['bone'] = BNAMES[max(VBONE[i] for i in f['v'])]
+# welded: every edge is shared by exactly two faces (a closed surface, no loose parts)
+from collections import Counter
+EC = Counter()
+for f in F:
+    v = f['v']
+    for k in range(len(v)):
+        EC[tuple(sorted((v[k], v[(k + 1) % len(v)])))] += 1
+bad = {e: n for e, n in EC.items() if n != 2}
+print('edges', len(EC), 'not shared by exactly two faces:', len(bad))
+assert not bad, list(bad.items())[:8]
 print('bones', len(SKEL), {n: int((VBONE == i).sum()) for i, n in enumerate(BNAMES)})
 ntri = sum(len(f['v']) - 2 for f in F)
 print('verts', len(P), 'faces', len(F), 'triangles', ntri)
@@ -440,8 +504,8 @@ c[gut & (np.abs(np.modf((Ym + .02 * np.sin(Xm * 30)) / .055)[0] - .5) < .04) & (
 nav = (pm == 'torso') & (np.hypot(Xm, (Ym - 1.0) * 1.3) < .022) & (Zm > .3)
 c[nav] = HIDE_D
 # neck rolls: deep creases between the rolls (the loft's narrow rings), shine on the rolls
-for cy, w in ((1.56, .022), (1.69, .02)):
-    cr = (pm == 'neck') & (np.abs(Ym - cy) < w)
+for cy, w in ((1.67, .018), (1.785, .016)):
+    cr = (np.abs(Ym - cy) < w) & (AX[m] < .36)
     c[cr] = HIDE_D * (.8 + .4 * mott[m][cr, None])
 c[(pm == 'torso') & (Ym > 1.42)] *= .8                                       # where the rolls hang over the shoulders
 # glowing fissures across the gut and shoulders (hellfire under the skin)
@@ -455,17 +519,17 @@ c[fm & (la[m] > fw[m] * .8)] = C(30, 20, 18)
 # the face: deep-set burning eyes under a heavy brow, nostrils, a wide mouth with an underbite
 hm = (pm == 'head')
 for sx in (1, -1):
-    d = np.hypot((Xm - sx * .065) / .03, (Ym - 1.865) / .016)
-    sock = hm & (Zm > .1) & (d < 1)
+    d = np.hypot((Xm - sx * .062) / .036, (Ym - 1.905) / .02)
+    sock = hm & (Zm > .15) & (d < 1)
     c[sock] = C(20, 4, 2)
-    eye = hm & (Zm > .1) & (d < .55)
+    eye = hm & (Zm > .15) & (d < .55)
     emi[eye] = C(255, 200, 40) * (1.2 - d[eye, None]) + C(255, 255, 200) * np.clip(.2 - d[eye], 0, 1)[:, None] * 4
-c[hm & (Zm > .08) & (np.abs(Ym - 1.888) < .012) & (AX[m] < .12)] *= .55      # brow ridge
+c[hm & (Zm > .15) & (np.abs(Ym - 1.937) < .012) & (AX[m] < .12)] *= .55      # brow ridge
 for sx in (1, -1):
-    c[hm & (Zm > .14) & (np.hypot(Xm - sx * .022, Ym - 1.82) < .012)] = C(20, 4, 2)   # nostrils
-mouth = hm & (Zm > .1) & (np.abs(Ym - (1.765 + .012 * (AX[m] / .12) ** 2)) < .01) & (AX[m] < .12)
+    c[hm & (Zm > .2) & (np.hypot(Xm - sx * .024, Ym - 1.865) < .011)] = C(20, 4, 2)   # nostrils
+mouth = hm & (Zm > .18) & (np.abs(Ym - (1.825 + .012 * (AX[m] / .12) ** 2)) < .01) & (AX[m] < .13)
 c[mouth] = C(24, 4, 4)
-teeth = hm & (Zm > .1) & (np.abs(Ym - 1.778) < .009) & (AX[m] < .1) & (np.modf((Xm + 1) / .018)[0] > .3)
+teeth = hm & (Zm > .18) & (np.abs(Ym - 1.812) < .008) & (AX[m] < .11) & (np.modf((Xm + 1) / .018)[0] > .3)
 c[teeth] = C(206, 186, 140)
 c[hm & (Zm < 0) & (Ym > 1.86)] *= .75                                          # the back of the skull
 alb[m] = np.clip(c, 0, 1); emis[m] = emi; spec[m] = .35; gloss[m] = 12
@@ -490,17 +554,17 @@ c[riv] = C(200, 200, 205)
 scorch = np.clip((ax - 1.36) / .18, 0, 1)
 c *= (1 - .6 * scorch)[:, None]
 r_ = np.hypot(Ym - 1.69, Zm)
-bore = (ax > 1.53) & (r_ < .075)                                              # the muzzle's face
+bore = (ax > 1.55) & (r_ < .1)                                                # the recessed bore
 c[bore] = C(20, 6, 2)
 emi = np.zeros((m.sum(), 3))
-emi[bore] = EMBER * np.clip(1.2 - r_[bore] / .075, 0, 1)[:, None] + C(255, 230, 120) * np.clip(.35 - r_[bore] / .075, 0, 1)[:, None] * 2
+emi[bore] = EMBER * np.clip(1.25 - r_[bore] / .1, 0, 1)[:, None] + C(255, 230, 120) * np.clip(.4 - r_[bore] / .1, 0, 1)[:, None] * 2
 c[(edge[m] < .006)] *= 1.35
 alb[m] = np.clip(c, 0, 1); emis[m] = emi; spec[m] = .85; gloss[m] = 34
 
 # ---- hooves: black keratin, split at the front
 m = is_('hoof')
 c = C(30, 24, 24)[None] * (.8 + .4 * mott[m])[:, None]
-c[(np.abs(X[m] - np.sign(X[m]) * .27) < .008) & (Z[m] > .1)] = C(8, 6, 6)
+c[(np.abs(X[m] - np.sign(X[m]) * .27) < .009) & (Z[m] > .1)] = C(8, 6, 6)
 c *= (.8 + .3 * (np.abs(np.modf(Y[m] / .025)[0] - .5) < .4))[:, None]
 alb[m] = np.clip(c, 0, 1); spec[m] = .5; gloss[m] = 20
 
@@ -582,35 +646,23 @@ with open(f'{OUT}/brute.mtl', 'w') as fh:
     fh.write('newmtl brute\nKd 1 1 1\nillum 0\nmap_Kd brute_texture.png\n')
 
 
-def write_obj(path, bones, local):
+def write_obj(path):
+    """the whole welded mesh, model space (one object)"""
     with open(path, 'w') as fh:
-        fh.write(f'# PS1 brute rigid parts - {"local space (origin = part pivot)" if local else "model space"}\nmtllib brute.mtl\n')
-        vbase = 1; tbase = 1
-        for b in bones:
-            bi = BIDX[b]
-            vs = [i for i in vorder if VBONE[i] == bi]
-            loc = {old: k for k, old in enumerate(vs)}
-            fs = [F[i] for i in order if F[i]['bone'] == b]
-            fh.write(f'o {b}\n')
-            for i in vs:
-                p = P[i] - (BPIV[bi] if local else 0)
-                fh.write(f'v {p[0]:.4f} {p[1]:.4f} {p[2]:.4f}\n')
-            nt = 0
-            for f in fs:
-                for u, v in f['uv']:
-                    fh.write(f'vt {(u + .5) / TEX:.6f} {1 - (v + .5) / TEX:.6f}\n')
-            fh.write('usemtl brute\ns off\n')
-            for f in fs:
-                fh.write('f ' + ' '.join(f'{vbase + loc[vi]}/{tbase + nt + k}' for k, vi in enumerate(f['v'])) + '\n')
-                nt += len(f['v'])
-            vbase += len(vs); tbase += nt
+        fh.write('# PS1 demon brute - one welded mesh, model space\nmtllib brute.mtl\no brute\n')
+        for p in P:
+            fh.write(f'v {p[0]:.4f} {p[1]:.4f} {p[2]:.4f}\n')
+        for f in F:
+            for u, v in f['uv']:
+                fh.write(f'vt {(u + .5) / TEX:.6f} {1 - (v + .5) / TEX:.6f}\n')
+        fh.write('usemtl brute\ns 1\n')
+        t = 1
+        for f in F:
+            fh.write('f ' + ' '.join(f'{vi + 1}/{t + k}' for k, vi in enumerate(f['v'])) + '\n')
+            t += len(f['v'])
 
 
-write_obj(f'{OUT}/brute.obj', BNAMES, local=False)
-os.makedirs(f'{OUT}/parts', exist_ok=True)
-for b in BNAMES:
-    write_obj(f'{OUT}/parts/{b}.obj', [b], local=True)
-shutil.copy(f'{OUT}/brute.mtl', f'{OUT}/parts/brute.mtl')
+write_obj(f'{OUT}/brute.obj')
 
 skel = dict(
     units='model units, Y up, character faces +Z, L = character left (+X)',
