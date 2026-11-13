@@ -22,6 +22,9 @@ typedef struct {
     int yaw, state, t, alive;
     int shoot_cd, burst, flash, strafe, strafe_t, los, los_t;
     int pose_stale;                 /* his skeleton is worked out only when it's needed (drawn, aimed) */
+    int posed;                      /* world[] has been worked out at least once */
+    s32 pose_x, pose_y, pose_z;     /* where he stood when world[] was worked out */
+    s32 dist;                       /* how far from Deadbird (this tick) */
     int phase, amp, stagger_t, stagger_w, fall_t, wob;
     int hurt_t;                   /* frames since last hurt (hit flash) */
     /* fatality / cut in half */

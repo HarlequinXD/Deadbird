@@ -42,6 +42,40 @@ void mat_rot_z(MATRIX *m, int a)
     m->m[1][0] = (s16)s; m->m[1][1] = (s16)c;
 }
 
+#ifdef PSX_GTE
+/* On the PS1 the rotation part goes through the GTE: A in the light matrix (unused by this engine,
+   so the rotation/translation registers that the draw code keeps loaded are left alone), then one
+   MVMVA per column of B. sf=1 shifts by 12 like the C code; the translation stays in C (it can
+   be past the GTE's 16-bit inputs). Same results as the C version for rotation matrices. */
+void mat_mul(const MATRIX *a, const MATRIX *b, MATRIX *out)
+{
+    MATRIX r;
+    int i, j;
+    __asm__ volatile(
+        "lw    $8, 0(%0)\n\t"  "lw    $9, 4(%0)\n\t"
+        "ctc2  $8, $8\n\t"     "ctc2  $9, $9\n\t"
+        "lw    $8, 8(%0)\n\t"  "lw    $9, 12(%0)\n\t"
+        "lhu   $10, 16(%0)\n\t"
+        "ctc2  $8, $10\n\t"    "ctc2  $9, $11\n\t"
+        "ctc2  $10, $12\n\t"
+        : : "r"(a) : "$8", "$9", "$10");
+    for (j = 0; j < 3; j++) {
+        u32 xy = ((u32)b->m[0][j] & 0xffff) | ((u32)b->m[1][j] << 16);
+        s32 z = b->m[2][j], o1, o2, o3;
+        __asm__ volatile(
+            "mtc2  %3, $0\n\t" "mtc2  %4, $1\n\t"
+            "nop\n\t" "nop\n\t"
+            "cop2  0x04A6012\n\t"           /* MVMVA sf=1, L * V0, no translation */
+            "mfc2  %0, $9\n\t" "mfc2  %1, $10\n\t" "mfc2  %2, $11\n\t"
+            "nop\n\t"
+            : "=r"(o1), "=r"(o2), "=r"(o3) : "r"(xy), "r"(z));
+        r.m[0][j] = (s16)o1; r.m[1][j] = (s16)o2; r.m[2][j] = (s16)o3;
+    }
+    for (i = 0; i < 3; i++)
+        r.t[i] = ((a->m[i][0] * b->t[0] + a->m[i][1] * b->t[1] + a->m[i][2] * b->t[2]) >> 12) + a->t[i];
+    *out = r;
+}
+#else
 void mat_mul(const MATRIX *a, const MATRIX *b, MATRIX *out)
 {
     MATRIX r;
@@ -53,6 +87,7 @@ void mat_mul(const MATRIX *a, const MATRIX *b, MATRIX *out)
     }
     *out = r;
 }
+#endif
 
 void mat_translate(MATRIX *m, s32 x, s32 y, s32 z)
 {

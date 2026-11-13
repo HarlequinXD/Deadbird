@@ -45,7 +45,32 @@ int *level_hint(int *h) { int *o = hintp == &def_hint ? 0 : hintp; hintp = h ? h
 int lvl_st_verts, lvl_st_faces, lvl_st_clip, lvl_st_chunks;
 
 void level_debug_flat(int on) { flat = on; }
+/*
+ * A coarse grid over the level, built when it's loaded: each 4 m cell lists the sectors and
+ * collision boxes within GRID_PAD of it, so a body's collision only looks at what's near it
+ * instead of the whole level (on the PS1 that scan was a big part of every tick). Same order and
+ * same answers as the full scan; a level too big for the tables just falls back to the scan.
+ */
+#define GRID_SH   12
+#define GRID_PAD  1024                 /* bodies up to half this radius find everything they touch */
+#define GRID_MAXC 1024
+#define GRID_MAXI 8192
+static s32 grid_x0, grid_z0;
+static int grid_w, grid_h, grid_ok, grid_tried;
+static u16 grid_start[GRID_MAXC + 1], grid_item[GRID_MAXI];   /* item: sector, or 0x8000 | box */
+/* the item range of the cell holding (x, z); 1, 0 outside the grid (nothing near), -1 no grid */
 static void grid_build(void);
+static int grid_cell(s32 x, s32 z, int *b, int *e)
+{
+    int cx, cz;
+    if (!grid_tried) grid_build();
+    if (!grid_ok) return -1;
+    cx = (int)((x - grid_x0) >> GRID_SH); cz = (int)((z - grid_z0) >> GRID_SH);
+    if (cx < 0 || cz < 0 || cx >= grid_w || cz >= grid_h) { *b = *e = 0; return 0; }
+    *b = grid_start[cz * grid_w + cx]; *e = grid_start[cz * grid_w + cx + 1];
+    return 1;
+}
+
 
 void level_init(void)
 {
@@ -254,51 +279,6 @@ static int push_sec(int si, int own, s32 *x, s32 *z, s32 y, s32 r, s32 *nx, s32 
     return hit;
 }
 
-/* the first wall a segment a->b hits from its front (t 0..4096), walls pushed out by margin m */
-static s32 seg_walls(const VECTOR *a, const VECTOR *d, s32 m, int *wi)
-{
-    s32 best = 4096, minx, maxx, minz, maxz;
-    int si, i;
-    minx = d->vx < 0 ? a->vx + d->vx : a->vx; maxx = d->vx < 0 ? a->vx : a->vx + d->vx;
-    minz = d->vz < 0 ? a->vz + d->vz : a->vz; maxz = d->vz < 0 ? a->vz : a->vz + d->vz;
-    *wi = -1;
-    for (si = 0; si < LAB_NSECS; si++) {
-        const LabSec *s = &lab_secs[si];
-        if (maxx < s->x0 - m || minx > s->x1 + m || maxz < s->z0 - m || minz > s->z1 + m) continue;
-        for (i = 0; i < s->nw; i++) {
-            const LabWall *w = &lab_walls[s->w0 + i];
-            s32 x0 = w->x0 + (w->nx * m >> 12), z0 = w->z0 + (w->nz * m >> 12), ex = w->x1 - w->x0, ez = w->z1 - w->z0;
-            s32 den, tn, un, t, py, px, pz, f, c, nf, nc;
-            s32 dx4 = d->vx >> 4, dz4 = d->vz >> 4, ex4 = ex >> 4, ez4 = ez >> 4, ox4 = (x0 - a->vx) >> 4, oz4 = (z0 - a->vz) >> 4;
-            if (d->vx * w->nx + d->vz * w->nz >= 0) continue;                  /* not coming at its front */
-            /* 32 bits, positions / 16 inside (under 2 cm): no 64-bit divides on the PS1 */
-            den = dx4 * ez4 - dz4 * ex4;
-            if (!den) continue;
-            tn = ox4 * ez4 - oz4 * ex4;
-            un = ox4 * dz4 - oz4 * dx4;
-            if (den < 0) { den = -den; tn = -tn; un = -un; }
-            {   /* the wall line, pushed out by m and lengthened by m at both ends, so a camera
-                   ray can't slip past the outside corner of a short wall (a door jamb) */
-                s32 L4 = (s32)isqrt((u32)(ex4 * ex4 + ez4 * ez4));
-                s32 ext = L4 > 0 ? (den / L4) * m / 16 : 0;
-                if (tn < 0 || tn >= den || un < -ext - (den >> 6) || un > den + ext + (den >> 6)) continue;
-            }
-            t = den < (1 << 19) ? (tn << 12) / den : tn / (den >> 12);
-            if (t >= best) continue;
-            px = a->vx + (d->vx * t >> 12); pz = a->vz + (d->vz * t >> 12);
-            py = a->vy + (d->vy * t >> 12);
-            f = -floor_up(si, px, pz) + m; c = -ceil_up(si, px, pz) - m;
-            if (s->kind == 1 && !w->next) c = -(plane_h(&s->f, px, pz) + s->ka) - m;   /* a door's jambs stand full height, shut or open */
-            if (w->next) {
-                nf = -floor_up(w->next - 1, px, pz) - m; nc = -ceil_up(w->next - 1, px, pz) + m;
-                if (nc < nf && !(py <= f && py >= nf) && !(py >= c && py <= nc)) continue;   /* through the opening */
-            }
-            if (py > f || py < c) continue;
-            best = t; *wi = s->w0 + i;
-        }
-    }
-    return best;
-}
 
 /* which rooms the camera can see: a flood from its sector through the portals on screen, each
    one narrowing the window (horizontally - like Build), stopping at shut doors and the fog */
@@ -369,11 +349,19 @@ s32 level_ground(s32 x, s32 z, s32 cur_y)
         sec_hint = si;
         best = -floor_up(si, x, z);
     }
-    for (i = 0; i < LAB_NBOXES; i++) {
-        const LabBox *b = &lab_boxes[i];
-        if (x < b->x0 || x > b->x1 || z < b->z0 || z > b->z1) continue;
-        if (-b->lo < cur_y - CLEAR_H) continue;          /* overhead */
-        if (-b->h >= cur_y - STEP_HEIGHT && -b->h < best) best = -b->h;
+    {   /* the boxes she could stand on: the grid cell's (any box containing the point is listed there) */
+        int k, e, g = grid_cell(x, z, &k, &e);
+        if (g < 0) { k = 0; e = LAB_NBOXES; }
+        for (; k < e; k++) {
+            const LabBox *b;
+            if (g < 0) i = k;
+            else if (!(grid_item[k] & 0x8000)) continue;
+            else i = grid_item[k] & 0x7fff;
+            b = &lab_boxes[i];
+            if (x < b->x0 || x > b->x1 || z < b->z0 || z > b->z1) continue;
+            if (-b->lo < cur_y - CLEAR_H) continue;          /* overhead */
+            if (-b->h >= cur_y - STEP_HEIGHT && -b->h < best) best = -b->h;
+        }
     }
     return best;
 }
@@ -409,19 +397,6 @@ static int collide_box(int i, s32 *x, s32 *z, s32 y, s32 r, s32 *nx, s32 *nz)
     return push_box(x, z, r, b->x0, b->z0, b->x1, b->z1, nx, nz);
 }
 
-/*
- * A coarse grid over the level, built when it's loaded: each 4 m cell lists the sectors and
- * collision boxes within GRID_PAD of it, so a body's collision only looks at what's near it
- * instead of the whole level (on the PS1 that scan was a big part of every tick). Same order and
- * same answers as the full scan; a level too big for the tables just falls back to the scan.
- */
-#define GRID_SH   12
-#define GRID_PAD  1024                 /* bodies up to half this radius find everything they touch */
-#define GRID_MAXC 1024
-#define GRID_MAXI 8192
-static s32 grid_x0, grid_z0;
-static int grid_w, grid_h, grid_ok, grid_tried;
-static u16 grid_start[GRID_MAXC + 1], grid_item[GRID_MAXI];   /* item: sector, or 0x8000 | box */
 
 static int grid_obj(int k, s32 *x0, s32 *z0, s32 *x1, s32 *z1)
 {
@@ -491,6 +466,91 @@ int level_collide(s32 *x, s32 *z, s32 y, s32 r, s32 *nx, s32 *nz)
     for (i = 0; i < LAB_NSECS; i++) hit |= push_sec(i, own, x, z, y, r, nx, nz);
     for (i = 0; i < LAB_NBOXES; i++) hit |= collide_box(i, x, z, y, r, nx, nz);
     return hit;
+}
+
+/* the sectors and boxes the grid lists near a box (x0,z0)-(x1,z1), each once, in index order
+   (sectors first, then 0x8000 | box): what a ray needs to test. -1: use the full scan instead. */
+static u16 g_stamp_s[MAX_SECS], g_stamp_b[1024], g_stamp;
+static int grid_near(s32 x0, s32 z0, s32 x1, s32 z1, u16 *out, int max)
+{
+    int cx0, cx1, cz0, cz1, cx, cz, n = 0, i, j;
+    if (!grid_tried) grid_build();
+    if (!grid_ok || LAB_NSECS > MAX_SECS || LAB_NBOXES > 1024) return -1;
+    cx0 = (int)((x0 - grid_x0) >> GRID_SH); cx1 = (int)((x1 - grid_x0) >> GRID_SH);
+    cz0 = (int)((z0 - grid_z0) >> GRID_SH); cz1 = (int)((z1 - grid_z0) >> GRID_SH);
+    if (cx1 < 0 || cz1 < 0 || cx0 >= grid_w || cz0 >= grid_h) return 0;   /* nothing of the level is near */
+    if (cx0 < 0) cx0 = 0;
+    if (cz0 < 0) cz0 = 0;
+    if (cx1 >= grid_w) cx1 = grid_w - 1;
+    if (cz1 >= grid_h) cz1 = grid_h - 1;
+    if ((cx1 - cx0 + 1) * (cz1 - cz0 + 1) > 16) return -1;              /* a long ray: the plain scan */
+    if (++g_stamp == 0) { memset(g_stamp_s, 0, sizeof(g_stamp_s)); memset(g_stamp_b, 0, sizeof(g_stamp_b)); g_stamp = 1; }
+    for (cz = cz0; cz <= cz1; cz++)
+        for (cx = cx0; cx <= cx1; cx++) {
+            int c = cz * grid_w + cx, e = grid_start[c + 1];
+            for (i = grid_start[c]; i < e; i++) {
+                int it = grid_item[i];
+                u16 *st = (it & 0x8000) ? &g_stamp_b[it & 0x7fff] : &g_stamp_s[it];
+                if (*st == g_stamp) continue;
+                *st = g_stamp;
+                if (n >= max) return -1;
+                for (j = n; j > 0 && out[j - 1] > it; j--) out[j] = out[j - 1];   /* keep index order */
+                out[j] = (u16)it; n++;
+            }
+        }
+    return n;
+}
+
+/* the first wall a segment a->b hits from its front (t 0..4096), walls pushed out by margin m */
+static s32 seg_walls(const VECTOR *a, const VECTOR *d, s32 m, int *wi)
+{
+    s32 best = 4096, minx, maxx, minz, maxz;
+    int si, i;
+    minx = d->vx < 0 ? a->vx + d->vx : a->vx; maxx = d->vx < 0 ? a->vx : a->vx + d->vx;
+    minz = d->vz < 0 ? a->vz + d->vz : a->vz; maxz = d->vz < 0 ? a->vz : a->vz + d->vz;
+    u16 near[96];
+    int nn, k;
+    *wi = -1;
+    nn = m <= GRID_PAD / 2 ? grid_near(minx - m, minz - m, maxx + m, maxz + m, near, 96) : -1;
+    for (k = 0; k < (nn < 0 ? LAB_NSECS : nn); k++) {
+        const LabSec *s;
+        si = nn < 0 ? k : near[k];
+        if (si & 0x8000) break;                    /* the boxes come after the sectors */
+        s = &lab_secs[si];
+        if (maxx < s->x0 - m || minx > s->x1 + m || maxz < s->z0 - m || minz > s->z1 + m) continue;
+        for (i = 0; i < s->nw; i++) {
+            const LabWall *w = &lab_walls[s->w0 + i];
+            s32 x0 = w->x0 + (w->nx * m >> 12), z0 = w->z0 + (w->nz * m >> 12), ex = w->x1 - w->x0, ez = w->z1 - w->z0;
+            s32 den, tn, un, t, py, px, pz, f, c, nf, nc;
+            s32 dx4 = d->vx >> 4, dz4 = d->vz >> 4, ex4 = ex >> 4, ez4 = ez >> 4, ox4 = (x0 - a->vx) >> 4, oz4 = (z0 - a->vz) >> 4;
+            if (d->vx * w->nx + d->vz * w->nz >= 0) continue;                  /* not coming at its front */
+            /* 32 bits, positions / 16 inside (under 2 cm): no 64-bit divides on the PS1 */
+            den = dx4 * ez4 - dz4 * ex4;
+            if (!den) continue;
+            tn = ox4 * ez4 - oz4 * ex4;
+            un = ox4 * dz4 - oz4 * dx4;
+            if (den < 0) { den = -den; tn = -tn; un = -un; }
+            {   /* the wall line, pushed out by m and lengthened by m at both ends, so a camera
+                   ray can't slip past the outside corner of a short wall (a door jamb) */
+                s32 L4 = (s32)isqrt((u32)(ex4 * ex4 + ez4 * ez4));
+                s32 ext = L4 > 0 ? (den / L4) * m / 16 : 0;
+                if (tn < 0 || tn >= den || un < -ext - (den >> 6) || un > den + ext + (den >> 6)) continue;
+            }
+            t = den < (1 << 19) ? (tn << 12) / den : tn / (den >> 12);
+            if (t >= best) continue;
+            px = a->vx + (d->vx * t >> 12); pz = a->vz + (d->vz * t >> 12);
+            py = a->vy + (d->vy * t >> 12);
+            f = -floor_up(si, px, pz) + m; c = -ceil_up(si, px, pz) - m;
+            if (s->kind == 1 && !w->next) c = -(plane_h(&s->f, px, pz) + s->ka) - m;   /* a door's jambs stand full height, shut or open */
+            if (w->next) {
+                nf = -floor_up(w->next - 1, px, pz) - m; nc = -ceil_up(w->next - 1, px, pz) + m;
+                if (nc < nf && !(py <= f && py >= nf) && !(py >= c && py <= nc)) continue;   /* through the opening */
+            }
+            if (py > f || py < c) continue;
+            best = t; *wi = s->w0 + i;
+        }
+    }
+    return best;
 }
 
 /* slab test of a segment against one box, t in 0..4096 (4096 = no hit) */
@@ -573,10 +633,18 @@ int level_clip_segment(const VECTOR *a, const VECTOR *b, s32 m)
     int i;
     s32 minx = a->vx < b->vx ? a->vx : b->vx, maxx = a->vx ^ b->vx ^ minx;
     s32 minz = a->vz < b->vz ? a->vz : b->vz, maxz = a->vz ^ b->vz ^ minz;
+    u16 near[96];
+    int nn, k;
     d.vx = b->vx - a->vx; d.vy = b->vy - a->vy; d.vz = b->vz - a->vz;
-    for (i = 0; i < LAB_NBOXES; i++) {
-        const LabBox *bx = &lab_boxes[i];
-        s32 top = -bx->h - m, bot = -bx->lo + m;
+    nn = m <= GRID_PAD / 2 ? grid_near(minx - m, minz - m, maxx + m, maxz + m, near, 96) : -1;
+    for (k = 0; k < (nn < 0 ? LAB_NBOXES : nn); k++) {
+        const LabBox *bx;
+        s32 top, bot;
+        if (nn < 0) i = k;
+        else if (!(near[k] & 0x8000)) continue;   /* a sector: seg_walls() below */
+        else i = near[k] & 0x7fff;
+        bx = &lab_boxes[i];
+        top = -bx->h - m; bot = -bx->lo + m;
         if (maxx < bx->x0 - m || minx > bx->x1 + m || maxz < bx->z0 - m || minz > bx->z1 + m) continue;   /* nowhere near the ray */
         if (a->vx >= bx->x0 - m && a->vx <= bx->x1 + m && a->vz >= bx->z0 - m && a->vz <= bx->z1 + m && a->vy >= top && a->vy <= bot)
             continue;                                   /* starting inside (standing on it) */
@@ -887,9 +955,201 @@ static void emit(FrameBuf *fb, const LabFace *f, const s16 *x, const s16 *y, con
 }
 
 static s16 vclamp[MAXCV];      /* door faces: how far a corner was pulled down to the doorway's top */
+
+static void clip_face(FrameBuf *fb, const PROJ *pr, const LabFace *f, int n, u8 oo, int pm)
+{
+    int k;
+    /* crosses the near plane / guard band: clip in view space, then draw the clipped polygon
+       as quads (and a last triangle) fanned from its first corner */
+    static const int order4[4] = { 0, 1, 3, 2 }, order3[3] = { 0, 1, 2 };
+    const int *ord = n == 4 ? order4 : order3;
+    CV in[4], out[12];
+    s16 qx[12], qy[12];
+    int m, j;
+    if (!(f->flags & F_DOUBLE)) {
+        /* facing away (the eye behind its plane): skip it before any clipping. The sign of
+           det(P0, P1, P2) in view space is the sign the screen-space test would give. */
+        const VECTOR *a = &cvv[f->v[0]], *b = &cvv[f->v[1]], *c = &cvv[f->v[2]];
+        long long det = (long long)a->vx * ((long long)b->vy * c->vz - (long long)b->vz * c->vy)
+                      - (long long)a->vy * ((long long)b->vx * c->vz - (long long)b->vz * c->vx)
+                      + (long long)a->vz * ((long long)b->vx * c->vy - (long long)b->vy * c->vx);
+        if (det <= 0) return;
+    }
+    for (k = 0; k < n; k++) {
+        int c = ord[k], vi = f->v[c];
+        in[k].x = cvv[vi].vx; in[k].y = cvv[vi].vy; in[k].z = cvv[vi].vz;
+        in[k].u = f->uv[c * 2] << 8; in[k].v = (f->uv[c * 2 + 1] << 8) + (vclamp[vi] * 63 >> 3);
+        in[k].r = f->rgb[c * 3] << 4; in[k].g = f->rgb[c * 3 + 1] << 4; in[k].b = f->rgb[c * 3 + 2] << 4;
+    }
+    lvl_st_clip++;
+    m = clip_poly(in, n, out, oo);
+    if (m < 3) return;
+    if (f->flags & F_ANIMUV) {
+        int du = screen_du * 256;
+        for (j = 0; j < m; j++) out[j].u += du;
+    }
+    for (j = 0; j < m; j++) {      /* each corner projected once: one divide (z >= NEAR_Z here) */
+        s32 inv = (pr->h << 14) / out[j].z;
+        qx[j] = (s16)(pr->ofx + ((out[j].x * inv) >> 14));
+        qy[j] = (s16)(pr->ofy + ((out[j].y * inv) >> 14));
+    }
+    for (j = 1; j + 1 < m; j += 2) {
+        /* fan triangles (0, j, j+1) and (0, j+1, j+2) as one quad j, 0, j+1, j+2: the GPU
+           splits a quad along its 2nd-3rd corner diagonal, so it draws exactly those two
+           triangles (the same affine texture warp as before, one primitive instead of two) */
+        int idx[4], c4 = j + 2 < m, nn = c4 ? 4 : 3;
+        s16 x[4], y[4];
+        u8 u[4], v[4];
+        int r[4], g[4], b[4];
+        s32 za;
+        int fg;
+        if (c4) { idx[0] = j; idx[1] = 0; idx[2] = j + 1; idx[3] = j + 2; }
+        else { idx[0] = 0; idx[1] = j; idx[2] = j + 1; }
+        for (k = 0; k < nn; k++) { x[k] = qx[idx[k]]; y[k] = qy[idx[k]]; }
+        if (poly_off_screen(x, y, nn)) continue;
+        za = c4 ? (out[0].z + out[j].z + out[j + 1].z + out[j + 2].z) >> 2
+                : (((out[0].z + out[j].z + out[j + 1].z) >> 2) * 21845) >> 14;
+        fg = fog(za) * pm >> 12;
+        for (k = 0; k < nn; k++) {
+            const CV *tv = &out[idx[k]];
+            u[k] = (u8)(tv->u >> 8); v[k] = (u8)(tv->v >> 8);
+            r[k] = (tv->r >> 4) * fg >> 12; g[k] = (tv->g >> 4) * fg >> 12; b[k] = (tv->b >> 4) * fg >> 12;
+        }
+        emit(fb, f, x, y, u, v, r, g, b, nn, za);
+    }
+}
+
+#ifdef PSX_GTE
+/*
+ * The PS1 path for a chunk. The R3000 has no data cache, so the loops keep loads and stores to a
+ * minimum: each vertex keeps its packed screen x,y, its depth and one word of clip flags; a face
+ * is rejected by one AND (all corners behind the camera, or off the same screen edge) and drawn
+ * after a GTE back-face test. Faces crossing the near plane or the guard band go to clip_face().
+ * Guard-band flags come from the screen position (|x| > 2H, |y| > H from the centre is the same
+ * test as outcode() for a vertex in front of the camera).
+ */
+enum { VF_NEAR = 1, VF_GUARD = 0x1e, VF_L = 0x20, VF_R = 0x40, VF_T = 0x80, VF_B = 0x100 };
+static u32 vsxy[MAXCV];
+static s32 vsz[MAXCV];
+static u16 vfl[MAXCV];
+typedef u32 __attribute__((may_alias)) u32a_l;
+
+static void draw_chunk_gte(FrameBuf *fb, const PROJ *pr, const LabChunk *ch)
+{
+    int i, door = 0, nv = ch->nv, nf = ch->nf;
+    s32 dy = ch->sec ? -sec_dyn[ch->sec - 1] : 0;
+    s32 ytop = 0, ofx = pr->ofx, ofy = pr->ofy, gx = pr->h * GUARD_X, gy = pr->h * GUARD_Y, sw = SCREEN_W;
+    const LabVert *lv = &lab_verts[ch->v0];
+    const LabFace *f = &lab_faces[ch->f0];
+    if (nv > MAXCV) return;
+    if (ch->sec && lab_secs[ch->sec - 1].kind == 1) { door = 1; ytop = -(lab_secs[ch->sec - 1].k0 + lab_secs[ch->sec - 1].ka); }
+    lvl_st_chunks++; lvl_st_verts += nv; lvl_st_faces += nf;
+    for (i = 0; i < nv; i++, lv++) {
+        s32 yy = lv->y + dy, z, x, y;
+        u32 xy, fl;
+        VECTOR *cv = &cvv[i];
+        vclamp[i] = 0;
+        if (door && yy < ytop) { vclamp[i] = (s16)(ytop - yy); yy = ytop; }
+        __asm__ volatile(
+            "mtc2  %2, $0\n\t" "mtc2  %3, $1\n\t"
+            "nop\n\t" "nop\n\t"
+            "cop2  0x0180001\n\t"            /* RTPS */
+            "swc2  $25, 0(%4)\n\t"           /* view x, y, z for clipping */
+            "swc2  $26, 4(%4)\n\t"
+            "swc2  $27, 8(%4)\n\t"
+            "mfc2  %0, $14\n\t"              /* SXY2 */
+            "mfc2  %1, $27\n\t"              /* MAC3 */
+            "nop\n\t"
+            : "=r"(xy), "=r"(z)
+            : "r"(((u32)lv->x & 0xffff) | ((u32)yy << 16)), "r"((s32)lv->z), "r"(cv)
+            : "memory");
+        if (z < NEAR_Z) fl = VF_NEAR;
+        else {
+            x = (s16)(xy & 0xffff); y = (s32)xy >> 16;
+            fl = 0;
+            if (x - ofx > gx) fl |= 2; else if (ofx - x > gx) fl |= 4;
+            if (y - ofy > gy) fl |= 8; else if (ofy - y > gy) fl |= 16;
+            if (x < 0) fl |= VF_L; else if (x >= sw) fl |= VF_R;
+            if (y < 0) fl |= VF_T; else if (y >= SCREEN_H) fl |= VF_B;
+        }
+        vsxy[i] = xy; vsz[i] = z; vfl[i] = (u16)fl;
+    }
+    for (i = 0; i < nf; i++, f++) {
+        const u16 *fv = f->v;
+        int a = fv[0], b = fv[1], c = fv[2], d = fv[3], quad = (f->flags & F_QUAD) != 0;
+        u32 fa = vfl[a] & vfl[b] & vfl[c], fo = vfl[a] | vfl[b] | vfl[c];
+        int pm;
+        if (quad) { fa &= vfl[d]; fo |= vfl[d]; }
+        if (fa & (VF_NEAR | VF_L | VF_R | VF_T | VF_B)) continue;   /* behind, or off one screen edge */
+        if (door && vclamp[a] && vclamp[b] && vclamp[c] && (!quad || vclamp[d])) continue;   /* up in the wall */
+        pm = pulse_now[f->anim > 7 ? 7 : f->anim];
+        if (!(fo & (VF_NEAR | VF_GUARD))) {
+            u32 p0 = vsxy[a], p1 = vsxy[b], p2 = vsxy[c];
+            s32 za, nc;
+            int fg, du, k;
+            POLY *p;
+            za = quad ? (vsz[a] + vsz[b] + vsz[c] + vsz[d]) >> 2 : (((vsz[a] + vsz[b] + vsz[c]) >> 2) * 21845) >> 14;
+            if (za > FOG_FAR) continue;
+            if (!(f->flags & F_DOUBLE)) {
+                __asm__ volatile(
+                    "mtc2  %1, $12\n\t" "mtc2  %2, $13\n\t" "mtc2  %3, $14\n\t"
+                    "nop\n\t" "nop\n\t"
+                    "cop2  0x1400006\n\t"    /* NCLIP */
+                    "mfc2  %0, $24\n\t"
+                    "nop\n\t"
+                    : "=r"(nc) : "r"(p0), "r"(p1), "r"(p2));
+                if (nc <= 0) continue;
+            }
+            if (fb->nprims >= PRIM_MAX) return;
+            p = &fb->prims[fb->nprims++];
+            p->code = (u8)(PF_TEX | PF_GOURAUD | (quad ? PF_QUAD : 0) | ((f->flags & (F_ADD | F_HALF)) ? PF_SEMI : 0));
+            du = (f->flags & F_ANIMUV) ? screen_du : 0;
+            {
+                int tile = (((f->uv[0] + du) & 255) >> 6) + (f->uv[1] >> 6) * 4;
+                p->tpage = lab_tpage[f->page & 7][(f->flags & F_ADD) != 0];
+                p->clut = lab_clut[(f->pal ? CL_EXTRA(f->pal - 1) : CL_LAB(f->page, tile)) & 511];
+            }
+            *(u32a_l *)&p->v[0].x = p0; *(u32a_l *)&p->v[1].x = p1; *(u32a_l *)&p->v[2].x = p2;
+            if (quad) *(u32a_l *)&p->v[3].x = vsxy[d];
+            fg = fog(za);
+            if (pm != 4096) fg = fg * pm >> 12;
+            for (k = 0; k < 3 + quad; k++) {
+                const u8 *cc = &f->rgb[k * 3];
+                p->v[k].u = (u8)(f->uv[k * 2] + du);
+                p->v[k].v = (u8)(f->uv[k * 2 + 1] + (door ? vclamp[fv[k]] * 63 >> 11 : 0));
+                if (fg == 4096) { p->v[k].r = cc[0]; p->v[k].g = cc[1]; p->v[k].b = cc[2]; }
+                else if (fg < 4096) {
+                    p->v[k].r = (u8)(cc[0] * fg >> 12); p->v[k].g = (u8)(cc[1] * fg >> 12); p->v[k].b = (u8)(cc[2] * fg >> 12);
+                } else {
+                    int r = cc[0] * fg >> 12, g = cc[1] * fg >> 12, bb = cc[2] * fg >> 12;
+                    p->v[k].r = (u8)(r > 255 ? 255 : r); p->v[k].g = (u8)(g > 255 ? 255 : g); p->v[k].b = (u8)(bb > 255 ? 255 : bb);
+                }
+            }
+            {
+                int otz = (int)(za >> 4) + ((f->flags & F_FLOOR) ? 8 : 0) + ot_bias;
+                if (otz < 0) otz = 0; else if (otz >= OT_LEN) otz = OT_LEN - 1;
+                p->next = fb->ot[otz]; fb->ot[otz] = p;
+            }
+            polys_drawn++;
+        } else {
+            /* near plane / guard band: the true outcodes from the view-space corners */
+            u8 oa = (u8)(outcode(&cvv[a]) & outcode(&cvv[b]) & outcode(&cvv[c])), oo = (u8)(outcode(&cvv[a]) | outcode(&cvv[b]) | outcode(&cvv[c]));
+            if (quad) { u8 od = outcode(&cvv[d]); oa &= od; oo |= od; }
+            if (oa) continue;
+            clip_face(fb, pr, f, quad ? 4 : 3, oo, pm);
+        }
+    }
+}
+#endif
+
 static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const LabChunk *ch, int t)
 {
     int i, k, door = 0;
+#ifdef PSX_GTE
+    (void)view; (void)t; (void)i; (void)k; (void)door;
+    draw_chunk_gte(fb, pr, ch);
+    return;
+#endif
     s32 dy = ch->sec ? -sec_dyn[ch->sec - 1] : 0;     /* a door or lift: moved up by how far it's gone */
     s32 ytop = 0;
     if (ch->nv > MAXCV) return;
@@ -995,66 +1255,7 @@ static void draw_chunk(FrameBuf *fb, const MATRIX *view, const PROJ *pr, const L
                 p->next = fb->ot[otz]; fb->ot[otz] = p;
             }
             polys_drawn++;
-        } else {
-            /* crosses the near plane / guard band: clip in view space, then draw the clipped polygon
-               as quads (and a last triangle) fanned from its first corner */
-            static const int order4[4] = { 0, 1, 3, 2 }, order3[3] = { 0, 1, 2 };
-            const int *ord = n == 4 ? order4 : order3;
-            CV in[4], out[12];
-            s16 qx[12], qy[12];
-            int m, j;
-            if (!(f->flags & F_DOUBLE)) {
-                /* facing away (the eye behind its plane): skip it before any clipping. The sign of
-                   det(P0, P1, P2) in view space is the sign the screen-space test would give. */
-                const VECTOR *a = &cvv[f->v[0]], *b = &cvv[f->v[1]], *c = &cvv[f->v[2]];
-                long long det = (long long)a->vx * ((long long)b->vy * c->vz - (long long)b->vz * c->vy)
-                              - (long long)a->vy * ((long long)b->vx * c->vz - (long long)b->vz * c->vx)
-                              + (long long)a->vz * ((long long)b->vx * c->vy - (long long)b->vy * c->vx);
-                if (det <= 0) continue;
-            }
-            for (k = 0; k < n; k++) {
-                int c = ord[k], vi = f->v[c];
-                in[k].x = cvv[vi].vx; in[k].y = cvv[vi].vy; in[k].z = cvv[vi].vz;
-                in[k].u = f->uv[c * 2] << 8; in[k].v = (f->uv[c * 2 + 1] << 8) + (vclamp[vi] * 63 >> 3);
-                in[k].r = f->rgb[c * 3] << 4; in[k].g = f->rgb[c * 3 + 1] << 4; in[k].b = f->rgb[c * 3 + 2] << 4;
-            }
-            lvl_st_clip++;
-            m = clip_poly(in, n, out, oo);
-            if (m < 3) continue;
-            if (f->flags & F_ANIMUV) {
-                int du = screen_du * 256;
-                for (j = 0; j < m; j++) out[j].u += du;
-            }
-            for (j = 0; j < m; j++) {      /* each corner projected once: one divide (z >= NEAR_Z here) */
-                s32 inv = (pr->h << 14) / out[j].z;
-                qx[j] = (s16)(pr->ofx + ((out[j].x * inv) >> 14));
-                qy[j] = (s16)(pr->ofy + ((out[j].y * inv) >> 14));
-            }
-            for (j = 1; j + 1 < m; j += 2) {
-                /* fan triangles (0, j, j+1) and (0, j+1, j+2) as one quad j, 0, j+1, j+2: the GPU
-                   splits a quad along its 2nd-3rd corner diagonal, so it draws exactly those two
-                   triangles (the same affine texture warp as before, one primitive instead of two) */
-                int idx[4], c4 = j + 2 < m, nn = c4 ? 4 : 3;
-                s16 x[4], y[4];
-                u8 u[4], v[4];
-                int r[4], g[4], b[4];
-                s32 za;
-                int fg;
-                if (c4) { idx[0] = j; idx[1] = 0; idx[2] = j + 1; idx[3] = j + 2; }
-                else { idx[0] = 0; idx[1] = j; idx[2] = j + 1; }
-                for (k = 0; k < nn; k++) { x[k] = qx[idx[k]]; y[k] = qy[idx[k]]; }
-                if (poly_off_screen(x, y, nn)) continue;
-                za = c4 ? (out[0].z + out[j].z + out[j + 1].z + out[j + 2].z) >> 2
-                        : (((out[0].z + out[j].z + out[j + 1].z) >> 2) * 21845) >> 14;
-                fg = fog(za) * pm >> 12;
-                for (k = 0; k < nn; k++) {
-                    const CV *tv = &out[idx[k]];
-                    u[k] = (u8)(tv->u >> 8); v[k] = (u8)(tv->v >> 8);
-                    r[k] = (tv->r >> 4) * fg >> 12; g[k] = (tv->g >> 4) * fg >> 12; b[k] = (tv->b >> 4) * fg >> 12;
-                }
-                emit(fb, f, x, y, u, v, r, g, b, nn, za);
-            }
-        }
+        } else clip_face(fb, pr, f, n, oo, pm);
     }
 }
 

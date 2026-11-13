@@ -1,4 +1,3 @@
-#include "prof.h"
 #include "enemy.h"
 #include "level.h"
 #include "fx.h"
@@ -187,6 +186,7 @@ static void enemy_skeleton(Enemy *e)
 {
     MATRIX root, ry, fall;
     VECTOR off;
+    e->posed = 1; e->pose_x = e->x; e->pose_y = e->y; e->pose_z = e->z;
     if (e->state != E_DEAD) {               /* alive (or being cut): the full locomotion rig */
         e->body.yaw = e->yaw;
         player_pose_begin(&e->body);
@@ -213,6 +213,11 @@ static void enemy_skeleton(Enemy *e)
 
 /* the skeleton, worked out when something needs it: drawing him, his gun's muzzle, his waist. On the
    PS1 posing (foot IK probing the floor) every trooper every tick cost more than a whole frame */
+#ifdef PSX_GTE
+#define PS1_POSE_ON_TWOS 1           /* the console poses far troopers every other frame */
+#else
+#define PS1_POSE_ON_TWOS 0
+#endif
 static void pose_now(Enemy *e)
 {
     if (e->pose_stale) { e->pose_stale = 0; enemy_skeleton(e); }
@@ -284,6 +289,7 @@ void enemy_update(Player *pl, int frozen)
         s32 dx = pl->x - e->x, dz = pl->z - e->z, d = len2(dx, dz);
         int face = player_input_angle(dx, dz) & 4095, speed = 0, sx = 0, run = 0, walk_yaw = 0, walk_mag = 0;
         level_hint(&e->body.sec_hint);
+        e->dist = d;
         if (e->state == E_CUT) { enemy_cut_step(e); continue; }
         if (frozen || e->state == E_FATAL) { e->t++; enemy_skeleton(e); continue; }
         if (d > 22000 && e->state == E_IDLE) { e->t++; continue; }           /* far away: sleep */
@@ -543,6 +549,9 @@ void enemy_draw(FrameBuf *fb, const MATRIX *view, const DrawCtx *ctx)
 {
     MATRIX cam[16], up, lo, tmp;
     int i, b;
+    s32 ox, oy, oz;
+    static int draw_n;
+    draw_n++;
     for (i = 0; i < n_enemies; i++) {
         Enemy *e = &enemies[i];
         SVECTOR s; VECTOR c;
@@ -551,7 +560,14 @@ void enemy_draw(FrameBuf *fb, const MATRIX *view, const DrawCtx *ctx)
         /* only troopers that can be seen: in a room the level can see, on screen, before the fog
            (a sliced one's halves spread out, so a bigger ball) */
         if (!level_ball_visible(view, &ctx->proj, e->x, e->y - 900, e->z, e->state == E_CUT ? 2400 : 1300)) continue;
-        if (e->state != E_CUT) pose_now(e);
+        /* a trooper away from the fight is posed every other frame (animation at 15 Hz, a PS1
+           classic); his skeleton still moves with him every frame, shifted to where he is now */
+        ox = oy = oz = 0;
+        if (e->state != E_CUT) {
+            if (PS1_POSE_ON_TWOS && e->pose_stale && e->posed && e->dist > 3000 && ((draw_n + i) & 1)) {
+                ox = e->x - e->pose_x; oy = e->y - e->pose_y; oz = e->z - e->pose_z;
+            } else pose_now(e);
+        }
         if (e->state != E_CUT && e->hurt_t < 6) { dc.r = 200; dc.g = 110; dc.b = 110; }   /* hit flash */
         if (e->state == E_CUT) {
             half_xform(e, -e->up_rot, e->cut_px, e->cut_py, e->cut_pz, e->up_x, e->up_y, e->up_z, &up);
@@ -561,7 +577,11 @@ void enemy_draw(FrameBuf *fb, const MATRIX *view, const DrawCtx *ctx)
                 mat_mul(view, &tmp, &cam[b]);
             }
         } else {
-            for (b = 0; b < SOLDIER_NBONES; b++) mat_mul(view, &e->world[b], &cam[b]);
+            for (b = 0; b < SOLDIER_NBONES; b++) {
+                tmp = e->world[b];
+                tmp.t[0] += ox; tmp.t[1] += oy; tmp.t[2] += oz;
+                mat_mul(view, &tmp, &cam[b]);
+            }
         }
         model_draw_mats(&soldier, cam, &dc, fb);
         {   /* the pistol in his right hand */
@@ -577,6 +597,7 @@ void enemy_draw(FrameBuf *fb, const MATRIX *view, const DrawCtx *ctx)
             SVECTOR m; VECTOR mz;
             m.vx = (s16)(SOLDIER_MOUNT_X + PISTOL_MUZZLE_X); m.vy = (s16)(SOLDIER_MOUNT_Y + PISTOL_MUZZLE_Y); m.vz = (s16)(SOLDIER_MOUNT_Z + PISTOL_MUZZLE_Z);
             mat_apply(&e->world[DEMON_BONE_FIST_R], &m, &mz);
+            mz.vx += ox; mz.vy += oy; mz.vz += oz;
             fx_spray(&mz, 3, 3, 0, 0, 0, 10);
         }
     }

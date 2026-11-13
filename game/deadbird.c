@@ -615,6 +615,23 @@ static void cine_step(void)
 }
 
 
+/* lock-on: a clear line from her to trooper i, worked out every 4th tick (each trooper on a
+   different tick) instead of a ray per trooper per tick */
+#define LOCK_LOS_N 64
+static u8 lock_los[LOCK_LOS_N], lock_los_t[LOCK_LOS_N];
+static int lock_clear(int i, const Enemy *e)
+{
+    VECTOR ca, cb;
+    if (i >= 0 && i < LOCK_LOS_N && lock_los_t[i]) { lock_los_t[i]--; return lock_los[i]; }
+    ca.vx = pl.x; ca.vy = pl.y - 1200; ca.vz = pl.z;
+    cb.vx = e->x; cb.vy = e->y - 1200; cb.vz = e->z;
+    {
+        int clear = level_clip_segment(&ca, &cb, 0) >= 4000;
+        if (i >= 0 && i < LOCK_LOS_N) { lock_los[i] = (u8)clear; lock_los_t[i] = 3; }
+        return clear;
+    }
+}
+
 static void simulate(u32 pad)
 {
     int myaw, mmag;
@@ -631,12 +648,7 @@ static void simulate(u32 pad)
         int i, ref = mmag > 300 ? myaw : pl.yaw, best_i = -1;
         s32 best = 0x7fffffff;
         const Enemy *le = lock_ei >= 0 ? enemy_get(lock_ei) : 0;
-        if (le) {
-            VECTOR ca, cb;
-            ca.vx = pl.x; ca.vy = pl.y - 1200; ca.vz = pl.z;
-            cb.vx = le->x; cb.vy = le->y - 1200; cb.vz = le->z;
-            if (level_clip_segment(&ca, &cb, 0) < 4000) le = 0, lock_ei = -1;
-        }
+        if (le && !lock_clear(lock_ei, le)) le = 0, lock_ei = -1;
         if (le && (!pl.atk || le->state == E_DEAD || le->state == E_CUT || le->state == E_FATAL ||
                    iabs(le->x - pl.x) > LOCK_KEEP || iabs(le->z - pl.z) > LOCK_KEEP)) le = 0, lock_ei = -1;
         if (!le) {
@@ -652,12 +664,7 @@ static void simulate(u32 pad)
                 diff = ((a - ref + 2048) & 4095) - 2048;
                 if (diff < 0) diff = -diff;
                 if (diff > 1600 && d > 1800) continue;          /* close by, any direction will do */
-                {   /* never through a wall or a shut door */
-                    VECTOR ca, cb;
-                    ca.vx = pl.x; ca.vy = pl.y - 1200; ca.vz = pl.z;
-                    cb.vx = e->x; cb.vy = e->y - 1200; cb.vz = e->z;
-                    if (level_clip_segment(&ca, &cb, 0) < 4000) continue;
-                }
+                if (!lock_clear(i, e)) continue;                    /* never through a wall or a shut door */
                 if (d + diff * 2 < best) { best = d + diff * 2; best_i = i; }
             }
             if (best_i >= 0 && (pad & ~pl.prev & BTN_ATTACK)) lock_ei = best_i;    /* the swing commits to him */

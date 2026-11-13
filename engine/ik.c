@@ -9,8 +9,12 @@ s32 vec_len(const VECTOR *v)
 void vec_norm(const VECTOR *v, VECTOR *o)
 {
     s32 l = vec_len(v);
+    s32 inv;
     if (l == 0) { o->vx = 0; o->vy = 0; o->vz = ONE; return; }
-    o->vx = v->vx * ONE / l; o->vy = v->vy * ONE / l; o->vz = v->vz * ONE / l;
+    /* one divide instead of three (the R3000 divides in ~36 cycles): |v| / l <= 1, so v * inv
+       stays under 2^24 */
+    inv = (1 << 24) / l;
+    o->vx = (v->vx * inv) >> 12; o->vy = (v->vy * inv) >> 12; o->vz = (v->vz * inv) >> 12;
 }
 
 s32 vec_dot12(const VECTOR *a, const VECTOR *b)
