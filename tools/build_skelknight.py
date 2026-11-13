@@ -121,6 +121,20 @@ def cube(c, h, mat, smooth=0.0):
             face(q, mat, c, smooth=smooth)
 
 
+def slab(c, h, mat, ends=True):
+    """a thin hanging piece: a box without its top and bottom (ends=False: without its sides too)"""
+    c = np.asarray(c, float)
+    q = lambda *k: [addv(c + np.multiply(h, kk)) for kk in k]
+    for ax, sg in ((2, 1), (2, -1), (0, 1), (0, -1)) if ends else ((2, 1), (2, -1), (1, 1), (1, -1)):
+        o = [k for k in range(3) if k != ax and (k != 1 or not ends)]
+        o = o if len(o) == 2 else [k for k in range(3) if k != ax]
+        pts = []
+        for du, dv in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
+            key = [0, 0, 0]; key[ax] = sg; key[o[0]] = du; key[o[1]] = dv
+            pts.append(key)
+        face(q(*pts), mat, c)
+
+
 def shell(cs, rads, a0, a1, n, mat, smooth=.6):
     """a part-ring shell (a plate that covers only an arc): rings round vertical centres cs, radii
     (rx, rz), from angle a0 to a1 (0 = +X, pi/2 = front +Z); faces point away from the axis"""
@@ -137,18 +151,15 @@ def shell(cs, rads, a0, a1, n, mat, smooth=.6):
 
 
 # pelvis: the hip bone under a chainmail skirt, a belt, a torn tabard front and back
-loft([(0, .9, 0), (0, 1.0, 0), (0, 1.07, -.01)], [(.12, .07), (.15, .09), (.07, .05)], 4, 'bone',
-     ref=(0, 0, 1), rot=math.pi / 4, cap0=True, cap1=False)                   # hip bone (under the mail)
 band(1.05, .79, (.165, .125), (.205, .16), 6, 'mail', rot=math.pi / 6)
 band(1.015, 1.075, (.172, .132), (.172, .132), 6, 'leather', rot=math.pi / 6)
-cube((0, .82, .158), (.088, .2, .008), 'cloth')
-cube((0, .84, -.15), (.092, .19, .008), 'cloth')
+slab((0, .82, .158), (.088, .2, .008), 'cloth')
+slab((0, .84, -.15), (.092, .19, .008), 'cloth')
 
 # torso: ribcage and spine; a breastplate over the front only, a gorget at the neck
 BONE[0] = 'torso'
 loft([(0, 1.13, 0), (0, 1.3, .005), (0, 1.47, -.01)], [(.11, .08), (.155, .11), (.115, .085)],
-     6, 'rib', ref=(0, 0, 1), rot=math.pi / 6, cap0=True, cap1=True)
-cube((0, 1.3, -.088), (.022, .19, .02), 'bone')                             # spine
+     6, 'rib', ref=(0, 0, 1), rot=math.pi / 6, cap0=False, cap1=False)     # (the spine is painted on its back)
 shell([(0, 1.16, .0), (0, 1.3, .005), (0, 1.445, -.008)], [(.152, .118), (.19, .142), (.168, .12)],
       math.radians(-12), math.radians(192), 6, 'steel')
 band(1.43, 1.53, (.125, .1), (.092, .08), 6, 'steel', rot=math.pi / 6)
@@ -156,19 +167,18 @@ band(1.43, 1.53, (.125, .1), (.092, .08), 6, 'steel', rot=math.pi / 6)
 # neck: vertebrae
 PART[0] = 'neck'
 BONE[0] = 'neck'
-cube((0, 1.565, -.02), (.024, .075, .024), 'bone')
+loft([(0, 1.49, -.02), (0, 1.64, -.02)], [.026, .026], 4, 'bone', ref=(0, 0, 1), rot=math.pi / 4, cap0=False, cap1=False, smooth=0)
 
 # head: skull (cranium, cheekbones, jaw), an open-faced horned helmet, a mail neck guard
 PART[0] = 'head'
 BONE[0] = 'head'
 HC = np.array((0, 1.705, .012))
-loft([(0, 1.605, .02), (0, 1.67, .022), (0, 1.75, .012), (0, 1.80, -.002)],
-     [(.068, .078), (.088, .1), (.1, .11), (.082, .092)], 8, 'bone', ref=(0, 0, 1), rot=math.pi / 8,
+loft([(0, 1.605, .02), (0, 1.69, .02), (0, 1.80, -.002)],
+     [(.07, .08), (.098, .108), (.082, .092)], 8, 'bone', ref=(0, 0, 1), rot=math.pi / 8,
      cap0=True, cap1='dome', smooth=.7)
-cube((0, 1.588, .05), (.056, .02, .048), 'bone')                            # jaw
-loft([(0, 1.742, .004), (0, 1.81, -.004), (0, 1.865, -.012)], [(.122, .132), (.114, .124), (.068, .074)],
-     8, 'steel', ref=(0, 0, 1), rot=math.pi / 8, cap0=False, cap1='dome', smooth=.7)
-cube((0, 1.735, .132), (.012, .03, .008), 'steel')                          # nasal guard
+slab((0, 1.588, .05), (.056, .02, .048), 'bone', ends=False)            # jaw
+loft([(0, 1.742, .004), (0, 1.83, -.006)], [(.122, .132), (.108, .118)],
+     6, 'steel', ref=(0, 0, 1), rot=math.pi / 6, cap0=False, cap1='dome', smooth=.7)
 shell([(0, 1.75, -.004), (0, 1.62, -.03)], [(.124, .134), (.13, .13)], math.radians(200), math.radians(340), 3, 'mail')
 for s in (1, -1):                                                           # horns
     loft([(s * .1, 1.80, -.01), (s * .19, 1.86, -.06), (s * .22, 1.97, -.15)], [.028, .019, 0], 3, 'horn',
@@ -184,12 +194,11 @@ for A in (ARM_L, ARM_R):
     sd = 'L' if s > 0 else 'R'
     PART[0] = 'arm'
     BONE[0] = 'upper_arm_' + sd
-    loft([sh, (sh + el) / 2, el], [.036, .024, .034], 4, 'bone', ref=(0, 0, 1), rot=math.pi / 4, cap0='dome', cap1='dome')
-    loft([sh + (s * -.04, .035, 0), sh + (s * .06, .05, 0), sh + (s * .16, .022, 0)],
-         [(.105, .112), (.122, .128), (.092, .102)], 6, 'steel', ref=(0, 1, 0), rot=math.pi / 6, cap0=False, cap1='dome')
+    loft([sh, el], [.03, .03], 4, 'bone', ref=(0, 0, 1), rot=math.pi / 4, cap0=False, cap1=True)
+    loft([sh + (s * -.04, .035, 0), sh + (s * .14, .03, 0)],
+         [(.11, .118), (.104, .112)], 6, 'steel', ref=(0, 1, 0), rot=math.pi / 6, cap0=False, cap1='dome')
     BONE[0] = 'forearm_' + sd
-    for dz in (.018, -.018):                                                 # radius and ulna
-        loft([el + (0, 0, dz), wr + (0, 0, dz * .6)], [.02, .016], 4, 'bone', ref=(0, 1, 0), rot=math.pi / 4, cap0='dome', cap1=False)
+    loft([el, wr], [(.02, .036), (.016, .028)], 4, 'bone', ref=(0, 1, 0), rot=math.pi / 4, cap0='dome', cap1=False)   # radius + ulna
     loft([el + (s * .085, 0, 0), wr - (s * .012, 0, 0)], [(.052, .054), (.046, .047)], 6, 'steel', ref=(0, 1, 0),
          rot=math.pi / 6, cap0=False, cap1=False)
     PART[0] = 'hand'
@@ -205,17 +214,16 @@ PART[0] = 'leg'
 for s in (1, -1):
     sd = 'L' if s > 0 else 'R'
     BONE[0] = 'thigh_' + sd
-    loft([(s * .09, .96, 0), (s * .135, .56, .03)], [.034, .029], 4, 'bone', ref=(0, 0, 1), rot=math.pi / 4, cap0='dome', cap1='dome')
+    loft([(s * .09, .96, 0), (s * .135, .56, .03)], [.034, .029], 4, 'bone', ref=(0, 0, 1), rot=math.pi / 4, cap0=False, cap1=False)
     shell([(s * .1, .92, .012), (s * .118, .78, .02), (s * .13, .64, .028)], [(.074, .072), (.07, .07), (.06, .06)],
-          math.radians(-20), math.radians(200), 4, 'steel')
+          math.radians(-20), math.radians(200), 3, 'steel')
     BONE[0] = 'calf_' + sd
-    loft([(s * .135, .55, .035), (s * .15, .17, .015)], [.03, .022], 4, 'bone', ref=(0, 0, 1), rot=math.pi / 4, cap0='dome', cap1=False)
-    shell([(s * .137, .5, .036), (s * .143, .36, .026), (s * .148, .21, .02)], [(.06, .062), (.064, .066), (.05, .05)],
-          math.radians(-25), math.radians(205), 4, 'steel')
-    cube((s * .136, .56, .08), (.046, .052, .03), 'steel')                 # knee cop
+    loft([(s * .135, .55, .035), (s * .15, .17, .015)], [.03, .022], 4, 'bone', ref=(0, 0, 1), rot=math.pi / 4, cap0=False, cap1=False)
+    shell([(s * .136, .6, .05), (s * .141, .42, .03), (s * .148, .21, .02)], [(.06, .066), (.062, .066), (.05, .05)],
+          math.radians(-25), math.radians(205), 3, 'steel')                 # greave up over the knee
     BONE[0] = 'hoof_' + sd
     loft([(s * .15, .19, .015), (s * .152, .07, .04), (s * .152, 0.0, .07)], [(.052, .058), (.066, .11), (.068, .126)],
-         6, 'steel', ref=(0, 0, 1), rot=math.pi / 6, cap0=False, cap1=True)
+         4, 'steel', ref=(0, 0, 1), rot=math.pi / 4, cap0=False, cap1=True)
 P = np.array(V); TP = np.array(VT)
 
 # ---------------------------------------------------------------- skeleton (rigid parts, pivots at joints)
@@ -241,7 +249,7 @@ assert (VBONE >= 0).all()
 print('bones', len(SKEL), {n: int((VBONE == i).sum()) for i, n in enumerate(BNAMES)})
 ntri = sum(len(f['v']) - 2 for f in F)
 print('verts', len(P), 'faces', len(F), 'triangles', ntri)
-assert ntri <= 720, ntri
+assert ntri <= 500, ntri
 
 # smooth vertex normals (per loft, since lofts don't share vertices)
 VN = np.zeros_like(P)
@@ -444,6 +452,8 @@ gap = rm & (ribv > .62) & ~((np.abs(Xm) < .022) & (Zm > 0))
 c[gap] = C(22, 10, 8)
 c[rm & (np.abs(Xm) < .022) & (Zm > 0)] *= .92                               # sternum
 c[rm & (ribv > .5) & (ribv <= .62)] *= .7                                   # under-rib shade
+spn = rm & (Zm < -.04) & (np.abs(Xm) < .02)                                 # the spine down the back
+c[spn] = np.where((np.modf(Ym[spn] / .028)[0] < .25)[:, None], C(40, 22, 14)[None], (BONEC * 1.05)[None])
 # the skull's face: sockets with ember eyes, the nose hole, teeth, cheekbones, sutures
 hm = (pm == 'head')
 fr = hm & (Zm > .05)
@@ -483,6 +493,9 @@ ch = (pm == 'torso') & (Zm > .1) & (Ym > 1.2) & (Ym < 1.42)
 v_ = (np.abs(Xm) * 1.6 - (Ym - 1.22)) 
 c[ch & (np.abs(v_) < .012)] = CRIMSON * 1.2
 c[ch & (np.abs(Xm) < .006) & (Ym > 1.3)] = STEEL_HI * .8                   # the central ridge
+c[(pm == 'head') & (Zm > .1) & (np.abs(Xm) < .011)] = STEEL_HI * .75        # nasal guard
+kn = (pm == 'leg') & (Ym > .5) & (Zm > .06)                                 # knee cop: a ridged boss
+c[kn] = STEEL_HI * .55 * (1 + .4 * (np.abs(np.modf(Ym[kn] / .03)[0] - .5) > .35))[:, None]
 alb[m] = np.clip(c, 0, 1); spec[m] = .8; gloss[m] = 30
 
 # ---- chainmail: rows of rings, dark gaps, rust at the hem
