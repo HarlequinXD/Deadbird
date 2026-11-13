@@ -10,6 +10,7 @@
 #include "model.h"
 #include "player.h"
 #include "level.h"
+#include "prof.h"
 #include "ui.h"
 #include "snd.h"
 #include "sfx_ids.h"
@@ -620,8 +621,9 @@ static void simulate(u32 pad)
     u32 use_press;
     if (dead_t) { pad = 0; if (++dead_t > 150) { start_play(); return; } }
     use_press = pad & ~pl.prev & BTN_USE;              /* A, just pressed */
-    camera_update(pad);
+    { PROF_BEGIN(PROF_T_CAM); camera_update(pad); PROF_END(PROF_T_CAM); }
     read_move(pad, &myaw, &mmag);
+    { PROF_BEGIN(PROF_T_LOCK);
     {   /* auto-targeting: the nearest trooper within reach, roughly where she's facing or the stick
            points, is locked. A chainsaw press turns her onto him, and the lock holds for the whole
            combo: every swing slides her in to striking distance of him (player.c), so 3-hit
@@ -674,7 +676,8 @@ static void simulate(u32 pad)
         if (u == LU_SECRET) show_msg("A SECRET DOOR", 0);
     }
     level_think(pl.x, pl.y, pl.z, keys);               /* doors and lifts move first: she rides them */
-    player_update(&pl, pad, myaw, mmag);
+    PROF_END(PROF_T_LOCK); }
+    { PROF_BEGIN(PROF_T_PLAYER); player_update(&pl, pad, myaw, mmag); PROF_END(PROF_T_PLAYER); }
     if (was_grounded && !pl.grounded && pl.vy < -600) snd_play(SFX_JUMP, 3000, 0, 3800 + rnd(600));
     was_grounded = pl.grounded;
     if (pl.atk_event >= 1 && pl.atk_event <= 3)                               /* swing: whoosh + the saw screams */
@@ -705,7 +708,10 @@ static void simulate(u32 pad)
                      half ? 900 : -900, 3700 + rnd(700));
         prev_half = half;
     }                                             /* chain idles, revs when she runs */
-    player_pose(&pl, &demon);
+    {   /* her full pose (FK, foot IK, skeleton) only matters when a frame gets drawn: a console
+           catch-up tick runs the motion (springs, timers) and leaves the bones for the drawn tick */
+        if (eng_catchup) player_pose_begin(&pl); else player_pose(&pl, &demon);
+    }
     {   /* pickups: keycards and soul shards */
         int arg, k = level_pickup(pl.x, pl.y, pl.z, &arg);
         if (k == 2) {
@@ -727,7 +733,7 @@ static void simulate(u32 pad)
         if (key_flash_t > 0) key_flash_t--;
     }
     player_tgt.x = pl.x; player_tgt.y = pl.y; player_tgt.z = pl.z;
-    enemy_update(&pl, 0);
+    { PROF_BEGIN(PROF_T_ENEMY); enemy_update(&pl, 0); PROF_END(PROF_T_ENEMY); }
     saw_combat();
     fatal_ready = php > 0 ? enemy_fatality_target(&pl) : -1;
     if (fatal_ready >= 0 && use_press && pl.grounded) cine_start(fatal_ready);
@@ -871,6 +877,7 @@ static void draw_captive(FrameBuf *fb, const MATRIX *view, const DrawCtx *ctx0)
     p.v[FK_LHP] = 12; p.v[FK_LKN] = 40; p.v[FK_LAN] = 30; p.v[FK_RHP] = -6; p.v[FK_RKN] = 26; p.v[FK_RAN] = 34;
     p.v[FK_LAB] = 4; p.v[FK_RAB] = 4;
     if (!level_tank(&c)) return;   /* no tank in this level: nobody to hold captive */
+    if (!level_ball_visible(view, &ctx0->proj, c.vx, c.vy + 900, c.vz, 1400)) return;   /* tank out of sight */
     fk_bones(&demon, &p, pose, &off);
     mat_rot_y(&ry, frame_count * 3);
     mat_translate(&ry, c.vx, c.vy + 900 + (isin(frame_count * 14) * 60 >> 12), c.vz);
@@ -977,7 +984,13 @@ have_view:
     ctx.proj = *pr; ctx.ot_shift = 4; ctx.cull_sign = 1; ctx.r = ctx.g = ctx.b = 128;
 
     quad_g(fb, 0, 0, SCREEN_W, SCREEN_H, RGB(3, 4, 7), RGB(1, 1, 3), NO_SEMI, OT_LEN - 1);
-    level_draw(fb, &view, pr, frame_count);
+    {
+        PROF_BEGIN(PROF_LEVEL);
+        level_draw(fb, &view, pr, frame_count);
+        PROF_END(PROF_LEVEL);
+    }
+    {
+    PROF_BEGIN(PROF_PLAYER);
     draw_captive(fb, &view, &ctx);
     blob_shadow(fb, &view, pr, pl.x, level_ground(pl.x, pl.z, pl.y), pl.z);
     for (b = 0; b < DEMON_NBONES; b++) mat_mul(&view, &pl.world[b], &cam[b]);
@@ -990,8 +1003,18 @@ have_view:
         model_draw_mats(&saw_body, &sawm, &ctx, fb);
         model_draw_mats(&saw_chain[(chain_ph >> 4) & (SAW_CHAIN_FRAMES - 1)], &sawm, &ctx, fb);
     }
-    enemy_draw(fb, &view, &ctx);
-    fx_draw(fb, &view, pr);
+    PROF_END(PROF_PLAYER);
+    }
+    {
+        PROF_BEGIN(PROF_ENEMY);
+        enemy_draw(fb, &view, &ctx);
+        PROF_END(PROF_ENEMY);
+    }
+    {
+        PROF_BEGIN(PROF_FX);
+        fx_draw(fb, &view, pr);
+        PROF_END(PROF_FX);
+    }
 }
 
 /* ------------------------------------------------------------------ the health bar
@@ -1067,6 +1090,10 @@ static void draw_hud(FrameBuf *fb)
         b[0] = 'F'; b[1] = 'P'; b[2] = 'S'; b[3] = ' ';
         b[4] = (char)('0' + fps_shown / 10 % 10); b[5] = (char)('0' + fps_shown % 10); b[6] = 0;
         text(fb, b, SCREEN_W - (touch_ui ? 104 : 58), 12, 1, 200, 4);
+        if (*prof_text()) {                       /* the PS1's frame profile, in scanlines (263 a frame) */
+            text(fb, prof_text(), 8, SCREEN_H - 36, 1, 200, 4);
+            text(fb, prof_text2(), 8, SCREEN_H - 22, 1, 200, 4);
+        }
     }
 }
 
@@ -1177,7 +1204,7 @@ static void app_draw(FrameBuf *fb)
         text(fb, b, SCREEN_W / 2 - 64, 140, 1, 220, 2);
         if (gs_t > 90 && ((frame_count >> 4) & 1)) text_center(fb, touch_ui ? "TAP TO CONTINUE" : "PRESS ANY BUTTON", SCREEN_W / 2, 188, 1, 160, 2);
     } else if (gs != GS_TITLE && gs != GS_CONTROLS && gs != GS_EDITOR) {
-        draw_hud(fb);
+        { PROF_BEGIN(PROF_HUD); draw_hud(fb); PROF_END(PROF_HUD); }
         if (hurt_flash > 0) quad_g(fb, 0, 0, SCREEN_W, 240, RGB(hurt_flash * 9, 0, 0), RGB(hurt_flash * 5, 0, 0), SEMI_ADD, 3);
         if (dead_t) {
             quad_g(fb, 0, 0, SCREEN_W, 240, RGB(dead_t, dead_t + 10, dead_t + 10), RGB(dead_t, dead_t + 10, dead_t + 10), SEMI_SUB, 3);

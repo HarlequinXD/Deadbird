@@ -21,6 +21,7 @@ typedef struct {
     s32 x, y, z, vx, vz;          /* feet; velocity in 1/16 units per frame */
     int yaw, state, t, alive;
     int shoot_cd, burst, flash, strafe, strafe_t, los, los_t;
+    int pose_stale;                 /* his skeleton is worked out only when it's needed (drawn, aimed) */
     int phase, amp, stagger_t, stagger_w, fall_t, wob;
     int hurt_t;                   /* frames since last hurt (hit flash) */
     /* fatality / cut in half */

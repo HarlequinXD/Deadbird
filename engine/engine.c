@@ -3,6 +3,7 @@
  * Input the game reads (see engine.h / app.h).
  */
 #include "engine.h"
+#include "prof.h"
 #include "files.h"
 
 #define MAX_FINGERS 10
@@ -145,9 +146,16 @@ void eng_step(u32 pad)
     tap_bits = 0;
     prev_pad = pad;
     rumble = rumble * 3 / 4;
-    A()->tick();
+    {
+        PROF_BEGIN(PROF_TICK);
+        A()->tick();
+        PROF_END(PROF_TICK);
+    }
     in.ticks++;
 }
+
+int eng_catchup;
+void eng_step_catchup(u32 pad) { eng_catchup = 1; eng_step(pad); eng_catchup = 0; }
 
 void eng_frame(u32 pad)
 {
@@ -157,7 +165,12 @@ void eng_frame(u32 pad)
     ot_clear(fb);
     gpu_set_draw_env(FB_X, by, SCREEN_W, SCREEN_H, FB_X, by, 1);
     A()->draw(fb);
-    gpu_draw_ot(fb);
+    {
+        PROF_BEGIN(PROF_OT);
+        gpu_draw_ot(fb);
+        PROF_END(PROF_OT);
+    }
+    prof_frame();
     disp_x = FB_X; disp_y = by;
     cur ^= 1;
 }

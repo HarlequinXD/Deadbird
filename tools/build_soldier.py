@@ -100,7 +100,7 @@ def band(y0, y1, r0, r1, n, mat, z0=0.0, z1=0.0, rot=0.0, cap0=False, cap1=False
     loft([(0, y0, z0), (0, y1, z1)], [r0, r1], n, mat, ref=(0, 0, 1), rot=rot, cap0=cap0, cap1=cap1, smooth=smooth)
 
 
-def cube(c, h, mat, smooth=0.0):
+def cube(c, h, mat, smooth=0.0, skip=()):
     """axis-aligned box: centre c, half sizes h"""
     c = np.asarray(c, float)
     ids = {}
@@ -115,24 +115,25 @@ def cube(c, h, mat, smooth=0.0):
             for du, dv in ((-1, -1), (1, -1), (1, 1), (-1, 1)):
                 key = [0, 0, 0]; key[ax] = sg; key[o[0]] = du; key[o[1]] = dv
                 q.append(ids[tuple(key)])
+            if (ax, sg) in skip: continue            # a side pressed against the body: never seen
             face(q, mat, c, smooth=smooth)
 
 
 # pelvis + armoured belt
 loft([(0, .88, 0), (0, 1.10, .005)], [(.15, .11), (.15, .11)], 6, 'suit',
-     ref=(0, 0, 1), rot=math.pi / 6, cap0=True, cap1=False)
+     ref=(0, 0, 1), rot=math.pi / 6, cap0=False, cap1=False)
 band(.955, 1.045, (.182, .132), (.178, .13), 6, 'plate', rot=math.pi / 6)
-cube((0, .93, .118), (.055, .045, .018), 'plate')                          # groin plate
+cube((0, .93, .118), (.055, .045, .018), 'plate', skip=((2, -1),))                          # groin plate
 
 # torso: undersuit, chest plate shell, ab plates, collar, power pack
 BONE[0] = 'torso'
 loft([(0, 1.08, 0), (0, 1.30, .005), (0, 1.53, -.005)], [(.15, .11), (.19, .13), (.13, .095)],
-     6, 'suit', ref=(0, 0, 1), rot=math.pi / 6, cap0=False, cap1=True)
-loft([(0, 1.24, .012), (0, 1.37, .018), (0, 1.49, .005)], [(.208, .152), (.228, .166), (.214, .138)], 8, 'plate',
-     ref=(0, 0, 1), rot=math.pi / 8, cap0=False, cap1=False, smooth=.6)
+     6, 'suit', ref=(0, 0, 1), rot=math.pi / 6, cap0=False, cap1=False)
+loft([(0, 1.24, .012), (0, 1.37, .018), (0, 1.49, .005)], [(.208, .152), (.228, .166), (.214, .138)], 6, 'plate',
+     ref=(0, 0, 1), rot=math.pi / 6, cap0=False, cap1=False, smooth=.6)
 band(1.11, 1.22, (.168, .128), (.185, .14), 6, 'plate', z0=.004, z1=.01, rot=math.pi / 6)
 band(1.49, 1.555, (.15, .12), (.13, .105), 6, 'plate', rot=math.pi / 6)
-cube((0, 1.33, -.205), (.14, .16, .06), 'tech')                             # power pack
+cube((0, 1.33, -.205), (.14, .16, .06), 'tech', skip=((2, 1),))                             # power pack
 for s in (1, -1):                                                           # coolant canisters
     loft([(s * .155, 1.2, -.21), (s * .155, 1.46, -.21)], [.04, .04], 4, 'tech', ref=(0, 0, 1), rot=math.pi / 4, cap0=False, cap1=True)
 
@@ -146,8 +147,8 @@ PART[0] = 'head'
 BONE[0] = 'head'
 HC = np.array((0, 1.72, .012))
 loft([(0, 1.605, .012), (0, 1.72, .014), (0, 1.84, -.006)],
-     [(.104, .114), (.128, .14), (.096, .106)], 8, 'helmet', ref=(0, 0, 1), rot=math.pi / 8,
-     cap0=True, cap1='dome', smooth=.7)
+     [(.104, .114), (.128, .14), (.096, .106)], 6, 'helmet', ref=(0, 0, 1), rot=math.pi / 6,
+     cap0=False, cap1='dome', smooth=.7)
 VIS_Y0, VIS_Y1, VIS_R = 1.693, 1.757, (.137, .151)
 vis = []
 NA = 4
@@ -157,11 +158,9 @@ for k in range(NA + 1):
     vis.append((addv((x, VIS_Y0, z)), addv((x, VIS_Y1, z - .006))))
 for k in range(NA):
     face([vis[k][0], vis[k + 1][0], vis[k + 1][1], vis[k][1]], 'visor', HC, smooth=.6)
-cube((0, 1.645, .118), (.055, .032, .03), 'helmet')                        # rebreather
+cube((0, 1.645, .118), (.055, .032, .03), 'helmet', skip=((2, -1),))                        # rebreather
 for s in (1, -1):
-    loft([(s * .045, 1.638, .152), (s * .07, 1.632, .158)], [.02, .02], 4, 'tech', ref=(0, 1, 0), cap0=False, cap1=True)
-    loft([(s * .118, 1.725, -.01), (s * .152, 1.725, -.01)], [.04, .04], 6, 'tech', ref=(0, 1, 0), cap0=False, cap1=True)
-loft([(.14, 1.76, -.04), (.155, 1.97, -.07)], [.009, .004], 3, 'tech', ref=(1, 0, 0), cap0=False, cap1=False)
+    loft([(s * .118, 1.725, -.01), (s * .152, 1.725, -.01)], [.04, .04], 4, 'tech', ref=(0, 1, 0), rot=math.pi / 4, cap0=False, cap1=True)
 cube((0, 1.862, -.02), (.016, .018, .085), 'plate')                         # crest
 
 # arms (T-pose along X): undersuit, layered pauldron, forearm guard, armoured gauntlet
@@ -174,12 +173,11 @@ for A in (ARM_L, ARM_R):
     sd = 'L' if s > 0 else 'R'
     PART[0] = 'arm'
     BONE[0] = 'upper_arm_' + sd
-    loft([sh, el + (s * .02, 0, 0)], [(.068, .066), .055], 6, 'suit', ref=(0, 0, 1), cap0=False, cap1=False)
+    loft([sh, el + (s * .02, 0, 0)], [(.068, .066), .055], 4, 'suit', ref=(0, 0, 1), rot=math.pi / 4, cap0=False, cap1=False)
     loft([sh + (s * -.035, .03, 0), sh + (s * .06, .04, 0), sh + (s * .15, .02, 0)],
          [(.105, .112), (.118, .122), (.09, .1)], 6, 'plate', ref=(0, 1, 0), rot=math.pi / 6, cap0=False, cap1='dome')
     BONE[0] = 'forearm_' + sd
-    loft([el - (s * .02, 0, 0), wr], [(.056, .054), (.044, .042)], 6, 'joint', ref=(0, 0, 1), cap0=False, cap1=False)
-    loft([el + (s * .05, 0, 0), wr - (s * .025, 0, 0)], [(.07, .072), (.062, .062)], 6, 'plate', ref=(0, 1, 0),
+    loft([el - (s * .02, 0, 0), wr - (s * .005, 0, 0)], [(.066, .068), (.058, .058)], 6, 'plate', ref=(0, 1, 0),
          rot=math.pi / 6, cap0=False, cap1=False)
     PART[0] = 'hand'
     BONE[0] = 'fist_' + sd
@@ -194,16 +192,14 @@ PART[0] = 'leg'
 for s in (1, -1):
     sd = 'L' if s > 0 else 'R'
     BONE[0] = 'thigh_' + sd
-    loft([(s * .09, .97, 0), (s * .135, .55, .03)], [.092, .064], 6, 'suit',
-         ref=(0, 0, 1), rot=math.pi / 6, cap0=False, cap1=False)
+    loft([(s * .09, .97, 0), (s * .135, .55, .03)], [.092, .064], 4, 'suit',
+         ref=(0, 0, 1), rot=math.pi / 4, cap0=False, cap1=False)
     loft([(s * .1, .93, .012), (s * .125, .66, .022)], [(.102, .1), (.092, .09)], 6, 'plate', ref=(0, 0, 1),
          rot=math.pi / 6, cap0=False, cap1=False)
     BONE[0] = 'calf_' + sd
-    loft([(s * .135, .56, .035), (s * .15, .17, .015)], [.062, .05], 6, 'joint',
-         ref=(0, 0, 1), rot=math.pi / 6, cap0=False, cap1=False)
-    loft([(s * .137, .52, .045), (s * .148, .22, .022)], [(.078, .08), (.064, .066)], 6, 'plate', ref=(0, 0, 1),
+    loft([(s * .136, .56, .04), (s * .149, .17, .02)], [(.074, .076), (.062, .064)], 6, 'plate', ref=(0, 0, 1),
          rot=math.pi / 6, cap0=False, cap1=False)
-    cube((s * .136, .555, .098), (.05, .055, .03), 'plate')                # knee cop
+    cube((s * .136, .555, .098), (.05, .055, .03), 'plate', skip=((2, -1),))   # knee cop
     BONE[0] = 'hoof_' + sd
     loft([(s * .15, .2, .015), (s * .152, .07, .04), (s * .152, 0.0, .07)], [(.062, .07), (.072, .12), (.074, .132)],
          6, 'boot', ref=(0, 0, 1), rot=math.pi / 6, cap0=False, cap1=True)

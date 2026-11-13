@@ -397,6 +397,9 @@ static int cmp_key(const void *a, const void *b)
     return p->fi - q->fi;
 }
 
+/* faces are grouped into chunks by room and by a square cell this wide: each chunk is culled whole
+   (rooms, frustum, fog), so smaller cells waste less work on geometry that is off screen */
+#define LAB_CHUNK_CELL 3072
 static void export_mesh(void)
 {
     Key *keys = (Key *)malloc(sizeof(Key) * (size_t)nfaces);
@@ -404,7 +407,7 @@ static void export_mesh(void)
         V3 c = v3(0, 0, 0);
         for (int k = 0; k < faces[i].n; k++) c = add(c, faces[i].p[k]);
         c = mul(c, 1.f / faces[i].n);
-        keys[i].area = faces[i].area; keys[i].dyn = faces[i].dyn; keys[i].cx = (int)gfloor(c.x / 3072); keys[i].cz = (int)gfloor(c.z / 3072); keys[i].fi = i;
+        keys[i].area = faces[i].area; keys[i].dyn = faces[i].dyn; keys[i].cx = (int)gfloor(c.x / LAB_CHUNK_CELL); keys[i].cz = (int)gfloor(c.z / LAB_CHUNK_CELL); keys[i].fi = i;
     }
     qsort(keys, (size_t)nfaces, sizeof(Key), cmp_key);
     lab.verts = (LabVert *)malloc(sizeof(LabVert) * (size_t)nfaces * 4);

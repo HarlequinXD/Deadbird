@@ -1,4 +1,4 @@
-/* PS1 soldier, rigid hierarchical parts: 507 verts, 347 prims (636 tris), 16 bones.
+/* PS1 soldier, rigid hierarchical parts: 401 verts, 263 prims (492 tris), 16 bones.
    Fixed point: 1 model unit = 1024 (4096 = 1.0), Y down, faces +Z.
    Vertices are LOCAL to their bone pivot; bone offsets are relative to the parent pivot.
    Render each bone with  world = parent_world * T(offset) * R(bone)  and draw its prim range. */
@@ -8,8 +8,8 @@ typedef struct { short x, y, z, pad; } DVERT;
 typedef struct { unsigned char n; unsigned short v[4]; unsigned char u[4], t[4]; } DPRIM;
 typedef struct { const char *name; short parent; short ox, oy, oz; unsigned short v0, vn, p0, pn; } DBONE;
 #endif
-#define SOLDIER_NVERTS 507
-#define SOLDIER_NPRIMS 347
+#define SOLDIER_NVERTS 401
+#define SOLDIER_NPRIMS 263
 #define SOLDIER_NBONES 16
 #define SOLDIER_BONE_PELVIS 0
 #define SOLDIER_BONE_TORSO 1
@@ -38,21 +38,21 @@ typedef struct { const char *name; short parent; short ox, oy, oz; unsigned shor
 #ifndef SOLDIER_MESH_NO_DATA
 
 static const DBONE soldier_bones[] = {
-  {"pelvis", -1, 0, -993, 0, 0, 32, 0, 22},
-  {"torso", 0, 0, -154, 12, 32, 90, 22, 60},
-  {"neck", 1, 0, -389, -17, 122, 12, 82, 6},
-  {"head", 2, 0, -123, 10, 134, 97, 88, 79},
-  {"upper_arm_L", 1, 210, -364, -12, 231, 31, 167, 24},
-  {"forearm_L", 4, 282, 0, -10, 262, 24, 191, 12},
-  {"fist_L", 5, 276, 0, 10, 286, 9, 203, 8},
-  {"upper_arm_R", 1, -210, -364, -12, 295, 31, 211, 24},
-  {"forearm_R", 7, -282, 0, -10, 326, 24, 235, 12},
-  {"fist_R", 8, -276, 0, 10, 350, 9, 247, 8},
-  {"thigh_L", 0, 87, 0, 0, 359, 24, 255, 12},
-  {"calf_L", 10, 51, 440, 36, 383, 32, 267, 18},
-  {"hoof_L", 11, 15, 389, -15, 415, 18, 285, 16},
-  {"thigh_R", 0, -87, 0, 0, 433, 24, 301, 12},
-  {"calf_R", 13, -51, 440, 36, 457, 32, 313, 18},
-  {"hoof_R", 14, -15, 389, -15, 489, 18, 331, 16},
+  {"pelvis", -1, 0, -993, 0, 0, 32, 0, 17},
+  {"torso", 0, 0, -154, 12, 32, 84, 17, 51},
+  {"neck", 1, 0, -389, -17, 116, 12, 68, 6},
+  {"head", 2, 0, -123, 10, 128, 61, 74, 43},
+  {"upper_arm_L", 1, 210, -364, -12, 189, 27, 117, 22},
+  {"forearm_L", 4, 282, 0, -10, 216, 12, 139, 6},
+  {"fist_L", 5, 276, 0, 10, 228, 9, 145, 8},
+  {"upper_arm_R", 1, -210, -364, -12, 237, 27, 153, 22},
+  {"forearm_R", 7, -282, 0, -10, 264, 12, 175, 6},
+  {"fist_R", 8, -276, 0, 10, 276, 9, 181, 8},
+  {"thigh_L", 0, 87, 0, 0, 285, 20, 189, 10},
+  {"calf_L", 10, 51, 440, 36, 305, 20, 199, 11},
+  {"hoof_L", 11, 15, 389, -15, 325, 18, 210, 16},
+  {"thigh_R", 0, -87, 0, 0, 343, 20, 226, 10},
+  {"calf_R", 13, -51, 440, 36, 363, 20, 236, 11},
+  {"hoof_R", 14, -15, 389, -15, 383, 18, 247, 16},
 };
 #endif /* SOLDIER_MESH_NO_DATA */

@@ -3,7 +3,8 @@
 build_pistol.py, make_ui.py, make_font.py), bring its output into assets/src/ - the sources that
 tools/pack_assets.py compresses into assets/packed.h:
 
-  <name>.tim (8bpp, 256-texel sheet)  ->  assets/src/<name>_tex.png   (RGBA, half size, de-dithered + sharpened)
+  <name>.tim (8bpp, 256-texel sheet)  ->  assets/src/<name>_tex.png   (characters: full size as is;
+                                          weapons: RGBA, half size, de-dithered + sharpened)
   <name>_mesh.h with vertex data      ->  assets/src/<name>_mesh.json, and the header keeps only
                                           its constants and bone table
   ui_tim.h / font_tim.h               ->  assets/src/ui_tex.png / font.png (full size)
@@ -18,7 +19,7 @@ SRC = os.path.join(ROOT, 'assets', 'src')
 
 
 def find(*names):
-    for d in (os.path.join(ROOT, 'tools', 'out'), os.path.join(ROOT, 'assets')):
+    for d in [os.path.join(ROOT, 'tools', 'out', n.split('.')[0].split('_')[0]) for n in names] + [os.path.join(ROOT, 'tools', 'out'), os.path.join(ROOT, 'assets')]:
         for n in names:
             p = os.path.join(d, n)
             if os.path.exists(p):
@@ -58,6 +59,14 @@ def skin(name):
     p = find(name + '.tim')
     idx, clut = decode(open(p, 'rb').read())
     rgb, a = rgb_of(idx, clut)
+    if name in ('demon', 'soldier'):
+        # the characters keep their full 256 x 256 sheet as is (a texture page each, see pack_assets.py);
+        # alpha marks the painted texels, grown by one so a UV on a texel's edge still lands inside
+        from scipy.ndimage import binary_dilation
+        m = binary_dilation(a > 0, structure=np.ones((3, 3), bool))
+        Image.fromarray(np.dstack([rgb.clip(0, 255).astype(np.uint8), m.astype(np.uint8) * 255]), 'RGBA').save(
+            os.path.join(SRC, name + '_tex.png'))
+        return
     from scipy.ndimage import uniform_filter
     m = a.astype(float)
     s = np.stack([uniform_filter(rgb[..., k] * m, 3) for k in range(3)], -1)

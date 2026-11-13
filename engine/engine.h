@@ -33,6 +33,8 @@ void eng_tap(u32 bits);                  /* press buttons for the next tick (men
 void eng_init(void);
 void eng_frame(u32 pad);                 /* one tick + draw (pad: the platform's buttons) */
 void eng_step(u32 pad);                  /* one tick, no drawing (catching up) */
+void eng_step_catchup(u32 pad);          /* the same, flagged so the game can skip work only drawing needs */
+extern int eng_catchup;                  /* set during eng_step_catchup: no frame is drawn after this tick */
 void eng_display_area(int *x, int *y);   /* VRAM top-left of the frame to show (SCREEN_W x SCREEN_H) */
 const App *eng_app(void);
 

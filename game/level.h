@@ -69,6 +69,8 @@ const LabArea *level_area(int i);
 int  level_area_at(s32 x, s32 z);
 /* a ball (x, y, z, radius r) that could be on screen: in a room the last level_draw saw, inside the
    screen's edges, nearer than the fog */
+int  level_point_seen(s32 x, s32 z);
+int *level_hint(int *h);                  /* whose sector hint level queries use (0 = shared); returns the old one */          /* in a room the last level_draw could see */
 int  level_ball_visible(const MATRIX *view, const PROJ *pr, s32 x, s32 y, s32 z, s32 r);
 /* waypoints from the spawn through every room to the reactor (route test) */
 int  level_route_count(void);

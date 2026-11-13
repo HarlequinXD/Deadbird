@@ -1,3 +1,4 @@
+#include "prof.h"
 #include "enemy.h"
 #include "level.h"
 #include "fx.h"
@@ -86,6 +87,7 @@ static void place(s32 x, s32 z, int yaw)
     e->home_x = x; e->home_z = z; e->patrol_wait = 60 + rnd(120); e->patrol_yaw = yaw & 4095;
     e->tgt.x = x; e->tgt.y = e->y; e->tgt.z = z; e->tgt.radius = E_RADIUS; e->tgt.height = E_HEIGHT;
     e->tgt.hp = e->tgt.max_hp = E_HP; e->tgt.team = TEAM_ENEMY; e->tgt.on_hit = on_hit; e->tgt.user = e;
+    e->pose_stale = 1;
     combat_add(&e->tgt);
 }
 
@@ -209,9 +211,17 @@ static void enemy_skeleton(Enemy *e)
     model_skeleton(&soldier, &root, e->bpose, e->world);
 }
 
+/* the skeleton, worked out when something needs it: drawing him, his gun's muzzle, his waist. On the
+   PS1 posing (foot IK probing the floor) every trooper every tick cost more than a whole frame */
+static void pose_now(Enemy *e)
+{
+    if (e->pose_stale) { e->pose_stale = 0; enemy_skeleton(e); }
+}
+
 void enemy_waist(const Enemy *e, VECTOR *out)
 {
     SVECTOR s; s.vx = 0; s.vy = 0; s.vz = 0;
+    pose_now((Enemy *)e);
     mat_apply(&e->world[DEMON_BONE_TORSO], &s, out);
 }
 
@@ -224,6 +234,7 @@ static void fire(Enemy *e, const Player *pl)
     int i;
     for (i = 0; i < MAX_LASERS; i++) if (!lasers[i].live) { L = &lasers[i]; break; }
     if (!L) return;
+    pose_now(e);
     m.vx = (s16)(SOLDIER_MOUNT_X + PISTOL_MUZZLE_X); m.vy = (s16)(SOLDIER_MOUNT_Y + PISTOL_MUZZLE_Y); m.vz = (s16)(SOLDIER_MOUNT_Z + PISTOL_MUZZLE_Z);
     mat_apply(&e->world[DEMON_BONE_FIST_R], &m, &mz);
     dx = pl->x + rnd(601) - 300 - mz.vx; dz = pl->z + rnd(601) - 300 - mz.vz;   /* not every bolt is on her */
@@ -272,6 +283,7 @@ void enemy_update(Player *pl, int frozen)
         Enemy *e = &enemies[i];
         s32 dx = pl->x - e->x, dz = pl->z - e->z, d = len2(dx, dz);
         int face = player_input_angle(dx, dz) & 4095, speed = 0, sx = 0, run = 0, walk_yaw = 0, walk_mag = 0;
+        level_hint(&e->body.sec_hint);
         if (e->state == E_CUT) { enemy_cut_step(e); continue; }
         if (frozen || e->state == E_FATAL) { e->t++; enemy_skeleton(e); continue; }
         if (d > 22000 && e->state == E_IDLE) { e->t++; continue; }           /* far away: sleep */
@@ -286,6 +298,9 @@ void enemy_update(Player *pl, int frozen)
             e->los = d < SEE_DIST && level_clip_segment(&a, &b, 10) >= 4000;
             e->los_t = 8 + (i & 3);
         }
+        /* a patrol in a room the camera can't see stands still (nobody can tell) until he sees her
+           or is hurt: walking and posing him was most of the PS1's frame */
+        if (e->state == E_IDLE && !e->los && e->hurt_t >= 60 && !level_point_seen(e->x, e->z)) continue;
         switch (e->state) {
         case E_IDLE:                                                           /* patrol: out and back */
             e->body.aim = 0;
@@ -364,8 +379,9 @@ void enemy_update(Player *pl, int frozen)
             e->body.x = e->x; e->body.z = e->z; e->body.x16 = e->x * 16; e->body.z16 = e->z * 16;
         }
         e->tgt.x = e->x; e->tgt.y = e->y; e->tgt.z = e->z;
-        enemy_skeleton(e);
+        e->pose_stale = 1;                                                     /* posed when he's drawn */
     }
+    level_hint(0);
 }
 
 int enemy_fatality_target(const Player *pl)
@@ -535,6 +551,7 @@ void enemy_draw(FrameBuf *fb, const MATRIX *view, const DrawCtx *ctx)
         /* only troopers that can be seen: in a room the level can see, on screen, before the fog
            (a sliced one's halves spread out, so a bigger ball) */
         if (!level_ball_visible(view, &ctx->proj, e->x, e->y - 900, e->z, e->state == E_CUT ? 2400 : 1300)) continue;
+        if (e->state != E_CUT) pose_now(e);
         if (e->state != E_CUT && e->hurt_t < 6) { dc.r = 200; dc.g = 110; dc.b = 110; }   /* hit flash */
         if (e->state == E_CUT) {
             half_xform(e, -e->up_rot, e->cut_px, e->cut_py, e->cut_pz, e->up_x, e->up_y, e->up_z, &up);

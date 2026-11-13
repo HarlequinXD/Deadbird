@@ -13,6 +13,7 @@
 /* the engine's RECT has the same layout as libgpu's; keep the names apart */
 #define RECT ENGINE_RECT
 #include "engine.h"
+#include "prof.h"
 #undef RECT
 
 void gpu_psx_submit(void);
@@ -60,6 +61,7 @@ int main(int argc, const char **argv)
     ChangeClearPAD(0);
 
     InitGeom();                                       /* turn on the GTE (vertex transforms) */
+    prof_init();                                      /* timer 1 counts scanlines for the profile readout */
     eng_init();
     eng_set_touch_ui(0);
     SetDispMask(1);
@@ -91,7 +93,7 @@ int main(int argc, const char **argv)
         /* at most 2 catch-up ticks: real-time speed down to 20 fps; below that the game slows
            down instead - more catch-up work would only make the next frame later still */
         if (ticks > 2) ticks = 2;
-        while (ticks-- > 0) eng_step(pad);
+        while (ticks-- > 0) eng_step_catchup(pad);
     }
     return 0;
 }

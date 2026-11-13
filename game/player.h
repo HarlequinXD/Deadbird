@@ -76,6 +76,7 @@ typedef struct {
     FKPose pose;
     MATRIX bone_pose[DEMON_NBONES];
     MATRIX world[DEMON_NBONES];
+    int sec_hint;                  /* last sector this body stood in (speeds level queries) */
 } Player;
 
 void player_init(const Model *m);

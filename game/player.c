@@ -104,6 +104,7 @@ void player_reset(Player *p, s32 x, s32 z, int yaw)
     int i;
     char *c = (char *)p;
     for (i = 0; i < (int)sizeof(*p); i++) c[i] = 0;
+    p->sec_hint = -1;
     p->x = x; p->y = y; p->z = z;
     p->x16 = x * SUB; p->y16 = y * SUB; p->z16 = z * SUB;
     p->yaw = yaw & 4095;
@@ -156,7 +157,14 @@ void player_hit_react(Player *p, s32 nx, s32 nz, int push, int stop)
     else { p->vx = p->vx * 3 / 10; p->vz = p->vz * 3 / 10; }          /* the blade bites in: the lunge stops */
 }
 
+static void player_update_(Player *p, u32 pad, int input_yaw, int input_mag);
 void player_update(Player *p, u32 pad, int input_yaw, int input_mag)
+{
+    int *oh = level_hint(&p->sec_hint);   /* each body keeps its own sector hint */
+    player_update_(p, pad, input_yaw, input_mag);
+    level_hint(oh);
+}
+static void player_update_(Player *p, u32 pad, int input_yaw, int input_mag)
 {
     u32 press = pad & ~p->prev;
     s32 wx = 0, wz = 0, wish = 0, nx, nz, ox, oz, cnx, cnz, gy;
@@ -732,7 +740,7 @@ static void place_feet(Player *p, const Model *m)
 
 int player_invulnerable(const Player *p) { return p->roll_t > 4 && p->roll_t < 31; }
 
-void player_pose_begin(Player *p) { build_pose(p); }
+void player_pose_begin(Player *p) { int *oh = level_hint(&p->sec_hint); build_pose(p); level_hint(oh); }
 
 /* roll: how far over she has turned (degrees) by frame */
 static int roll_angle(int t)
@@ -772,7 +780,14 @@ static s32 lowest_point(const Player *p)
     return low;
 }
 
+static void player_pose_end_(Player *p, const Model *m);
 void player_pose_end(Player *p, const Model *m)
+{
+    int *oh = level_hint(&p->sec_hint);
+    player_pose_end_(p, m);
+    level_hint(oh);
+}
+static void player_pose_end_(Player *p, const Model *m)
 {
     VECTOR off;
     MATRIX root, ry;

@@ -2,9 +2,11 @@
 #include "gte_hw.h"
 
 /* PS1 "scratchpad" style working set: projected vertices for the current model */
+#ifndef PSX_GTE
 static s16 sx[MODEL_MAX_VERTS], sy[MODEL_MAX_VERTS];
-static s32 sz[MODEL_MAX_VERTS];
 static u8  ok[MODEL_MAX_VERTS];
+#endif
+static s32 sz[MODEL_MAX_VERTS];
 
 void model_skeleton(const Model *m, const MATRIX *root, const MATRIX *pose, MATRIX *out)
 {
@@ -17,26 +19,99 @@ void model_skeleton(const Model *m, const MATRIX *root, const MATRIX *pose, MATR
     }
 }
 
+#ifdef PSX_GTE
+/*
+ * The PS1 path. The console has no data cache, so every load and store to main RAM stalls the
+ * CPU; this loop keeps them to a minimum: the GTE reads each vertex straight from memory, a vertex
+ * keeps its screen x,y packed in one word plus one byte of clip flags (behind the camera, off each
+ * screen edge), so a primitive's near-clip and off-screen tests are one OR and one AND; the GTE
+ * does the back-face test (NCLIP); and a flat-coloured primitive only gets its colour written once.
+ */
+typedef u32 __attribute__((may_alias)) u32a;
+static u32 vxy[MODEL_MAX_VERTS];
+static u8  vfl[MODEL_MAX_VERTS];
+enum { CL_L = 1, CL_R = 2, CL_T = 4, CL_B = 8, CL_NEAR = 16 };
+
+static void draw_mats_gte(const Model *m, const MATRIX *cam, const DrawCtx *c, FrameBuf *fb)
+{
+    int b, i;
+    s32 near = c->proj.near_z, half = c->proj.h >> 1, sw = SCREEN_W;
+    int shift = c->ot_shift, cs = c->cull_sign;
+    u8 code3 = PF_TEX, code4 = PF_TEX | PF_QUAD;
+    u16 tpage = m->tpage, clut = m->clut;
+    u8 cr = c->r, cg = c->g, cb = c->b;
+    gte_load_proj(&c->proj);
+    for (b = 0; b < m->nbones && b < MODEL_MAX_BONES; b++) {
+        const DBONE *bn = &m->bones[b];
+        int v1 = bn->v0 + bn->vn;
+        if (v1 > MODEL_MAX_VERTS) v1 = MODEL_MAX_VERTS;
+        gte_load_matrix(&cam[b]);
+        for (i = bn->v0; i < v1; i++) {
+            const DVERT *v = &m->verts[i];
+            u32 xy; s32 z, x, y; u32 f;
+            __asm__ volatile(
+                "lwc2  $0, 0(%2)\n\t"      /* VXY0 */
+                "lwc2  $1, 4(%2)\n\t"      /* VZ0 (the pad half is ignored) */
+                "nop\n\t" "nop\n\t"
+                "cop2  0x0180001\n\t"      /* RTPS */
+                "mfc2  %0, $14\n\t"        /* SXY2 */
+                "mfc2  %1, $27\n\t"        /* MAC3 = view z */
+                "nop\n\t"
+                : "=r"(xy), "=r"(z) : "r"(v) : "memory");
+            x = (s16)(xy & 0xffff); y = (s32)xy >> 16;
+            f = (z < near || z <= half) ? CL_NEAR : 0;
+            if (x < 0) f |= CL_L; else if (x >= sw) f |= CL_R;
+            if (y < 0) f |= CL_T; else if (y >= SCREEN_H) f |= CL_B;
+            vxy[i] = xy; vfl[i] = (u8)f; sz[i] = z;
+        }
+        for (i = bn->p0; i < bn->p0 + bn->pn; i++) {
+            const DPRIM *dp = &m->prims[i];
+            int a = dp->v[0], bb = dp->v[1], cc = dp->v[2], d = 0, quad = dp->n == 4;
+            u32 fa = vfl[a] & vfl[bb] & vfl[cc], fo = vfl[a] | vfl[bb] | vfl[cc];
+            u32 p0 = vxy[a], p1 = vxy[bb], p2 = vxy[cc];
+            s32 nc, zs;
+            POLY *p;
+            if (quad) { d = dp->v[3]; fa &= vfl[d]; fo |= vfl[d]; }
+            if ((fo & CL_NEAR) || (fa & (CL_L | CL_R | CL_T | CL_B))) continue;
+            __asm__ volatile(
+                "mtc2  %1, $12\n\t" "mtc2  %2, $13\n\t" "mtc2  %3, $14\n\t"
+                "nop\n\t" "nop\n\t"
+                "cop2  0x1400006\n\t"      /* NCLIP */
+                "mfc2  %0, $24\n\t"        /* MAC0 */
+                "nop\n\t"
+                : "=r"(nc) : "r"(p0), "r"(p1), "r"(p2));
+            if (nc * cs <= 0) continue;                                        /* back face */
+            if (quad) zs = (sz[a] + sz[bb] + sz[cc] + sz[d]) >> 2;
+            else      zs = (((sz[a] + sz[bb] + sz[cc]) >> 2) * 21845) >> 14;   /* / 3 without a divide */
+            if (fb->nprims >= PRIM_MAX) return;
+            p = &fb->prims[fb->nprims++];
+            p->tpage = tpage; p->clut = clut;
+            *(u32a *)&p->v[0].x = p0; p->v[0].u = dp->u[0]; p->v[0].v = dp->t[0];
+            *(u32a *)&p->v[1].x = p1; p->v[1].u = dp->u[1]; p->v[1].v = dp->t[1];
+            *(u32a *)&p->v[2].x = p2; p->v[2].u = dp->u[2]; p->v[2].v = dp->t[2];
+            p->v[0].r = cr; p->v[0].g = cg; p->v[0].b = cb;     /* flat: only vertex 0's colour is used */
+            if (quad) {
+                p->code = code4;
+                *(u32a *)&p->v[3].x = vxy[d]; p->v[3].u = dp->u[3]; p->v[3].v = dp->t[3];
+            } else p->code = code3;
+            zs >>= shift;
+            if (zs < 0) zs = 0; else if (zs >= OT_LEN) zs = OT_LEN - 1;
+            p->next = fb->ot[zs]; fb->ot[zs] = p;
+        }
+    }
+}
+#endif
+
 void model_draw_mats(const Model *m, const MATRIX *cam, const DrawCtx *c, FrameBuf *fb)
 {
     int b, i, k;
 #ifdef PSX_GTE
-    gte_load_proj(&c->proj);
-#endif
+    (void)b; (void)i; (void)k;
+    draw_mats_gte(m, cam, c, fb);
+#else
     for (b = 0; b < m->nbones && b < MODEL_MAX_BONES; b++) {
         const DBONE *bn = &m->bones[b];
         /* transform + project this bone's vertices (RotTransPers) */
-#ifdef PSX_GTE
-        gte_load_matrix(&cam[b]);
-        for (i = bn->v0; i < bn->v0 + bn->vn && i < MODEL_MAX_VERTS; i++) {
-            VECTOR cv; u32 sxy;
-            gte_xform(m->verts[i].x, m->verts[i].y, m->verts[i].z, &cv, &sxy);
-            ok[i] = (u8)(cv.vz >= c->proj.near_z && cv.vz > (c->proj.h >> 1));
-            sx[i] = (s16)(sxy & 0xffff); sy[i] = (s16)(sxy >> 16);
-            sz[i] = cv.vz;
-        }
-        if (0)
-#endif
         for (i = bn->v0; i < bn->v0 + bn->vn && i < MODEL_MAX_VERTS; i++) {
             SVECTOR sv; VECTOR cv;
             sv.vx = m->verts[i].x; sv.vy = m->verts[i].y; sv.vz = m->verts[i].z;
@@ -73,6 +148,7 @@ void model_draw_mats(const Model *m, const MATRIX *cam, const DrawCtx *c, FrameB
             ot_add(fb, zsum >> c->ot_shift, p);
         }
     }
+#endif
 }
 
 void model_draw(const Model *m, const MATRIX *root, const MATRIX *pose,
