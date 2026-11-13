@@ -20,7 +20,7 @@
 
 PSX_STATIC_ASSERT(same_skeleton, SOLDIER_NBONES == DEMON_NBONES);
 
-static Model soldier, pistol;
+static Model soldier, soldier_far, pistol;   /* soldier_far: the same mesh less its small details */
 static Enemy enemies[MAX_ENEMIES];
 static int n_enemies;
 static EnemyHooks hooks;
@@ -69,6 +69,7 @@ void enemy_init(const EnemyHooks *h)
     assets_init();
     soldier = asset_soldier;
     soldier.bones = (const DBONE *)soldier_bones; soldier.nbones = SOLDIER_NBONES;
+    soldier_far = soldier; soldier_far.bones = (const DBONE *)soldier_bones_lod;
     pistol = asset_pistol;
     pistol.bones = (const DBONE *)pistol_bones; pistol.nbones = 1;
 }
@@ -215,8 +216,10 @@ static void enemy_skeleton(Enemy *e)
    PS1 posing (foot IK probing the floor) every trooper every tick cost more than a whole frame */
 #ifdef PSX_GTE
 #define PS1_POSE_ON_TWOS 1           /* the console poses far troopers every other frame */
+#define PS1_FAR_LOD 1                /* ... and draws them with fewer faces */
 #else
 #define PS1_POSE_ON_TWOS 0
+#define PS1_FAR_LOD 0
 #endif
 static void pose_now(Enemy *e)
 {
@@ -621,7 +624,7 @@ void enemy_draw(FrameBuf *fb, const MATRIX *view, const DrawCtx *ctx)
                 mat_mul(view, &tmp, &cam[b]);
             }
         }
-        model_draw_mats(&soldier, cam, &dc, fb);
+        model_draw_mats(PS1_FAR_LOD && e->dist > 4000 ? &soldier_far : &soldier, cam, &dc, fb);   /* far: fewer faces */
         {   /* the pistol in his right hand */
             MATRIX mount, pm;
             mat_identity(&mount);

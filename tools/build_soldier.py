@@ -30,7 +30,7 @@ def face(idx, mat, inside_pt=None, outward=None, smooth=0.6):
     ref = outward if outward is not None else (c - inside_pt)
     if np.dot(n, ref) < 0:
         idx = idx[::-1]
-    F.append(dict(v=list(idx), mat=mat, smooth=smooth, part=PART[0] if 'PART' in globals() else 'x', bone=BONE[0] if 'BONE' in globals() else 'x'))
+    F.append(dict(v=list(idx), mat=mat, smooth=smooth, part=PART[0] if 'PART' in globals() else 'x', bone=BONE[0] if 'BONE' in globals() else 'x', detail=DETAIL[0]))
 
 
 def loft(pts, radii, n, mat, ref=(0, 0, 1), rot=0.0, cap0=True, cap1=True, smooth=0.6, tparam=True, angles=None):
@@ -93,6 +93,7 @@ DOME = .45
 S2 = math.sqrt(2)
 PART = ['torso']
 BONE = ['pelvis']
+DETAIL = [False]     # faces a distant trooper leaves out (soldier_bones_lod)
 
 
 def band(y0, y1, r0, r1, n, mat, z0=0.0, z1=0.0, rot=0.0, cap0=False, cap1=False, smooth=.5):
@@ -122,8 +123,10 @@ def cube(c, h, mat, smooth=0.0, skip=()):
 # pelvis + armoured belt
 loft([(0, .88, 0), (0, 1.10, .005)], [(.15, .11), (.15, .11)], 6, 'suit',
      ref=(0, 0, 1), rot=math.pi / 6, cap0=False, cap1=False)
+DETAIL[0] = True
 band(.955, 1.045, (.182, .132), (.178, .13), 6, 'plate', rot=math.pi / 6)
-cube((0, .93, .118), (.055, .045, .018), 'plate', skip=((2, -1),))                          # groin plate
+cube((0, .93, .118), (.055, .045, .018), 'plate', skip=((2, -1),))
+DETAIL[0] = False                          # groin plate
 
 # torso: undersuit, chest plate shell, ab plates, collar, power pack
 BONE[0] = 'torso'
@@ -131,11 +134,15 @@ loft([(0, 1.08, 0), (0, 1.30, .005), (0, 1.53, -.005)], [(.15, .11), (.19, .13),
      6, 'suit', ref=(0, 0, 1), rot=math.pi / 6, cap0=False, cap1=False)
 loft([(0, 1.24, .012), (0, 1.37, .018), (0, 1.49, .005)], [(.208, .152), (.228, .166), (.214, .138)], 6, 'plate',
      ref=(0, 0, 1), rot=math.pi / 6, cap0=False, cap1=False, smooth=.6)
+DETAIL[0] = True
 band(1.11, 1.22, (.168, .128), (.185, .14), 6, 'plate', z0=.004, z1=.01, rot=math.pi / 6)
 band(1.49, 1.555, (.15, .12), (.13, .105), 6, 'plate', rot=math.pi / 6)
-cube((0, 1.33, -.205), (.14, .16, .06), 'tech', skip=((2, 1),))                             # power pack
+DETAIL[0] = False
+cube((0, 1.33, -.205), (.14, .16, .06), 'tech', skip=((2, 1),))
+DETAIL[0] = True                             # power pack
 for s in (1, -1):                                                           # coolant canisters
     loft([(s * .155, 1.2, -.21), (s * .155, 1.46, -.21)], [.04, .04], 4, 'tech', ref=(0, 0, 1), rot=math.pi / 4, cap0=False, cap1=True)
+DETAIL[0] = False
 
 # neck seal
 PART[0] = 'neck'
@@ -158,10 +165,12 @@ for k in range(NA + 1):
     vis.append((addv((x, VIS_Y0, z)), addv((x, VIS_Y1, z - .006))))
 for k in range(NA):
     face([vis[k][0], vis[k + 1][0], vis[k + 1][1], vis[k][1]], 'visor', HC, smooth=.6)
+DETAIL[0] = True
 cube((0, 1.645, .118), (.055, .032, .03), 'helmet', skip=((2, -1),))                        # rebreather
 for s in (1, -1):
     loft([(s * .118, 1.725, -.01), (s * .152, 1.725, -.01)], [.04, .04], 4, 'tech', ref=(0, 1, 0), rot=math.pi / 4, cap0=False, cap1=True)
 cube((0, 1.862, -.02), (.016, .018, .085), 'plate')                         # crest
+DETAIL[0] = False
 
 # arms (T-pose along X): undersuit, layered pauldron, forearm guard, armoured gauntlet
 ARM_L = [(.205, 1.475, 0), (.48, 1.475, -.01), (.75, 1.475, 0)]
@@ -199,7 +208,9 @@ for s in (1, -1):
     BONE[0] = 'calf_' + sd
     loft([(s * .136, .56, .04), (s * .149, .17, .02)], [(.074, .076), (.062, .064)], 6, 'plate', ref=(0, 0, 1),
          rot=math.pi / 6, cap0=False, cap1=False)
+    DETAIL[0] = True
     cube((s * .136, .555, .098), (.05, .055, .03), 'plate', skip=((2, -1),))   # knee cop
+    DETAIL[0] = False
     BONE[0] = 'hoof_' + sd
     loft([(s * .15, .2, .015), (s * .152, .07, .04), (s * .152, 0.0, .07)], [(.062, .07), (.072, .12), (.074, .132)],
          6, 'boot', ref=(0, 0, 1), rot=math.pi / 6, cap0=False, cap1=True)
@@ -594,7 +605,7 @@ Image.fromarray(out_rgb).resize((1024, 1024), Image.NEAREST).save(f'{OUT}/soldie
 # ---------------------------------------------------------------- mesh exports (rigid parts)
 import shutil
 FX = 4096 * .25          # PS1 fixed point: 1 model unit = 1024 (4096 = 1.0 GTE unit, model scaled x0.25)
-order = sorted(range(len(F)), key=lambda i: BIDX[F[i]['bone']])        # prims grouped by bone
+order = sorted(range(len(F)), key=lambda i: (BIDX[F[i]['bone']], F[i]['detail'], i))   # by bone; each bone's details last
 vorder = sorted(range(len(P)), key=lambda i: (VBONE[i], i))            # verts grouped by bone
 vremap = {old: new for new, old in enumerate(vorder)}
 MOUNT_LOCAL = MOUNT_POS - BPIV[BIDX['fist_R']]
@@ -761,5 +772,15 @@ with open(f'{OUT}/soldier_mesh.h', 'w') as fh:
         off = BPIV[i] - (BPIV[BPAR[i]] if BPAR[i] >= 0 else 0)
         ox, oy, oz = fx(off)
         fh.write(f'  {{"{n}", {BPAR[i]}, {ox}, {oy}, {oz}, {vs[0]}, {len(vs)}, {ps[0]}, {len(ps)}}},\n')
+    fh.write('};\n/* a distant trooper: the same faces less the small details (each bone draws its first pn) */\n')
+    fh.write('static const DBONE soldier_bones_lod[] = {\n')
+    for i, n in enumerate(BNAMES):
+        vs = [k for k, old in enumerate(vorder) if VBONE[old] == i]
+        ps = [k for k, old in enumerate(order) if F[old]['bone'] == n]
+        core = [k for k, old in enumerate(order) if F[old]['bone'] == n and not F[old]['detail']]
+        off = BPIV[i] - (BPIV[BPAR[i]] if BPAR[i] >= 0 else 0)
+        ox, oy, oz = fx(off)
+        fh.write(f'  {{"{n}", {BPAR[i]}, {ox}, {oy}, {oz}, {vs[0]}, {len(vs)}, {ps[0]}, {len(core)}}},\n')
     fh.write('};\n#endif /* SOLDIER_MESH_NO_DATA */\n')
+print('lod: drops', sum(1 for f in F if f['detail']), 'of', len(F), 'prims,', sum(len(f['v']) - 2 for f in F if f['detail']), 'tris')
 print('done')
