@@ -586,9 +586,16 @@ int level_hit_segment(const VECTOR *a, const VECTOR *b, VECTOR *at, VECTOR *nrm)
     d.vx = b->vx - a->vx; d.vy = b->vy - a->vy; d.vz = b->vz - a->vz;
     minx = a->vx < b->vx ? a->vx : b->vx; maxx = a->vx ^ b->vx ^ minx;
     minz = a->vz < b->vz ? a->vz : b->vz; maxz = a->vz ^ b->vz ^ minz;
+    u16 near[96];
+    int nn, k;
     if (flat) return LEVEL_HIT_NONE;
-    for (i = 0; i < LAB_NBOXES; i++) {
-        const LabBox *bx = &lab_boxes[i];
+    nn = grid_near(minx, minz, maxx, maxz, near, 96);              /* only the boxes near it */
+    for (k = 0; k < (nn < 0 ? LAB_NBOXES : nn); k++) {
+        const LabBox *bx;
+        if (nn < 0) i = k;
+        else if (!(near[k] & 0x8000)) continue;
+        else i = near[k] & 0x7fff;
+        bx = &lab_boxes[i];
         if (maxx < bx->x0 || minx > bx->x1 || maxz < bx->z0 || minz > bx->z1) continue;   /* broad phase */
         t = seg_box(a, &d, bx->x0, -bx->h, bx->z0, bx->x1, -bx->lo, bx->z1);
         if (t < best) { best = t; bi = i; }

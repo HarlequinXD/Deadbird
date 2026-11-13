@@ -280,19 +280,47 @@ static void lasers_update(void)
 }
 
 /* ------------------------------------------------------------------ AI */
+/* crowd tiers (the PS1 only; Android and PC run every trooper in full): a trooper near Deadbird, or
+   in any state but patrolling / fighting, gets his full movement update every tick; 5-12 m away
+   every 2nd tick, further every 4th (each on his own tick). Not when he moves so fast that the
+   glide could carry him into a wall before the next full update. */
+#if defined(PSX_GTE) || defined(CROWD_TIERS)
+static int crowd_tick;
+static int crowd_glide(const Enemy *e, s32 d, int i)
+{
+    int every;
+    s32 sp = e->body.speed16 >> 4;                       /* units a tick */
+    if (e->state != E_IDLE && e->state != E_FIGHT) return 0;
+    if (!e->body.grounded || e->hurt_t < 30 || d < 5000) return 0;
+    every = d < 12000 ? 2 : 4;
+    if (sp * (every - 1) > 110) return 0;
+    return ((crowd_tick + i) & (every - 1)) != 0;
+}
+#else
+static int crowd_glide(const Enemy *e, s32 d, int i) { (void)e; (void)d; (void)i; return 0; }
+#endif
+
 void enemy_update(Player *pl, int frozen)
 {
     int i;
+#if defined(PSX_GTE) || defined(CROWD_TIERS)
+    crowd_tick++;
+#endif
     if (!frozen) lasers_update();
     for (i = 0; i < n_enemies; i++) {
         Enemy *e = &enemies[i];
-        s32 dx = pl->x - e->x, dz = pl->z - e->z, d = len2(dx, dz);
-        int face = player_input_angle(dx, dz) & 4095, speed = 0, sx = 0, run = 0, walk_yaw = 0, walk_mag = 0;
+        s32 dx = pl->x - e->x, dz = pl->z - e->z, d;
+        int face, speed = 0, sx = 0, run = 0, walk_yaw = 0, walk_mag = 0;
+        if (e->state == E_IDLE && !frozen && (dx > 22000 || dx < -22000 || dz > 22000 || dz < -22000)) {
+            e->t++; e->dist = 0x7fffffff; continue;                          /* far away: sleep (cheap test first) */
+        }
+        d = len2(dx, dz);
         level_hint(&e->body.sec_hint);
         e->dist = d;
         if (e->state == E_CUT) { enemy_cut_step(e); continue; }
         if (frozen || e->state == E_FATAL) { e->t++; enemy_skeleton(e); continue; }
         if (d > 22000 && e->state == E_IDLE) { e->t++; continue; }           /* far away: sleep */
+        face = player_input_angle(dx, dz) & 4095;
         e->t++; e->hurt_t++;
         if (e->flash > 0) e->flash--;
         if (e->stagger_w > 0) e->stagger_w -= 4096 / 20;
@@ -366,7 +394,17 @@ void enemy_update(Player *pl, int frozen)
             if (m > 2) { iy = player_input_angle(wx, wz); im = run ? 4096 : (int)clampi(m * 2000 / 26, 300, 2800); }
             if (e->state == E_STAGGER) im = 0;
             e->body.x = e->x; e->body.z = e->z;
-            player_update(&e->body, 0, iy, im);
+            if (crowd_glide(e, d, i)) {
+                /* crowd tier: away from the fight his full movement update runs on some ticks only;
+                   in between he glides on at his velocity, his stride clock ticking on */
+                e->body.x16 += e->body.vx; e->body.z16 += e->body.vz;
+                e->body.x = e->body.x16 >> 4; e->body.z = e->body.z16 >> 4;
+                e->body.phase += e->dphase;
+            } else {
+                int ph0 = e->body.phase;
+                player_update(&e->body, 0, iy, im);
+                e->dphase = e->body.phase - ph0;
+            }
             e->x = e->body.x; e->y = e->body.y; e->z = e->body.z; e->yaw = e->body.yaw;
             e->amp = e->body.amp; e->phase = e->body.phase;
             {   /* his boots on the grating */
