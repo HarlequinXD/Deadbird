@@ -17,11 +17,14 @@
 #define PF_SEMI     0x08   /* semi-transparent (mode from tpage bits 5-6) */
 #define PF_RAW      0x10   /* textured without colour modulation */
 
+/* each corner is laid out like the PS1 GPU wants it - x,y as one word, r,g,b as one word, u,v as a
+   halfword - so the PS1 backend builds packets with word copies */
 typedef struct POLY {
     struct POLY *next;
     u8  code, pad0;
-    u16 clut, tpage;
-    struct { s16 x, y; u8 u, v; u8 r, g, b, pad; } v[4];
+    u16 clut;
+    u16 tpage, pad1;
+    struct { s16 x, y; u8 r, g, b, pad; u8 u, v; u16 pad2; } v[4];
 } POLY;
 
 /* texture page / CLUT helpers (same encoding as libgpu getTPage/getClut) */

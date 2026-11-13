@@ -715,7 +715,11 @@ static void build_flat(const MapSector *s, int ceil)
         poly[i][0] = MAP->pts[s->p0 + i].x; poly[i][1] = MAP->pts[s->p0 + i].z;
         mnx = gmin(mnx, poly[i][0]); mxx = gmax(mxx, poly[i][0]); mnz = gmin(mnz, poly[i][1]); mxz = gmax(mxz, poly[i][1]);
     }
+#ifdef PS1_COARSE_FLOORS
+    const float T = MAP_TILE, sub = MAP_TILE;
+#else
     const float T = MAP_TILE, sub = ceil ? MAP_TILE : MAP_TILE / 2;
+#endif
     const float OX = (ceil ? s->cox : s->fox) * 64.f, OZ = (ceil ? s->coz : s->foz) * 64.f;   /* fshift / cshift */
     V3 nd = v3(0, ceil ? 1.f : -1.f, 0);
     int gtri[64][3], ngt = -1;                      /* the whole sector's triangles, when a cell needs them */

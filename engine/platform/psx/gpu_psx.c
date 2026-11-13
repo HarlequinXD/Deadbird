@@ -89,98 +89,62 @@ static uint32_t *emit(int words)
     if (pk + words > pk_end) return 0;
     p = pk;
     pk += words;
+    p[0] = (uint32_t)(words - 1) << 24;          /* the tag: length now, the next packet's address later */
     if (pk_prev) setaddr(pk_prev, p);
     pk_prev = p;
     return p;
 }
 
-#define COL(dst, k, pr) setRGB##k(dst, (pr)->v[k].r, (pr)->v[k].g, (pr)->v[k].b)
+/*
+ * POLY -> GPU packet with word copies: a corner's x,y word, its r,g,b word (the GPU ignores the 4th
+ * byte except in the first, where the command goes) and its u,v halfword sit in the POLY just as
+ * the packet wants them (engine/gpu.h).
+ */
+typedef uint32_t __attribute__((may_alias)) w32;
+typedef uint16_t __attribute__((may_alias)) w16;
+#define XY(p, k)  (*(const w32 *)&(p)->v[k].x)
+#define RGB(p, k) (*(const w32 *)&(p)->v[k].r & 0xffffff)
+#define UV(p, k)  ((uint32_t)*(const w16 *)&(p)->v[k].u)
 
 static void convert(const POLY *p)
 {
     int quad = (p->code & PF_QUAD) != 0, tex = (p->code & PF_TEX) != 0;
     int gour = (p->code & PF_GOURAUD) != 0, semi = (p->code & PF_SEMI) != 0;
-    int raw = (p->code & PF_RAW) != 0;
-
+    uint32_t flags = (semi ? 0x02 : 0) | ((tex && (p->code & PF_RAW)) ? 0x01 : 0);
+    uint32_t *o;
     if (!tex && semi) {                          /* blend mode for untextured primitives */
         DR_TPAGE *t = (DR_TPAGE *)emit(2);
         if (!t) return;
         setDrawTPage(t, 0, draw_dither, p->tpage);
     }
     if (tex) {
-        if (gour && quad) {
-            POLY_GT4 *g = (POLY_GT4 *)emit(13);
-            if (!g) return;
-            setPolyGT4(g);
-            COL(g, 0, p); COL(g, 1, p); COL(g, 2, p); COL(g, 3, p);
-            setXY4(g, p->v[0].x, p->v[0].y, p->v[1].x, p->v[1].y, p->v[2].x, p->v[2].y, p->v[3].x, p->v[3].y);
-            setUV4(g, p->v[0].u, p->v[0].v, p->v[1].u, p->v[1].v, p->v[2].u, p->v[2].v, p->v[3].u, p->v[3].v);
-            g->tpage = p->tpage; g->clut = p->clut;
-            if (semi) setSemiTrans(g, 1);
-            if (raw) setShadeTex(g, 1);
-        } else if (gour) {
-            POLY_GT3 *g = (POLY_GT3 *)emit(10);
-            if (!g) return;
-            setPolyGT3(g);
-            COL(g, 0, p); COL(g, 1, p); COL(g, 2, p);
-            setXY3(g, p->v[0].x, p->v[0].y, p->v[1].x, p->v[1].y, p->v[2].x, p->v[2].y);
-            setUV3(g, p->v[0].u, p->v[0].v, p->v[1].u, p->v[1].v, p->v[2].u, p->v[2].v);
-            g->tpage = p->tpage; g->clut = p->clut;
-            if (semi) setSemiTrans(g, 1);
-            if (raw) setShadeTex(g, 1);
-        } else if (quad) {
-            POLY_FT4 *f = (POLY_FT4 *)emit(10);
-            if (!f) return;
-            setPolyFT4(f);
-            COL(f, 0, p);
-            setXY4(f, p->v[0].x, p->v[0].y, p->v[1].x, p->v[1].y, p->v[2].x, p->v[2].y, p->v[3].x, p->v[3].y);
-            setUV4(f, p->v[0].u, p->v[0].v, p->v[1].u, p->v[1].v, p->v[2].u, p->v[2].v, p->v[3].u, p->v[3].v);
-            f->tpage = p->tpage; f->clut = p->clut;
-            if (semi) setSemiTrans(f, 1);
-            if (raw) setShadeTex(f, 1);
+        uint32_t clut = (uint32_t)p->clut << 16, tpage = (uint32_t)p->tpage << 16;
+        if (gour) {
+            if (!(o = emit(quad ? 13 : 10))) return;
+            o[1] = RGB(p, 0) | ((0x34 | (quad ? 0x08 : 0) | flags) << 24);
+            o[2] = XY(p, 0); o[3] = UV(p, 0) | clut;
+            o[4] = RGB(p, 1); o[5] = XY(p, 1); o[6] = UV(p, 1) | tpage;
+            o[7] = RGB(p, 2); o[8] = XY(p, 2); o[9] = UV(p, 2);
+            if (quad) { o[10] = RGB(p, 3); o[11] = XY(p, 3); o[12] = UV(p, 3); }
         } else {
-            POLY_FT3 *f = (POLY_FT3 *)emit(8);
-            if (!f) return;
-            setPolyFT3(f);
-            COL(f, 0, p);
-            setXY3(f, p->v[0].x, p->v[0].y, p->v[1].x, p->v[1].y, p->v[2].x, p->v[2].y);
-            setUV3(f, p->v[0].u, p->v[0].v, p->v[1].u, p->v[1].v, p->v[2].u, p->v[2].v);
-            f->tpage = p->tpage; f->clut = p->clut;
-            if (semi) setSemiTrans(f, 1);
-            if (raw) setShadeTex(f, 1);
+            if (!(o = emit(quad ? 10 : 8))) return;
+            o[1] = RGB(p, 0) | ((0x24 | (quad ? 0x08 : 0) | flags) << 24);
+            o[2] = XY(p, 0); o[3] = UV(p, 0) | clut;
+            o[4] = XY(p, 1); o[5] = UV(p, 1) | tpage;
+            o[6] = XY(p, 2); o[7] = UV(p, 2);
+            if (quad) { o[8] = XY(p, 3); o[9] = UV(p, 3); }
         }
     } else if (gour) {
-        if (quad) {
-            POLY_G4 *g = (POLY_G4 *)emit(9);
-            if (!g) return;
-            setPolyG4(g);
-            COL(g, 0, p); COL(g, 1, p); COL(g, 2, p); COL(g, 3, p);
-            setXY4(g, p->v[0].x, p->v[0].y, p->v[1].x, p->v[1].y, p->v[2].x, p->v[2].y, p->v[3].x, p->v[3].y);
-            if (semi) setSemiTrans(g, 1);
-        } else {
-            POLY_G3 *g = (POLY_G3 *)emit(7);
-            if (!g) return;
-            setPolyG3(g);
-            COL(g, 0, p); COL(g, 1, p); COL(g, 2, p);
-            setXY3(g, p->v[0].x, p->v[0].y, p->v[1].x, p->v[1].y, p->v[2].x, p->v[2].y);
-            if (semi) setSemiTrans(g, 1);
-        }
+        if (!(o = emit(quad ? 9 : 7))) return;
+        o[1] = RGB(p, 0) | ((0x30 | (quad ? 0x08 : 0) | flags) << 24); o[2] = XY(p, 0);
+        o[3] = RGB(p, 1); o[4] = XY(p, 1);
+        o[5] = RGB(p, 2); o[6] = XY(p, 2);
+        if (quad) { o[7] = RGB(p, 3); o[8] = XY(p, 3); }
     } else {
-        if (quad) {
-            POLY_F4 *f = (POLY_F4 *)emit(6);
-            if (!f) return;
-            setPolyF4(f);
-            COL(f, 0, p);
-            setXY4(f, p->v[0].x, p->v[0].y, p->v[1].x, p->v[1].y, p->v[2].x, p->v[2].y, p->v[3].x, p->v[3].y);
-            if (semi) setSemiTrans(f, 1);
-        } else {
-            POLY_F3 *f = (POLY_F3 *)emit(5);
-            if (!f) return;
-            setPolyF3(f);
-            COL(f, 0, p);
-            setXY3(f, p->v[0].x, p->v[0].y, p->v[1].x, p->v[1].y, p->v[2].x, p->v[2].y);
-            if (semi) setSemiTrans(f, 1);
-        }
+        if (!(o = emit(quad ? 6 : 5))) return;
+        o[1] = RGB(p, 0) | ((0x20 | (quad ? 0x08 : 0) | flags) << 24);
+        o[2] = XY(p, 0); o[3] = XY(p, 1); o[4] = XY(p, 2);
+        if (quad) o[5] = XY(p, 3);
     }
 }
 
