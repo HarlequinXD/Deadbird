@@ -780,6 +780,54 @@ static s32 lowest_point(const Player *p)
     return low;
 }
 
+/* foot IK: each foot planted on the floor under it, the legs solved to reach. The PS1 plays the
+   clips' own leg keyframes instead (like Tomb Raider): the solver and its floor probes cost more
+   than a trooper's whole draw on the console */
+#ifndef FOOT_IK
+#ifdef PSX_GTE
+#define FOOT_IK 0
+#else
+#define FOOT_IK 1
+#endif
+#endif
+#if !FOOT_IK
+#include "gait_bake.h"
+/* the baked IK (platform/headless/bakegait.c): the leg rotations and hip offset for her speed and
+   stride phase, blended between the 2 nearest speeds and 2 nearest phases, and faded back to the
+   clips' own legs while she's in the air or mid-combo (where the IK did its own footwork) */
+static void baked_legs(Player *p)
+{
+    static const int LEG[6] = { DEMON_BONE_THIGH_L, DEMON_BONE_CALF_L, DEMON_BONE_HOOF_L,
+                                DEMON_BONE_THIGH_R, DEMON_BONE_CALF_R, DEMON_BONE_HOOF_R };
+    s32 sp = p->speed16, ts, tp, w, v[56];
+    int s0 = 0, s1, p0, p1, k, b;
+    const s16 *a, *bb, *c, *d;
+    while (s0 + 1 < GAIT_SPEEDS && gait_key[s0 + 1] <= sp) s0++;
+    s1 = s0 + 1 < GAIT_SPEEDS ? s0 + 1 : s0;
+    if (s0 == GAIT_WALK_TOP && s1 == GAIT_WALK_TOP + 1) ts = p->runw;   /* walk -> run: the gait's own blend */
+    else ts = s1 != s0 ? (sp - gait_key[s0]) * 4096 / (gait_key[s1] - gait_key[s0]) : 0;
+    if (ts > 4096) ts = 4096;
+    if (ts < 0) ts = 0;
+    p0 = (p->phase & 65535) >> GAIT_SHIFT; p1 = (p0 + 1) & (GAIT_PHASES - 1);
+    tp = (p->phase & ((1 << GAIT_SHIFT) - 1)) << (12 - GAIT_SHIFT);
+    a = gait_tab[s0][p0]; bb = gait_tab[s0][p1]; c = gait_tab[s1][p0]; d = gait_tab[s1][p1];
+    for (k = 0; k < 56; k++) {
+        s32 lo = a[k] + ((bb[k] - a[k]) * tp >> 12), hi = c[k] + ((d[k] - c[k]) * tp >> 12);
+        v[k] = lo + ((hi - lo) * ts >> 12);
+    }
+    w = (4096 - p->airw) * (4096 - p->atk_w) >> 12;
+    if (w < 0) w = 0;
+    for (b = 0; b < 6; b++) {
+        MATRIX *M = &p->bone_pose[LEG[b]];
+        int i, j;
+        for (i = 0; i < 3; i++)
+            for (j = 0; j < 3; j++) M->m[i][j] = (s16)(M->m[i][j] + ((v[b * 9 + i * 3 + j] - M->m[i][j]) * w >> 12));
+    }
+    p->pelvis_x = v[54] * w >> 12; p->pelvis_y = v[55] * w >> 12;
+    for (b = 0; b < 2; b++)             /* which foot is swinging, as the IK works it out */
+        p->foot_swing[b] = (((p->phase + (b == 0 ? 32768 : 0)) & 65535) >> 4) >= p->stance;
+}
+#endif
 static void player_pose_end_(Player *p, const Model *m);
 void player_pose_end(Player *p, const Model *m)
 {
@@ -794,7 +842,11 @@ static void player_pose_end_(Player *p, const Model *m)
     int fk_legs = p->roll_t >= ROLL_FK0 && p->roll_t <= ROLL_FK1;
     fk_bones(m, &p->pose, p->bone_pose, &off);
     if (fk_legs) { p->pelvis_x = 0; p->pelvis_y = 0; }        /* legs tucked: keyframed, no foot IK */
+#if FOOT_IK
     else place_feet(p, m);
+#else
+    else { (void)place_feet; baked_legs(p); }                 /* the IK, baked */
+#endif
     mat_rot_y(&ry, p->yaw);
     mat_translate(&ry, p->x, p->y + p->step_off, p->z);
     if (p->roll_t) {

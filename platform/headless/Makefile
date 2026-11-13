@@ -13,7 +13,7 @@ deadbird_headless: $(SRC) $(wildcard $(ROOT)/engine/*.h) $(wildcard $(ROOT)/game
 	$(CC) $(CFLAGS) $(INC) $(SRC) -o $@
 
 clean:
-	rm -f deadbird_headless gaittest stresstest vistest labview rolltest combattest edtest edittest usetest *.bmp
+	rm -f bakegait deadbird_headless gaittest stresstest vistest labview rolltest combattest edtest edittest usetest *.bmp
 
 
 # side-on walk/run contact sheet driven by the real locomotion code
@@ -87,3 +87,9 @@ studiotest: $(STUDIO_SRC) $(wildcard $(ROOT)/engine/studio/*.h) $(wildcard $(ROO
 USE_SRC := usetest.c $(ENG) $(ROOT)/game/level.c $(GEN)
 usetest: $(USE_SRC) $(wildcard $(ROOT)/game/*.h)
 	$(CC) $(CFLAGS) $(INC) $(USE_SRC) -o $@
+
+# bakes the foot IK into game/gait_bake.h (the PS1 plays it back instead of solving)
+BAKE_SRC := bakegait.c $(ENG) $(ROOT)/game/player.c $(ROOT)/game/fk.c \
+            $(ROOT)/game/fkclips.c $(ROOT)/game/level.c $(ROOT)/game/fx.c $(ROOT)/game/hud.c $(ROOT)/game/assets.c $(GEN)
+bakegait: $(BAKE_SRC) $(wildcard $(ROOT)/game/*.h)
+	$(CC) $(CFLAGS) $(INC) $(BAKE_SRC) -o $@
