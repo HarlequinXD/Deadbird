@@ -8,6 +8,7 @@
 #include "soldier_mesh.h"
 #include "assets.h"
 #include "pistol_mesh.h"
+#include "ragdoll.h"
 
 #define E_RADIUS   230
 #define E_HEIGHT   1900
@@ -32,6 +33,16 @@ static s32 clampi(s32 v, s32 lo, s32 hi) { return v < lo ? lo : (v > hi ? hi : v
 static s32 iabs_(s32 v) { return v < 0 ? -v : v; }
 static int wrapa(int a) { return ((a + 2048) & 4095) - 2048; }
 static int rnd(int n) { return (int)(fx_rand() % (u32)n); }
+
+/* ragdolls: a few bodies simulate at once (each settles in a second or two and is let go) */
+#ifdef PSX_GTE
+#define RAG_POOL 2
+#else
+#define RAG_POOL 4
+#endif
+static Ragdoll rags[RAG_POOL];
+static Enemy *rag_owner[RAG_POOL];
+static void enemy_skeleton(Enemy *e);
 static s32 len2(s32 dx, s32 dz) { return (s32)isqrt((u32)((dx >> 4) * (dx >> 4) + (dz >> 4) * (dz >> 4))) << 4; }
 
 static void sound(int id, int vol, s32 x, s32 z, int pitch) { if (hooks.sound) hooks.sound(id, vol, x, z, pitch); }
@@ -56,6 +67,16 @@ static void on_hit(CombatTarget *t, const Hit *h)
         fx_spray(&h->at, 1, 8, h->dir_x * 14 >> 12, -10, h->dir_z * 14 >> 12, 18);
     }
     if (e->tgt.hp <= 0) {
+        int k;
+        e->rag = -1;
+        for (k = 0; k < RAG_POOL; k++) if (!rag_owner[k]) break;
+        if (k < RAG_POOL) {             /* goes limp from where he stands, thrown by the blow */
+            s32 push = h->move >= 3 ? 3 : 2;
+            if (e->pose_stale || !e->posed) enemy_skeleton(e);
+            rag_owner[k] = e; e->rag = k; e->ragged = 1;
+            rag_start(&rags[k], &soldier, e->world, e->body.vx >> 4, h->move >= 3 ? -10 : -3, e->body.vz >> 4,
+                      h->dir_x * push, h->dir_z * push);
+        }
         e->tgt.hp = 0; e->tgt.alive = 0; e->state = E_DEAD; e->fall_t = 0; e->t = 0;
         fx_blood_pool(e->x - (h->dir_x * 600 >> 12), e->y, e->z - (h->dir_z * 600 >> 12), 520);
         sound(SFX_GORE, 3400, e->x, e->z, 3600);
@@ -91,7 +112,7 @@ static void place(s32 x, s32 z, int yaw)
     e->home_x = x; e->home_z = z; e->patrol_wait = 60 + rnd(120); e->patrol_yaw = yaw & 4095;
     e->tgt.x = x; e->tgt.y = e->y; e->tgt.z = z; e->tgt.radius = E_RADIUS; e->tgt.height = E_HEIGHT;
     e->tgt.hp = e->tgt.max_hp = E_HP; e->tgt.team = TEAM_ENEMY; e->tgt.on_hit = on_hit; e->tgt.user = e;
-    e->pose_stale = 1;
+    e->pose_stale = 1; e->rag = -1;
     combat_add(&e->tgt);
 }
 
@@ -109,6 +130,7 @@ void enemy_reset(void)
     int i, from_map = 0;
     n_enemies = 0;
     memset(lasers, 0, sizeof(lasers));
+    memset(rag_owner, 0, sizeof(rag_owner));
     for (i = 0; i < level_thing_count(); i++) {          /* sector maps place their own troopers */
         const LabThing *t = level_thing(i);
         if (t->type == 1) { place(t->x, t->z, t->yaw); from_map = 1; }
@@ -192,6 +214,7 @@ static void enemy_skeleton(Enemy *e)
     MATRIX root, ry, fall;
     VECTOR off;
     e->posed = 1; e->pose_x = e->x; e->pose_y = e->y; e->pose_z = e->z;
+    if (e->state == E_DEAD && e->ragged) return;    /* the ragdoll has his bones */
     if (e->state != E_DEAD) {               /* alive (or being cut): the full locomotion rig */
         e->body.yaw = e->yaw;
         player_pose_begin(&e->body);
@@ -324,6 +347,10 @@ void enemy_update(Player *pl, int frozen)
         d = len2(dx, dz);
         level_hint(&e->body.sec_hint);
         e->dist = d;
+        if (e->state != E_DEAD && (e->rag >= 0 || e->ragged)) {             /* brought back (tests) */
+            if (e->rag >= 0) rag_owner[e->rag] = 0;
+            e->rag = -1; e->ragged = 0;
+        }
         if (e->state == E_CUT) { enemy_cut_step(e); continue; }
         if (frozen || e->state == E_FATAL) { e->t++; enemy_skeleton(e); continue; }
         if (e->freeze > 0) { e->freeze--; continue; }                       /* hit-stop: held mid-impact */
@@ -386,7 +413,23 @@ void enemy_update(Player *pl, int frozen)
             if (e->t > 60 * 9) { e->tgt.hp = E_DAZE_HP + 20; e->state = E_FIGHT; e->shoot_cd = 50; }   /* shakes it off */
             break;
         case E_DEAD:
-            if (e->fall_t < 60) {
+            if (e->rag >= 0) {                                                 /* limp, under physics */
+                Ragdoll *r = &rags[e->rag];
+                s32 px, py, pz;
+                int live = rag_step(r);
+                rag_bones(r, e->world);
+                rag_pelvis(r, &px, &py, &pz);
+                e->x = px; e->z = pz; e->y = py + 150;
+                e->pose_x = e->x; e->pose_y = e->y; e->pose_z = e->z;
+                if (e->fall_t < 1000) e->fall_t++;
+                if (r->impact > 14 && e->fall_t > 14) {                        /* hits the deck */
+                    VECTOR a; a.vx = px; a.vy = py; a.vz = pz;
+                    sound(SFX_LAND, r->impact > 30 ? 3400 : 2400, px, pz, 3200 + rnd(400));
+                    fx_spray(&a, 4, 6, 0, -10, 0, 16);
+                    e->fall_t = 0;
+                }
+                if (!live) { rag_owner[e->rag] = 0; e->rag = -1; }            /* settled: let the slot go */
+            } else if (!e->ragged && e->fall_t < 60) {
                 e->fall_t++;
                 if (e->fall_t == 26) { VECTOR a; a.vx = e->x; a.vy = e->y - 100; a.vz = e->z; sound(SFX_LAND, 3000, e->x, e->z, 3400); fx_spray(&a, 4, 6, 0, -10, 0, 16); }
             }

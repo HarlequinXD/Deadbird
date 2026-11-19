@@ -20,6 +20,7 @@
 #include "fk.h"
 #include "hud.h"
 #include "fx.h"
+#include "ragdoll.h"
 #include "title.h"
 #include "gte.h"
 #undef DEMON_MESH_NO_DATA
@@ -41,6 +42,11 @@ static int cam_punch_t = 99, cam_punch_amp;     /* camera zoom-in on a blade hit
 static Attack saw_attack;                 /* the chainsaw's live hitbox (combat.h) */
 static CombatTarget player_tgt;           /* Deadbird as a target for the troopers' lasers */
 static int php = 100, hurt_flash, dead_t;  /* her health, red flash when hit, death timer */
+static s32 dead_dx, dead_dz = 4096;         /* which way the killing shot was going */
+static Ragdoll dead_rag;                    /* she goes limp after her death reel */
+static int dead_thud;
+#define DEATH_REEL 22                       /* ticks of the reel before the ragdoll takes her */
+#define DEATH_RESTART 210
 static int pad_style;                     /* button names in prompts: 0 PlayStation, 1 Xbox / keyboard */
 static int fatal_ready = -1;              /* a reeling trooper close enough to finish */
 static u32 keys;                          /* keycards she carries: bit 1 cyan, 2 amber, 3 crimson */
@@ -160,6 +166,16 @@ void game_debug_setup_duel(int i, s32 x, s32 z, s32 dist, int ang)
     }
 }
 s32 game_debug_player_x(void) { return pl.x; }
+static void player_hit(CombatTarget *t, const Hit *h);
+/* test: a killing shot from the direction (dx, dz) */
+void game_debug_kill_player(s32 dx, s32 dz)
+{
+    Hit h;
+    memset(&h, 0, sizeof(h));
+    h.damage = 1000; h.dir_x = dx; h.dir_z = dz;
+    h.at.vx = pl.x; h.at.vy = pl.y - 1200; h.at.vz = pl.z;
+    player_hit(&player_tgt, &h);
+}
 int game_debug_enemy_state(int i) { Enemy *e = enemy_get(i); return e ? e->state * 1000 + e->tgt.hp : -1; }
 int game_debug_fatality(void) { return cine.active ? (cine.vt16 >> 4) : (fatal_ready >= 0 ? -2 : -1); }
 int game_debug_player_hp(void) { return php; }
@@ -464,7 +480,61 @@ static void player_hit(CombatTarget *t, const Hit *h)
     fx_spray(&h->at, 4, 6, h->dir_x * 10 >> 12, -10, h->dir_z * 10 >> 12, 16);
     if (land_shake_t >= 12) { land_shake_t = 6; land_shake_amp = 45; }
     rumble = 180;
-    if (php <= 0) { php = 0; dead_t = 1; snd_play(SFX_GORE, 4096, 0, 3000); }
+    if (php <= 0) {
+        s32 l = (s32)isqrt((u32)((h->dir_x >> 4) * (h->dir_x >> 4) + (h->dir_z >> 4) * (h->dir_z >> 4))) << 4;
+        php = 0; dead_t = 1; dead_thud = 0;
+        if (l > 256) { dead_dx = h->dir_x * 4096 / l; dead_dz = h->dir_z * 4096 / l; }
+        else { dead_dx = -isin(pl.yaw); dead_dz = -icos(pl.yaw); }      /* no direction: falls back */
+        snd_play(SFX_GORE, 4096, 0, 3000);
+        rumble = 400;
+    }
+}
+
+/* ------------------------------------------------------------------ her death */
+/* the reel: the shot lands, her head snaps back, her back arches, the chainsaw arm flies out and
+   her knees go; the ragdoll takes over from that pose and she crumples where physics puts her */
+static void death_tick(void)
+{
+    if (dead_t <= DEATH_REEL) {
+        static const s8 REEL[][2] = {
+            { FK_TRX, 25 }, { FK_HRX, 40 }, { FK_PRX, 10 }, { FK_RSD, 50 }, { FK_RSS, -25 },
+            { FK_LSD, 55 }, { FK_LSS, -35 }, { FK_LEL, 30 }, { FK_REL, 20 }, { FK_LKN, 35 }, { FK_RKN, 25 },
+        };
+        int i, w = dead_t >= 8 ? 4096 : dead_t * 512;
+        /* stops dead, then staggers back along the shot */
+        player_update(&pl, 0, pl.yaw, 0);
+        if (dead_t < 14) {
+            s32 k = 14 - dead_t, nx, nz;
+            pl.x += dead_dx * k / 4 >> 12; pl.z += dead_dz * k / 4 >> 12;
+            level_collide(&pl.x, &pl.z, pl.y - 400, 200, &nx, &nz);
+            pl.x16 = pl.x << 4; pl.z16 = pl.z << 4;
+        }
+        player_pose_begin(&pl);
+        for (i = 0; i < (int)(sizeof(REEL) / sizeof(REEL[0])); i++)
+            pl.pose.v[REEL[i][0]] = (s16)(pl.pose.v[REEL[i][0]] + ((REEL[i][1] - pl.pose.v[REEL[i][0]]) * w >> 12));
+        pl.pose.v[FK_PY] = (s16)(pl.pose.v[FK_PY] + (120 * w >> 12));
+        player_pose_end(&pl, &demon);
+        if (dead_t == DEATH_REEL)       /* limp: thrown on along the shot */
+            rag_start(&dead_rag, &demon, pl.world, dead_dx * 3 >> 12, -2, dead_dz * 3 >> 12, dead_dx * 2, dead_dz * 2);
+        return;
+    }
+    {
+        int *oh = level_hint(&pl.sec_hint);
+        s32 px, py, pz;
+        rag_step(&dead_rag);
+        level_hint(oh);
+        rag_bones(&dead_rag, pl.world);
+        rag_pelvis(&dead_rag, &px, &py, &pz);
+        pl.x = px; pl.z = pz; pl.y = py + 150; pl.step_off = 0;
+        pl.x16 = pl.x << 4; pl.y16 = pl.y << 4; pl.z16 = pl.z << 4;
+        if (dead_thud < 1000) dead_thud++;
+        if (dead_rag.impact > 12 && dead_thud > 12) {      /* she hits the floor */
+            snd_play(SFX_LAND, dead_rag.impact > 28 ? 4096 : 2800, 0, 3000 + rnd(300));
+            if (land_shake_t >= 12) { land_shake_t = 4; land_shake_amp = dead_rag.impact > 28 ? 60 : 30; }
+            rumble = dead_rag.impact > 28 ? 220 : 120;
+            dead_thud = 0;
+        }
+    }
 }
 
 /* ------------------------------------------------------------------ FATALITY */
@@ -655,7 +725,7 @@ static void simulate(u32 pad)
 {
     int myaw, mmag;
     u32 use_press;
-    if (dead_t) { pad = 0; if (++dead_t > 150) { start_play(); return; } }
+    if (dead_t) { pad = 0; if (++dead_t > DEATH_RESTART) { start_play(); return; } }
     use_press = pad & ~pl.prev & BTN_USE;              /* A, just pressed */
     { PROF_BEGIN(PROF_T_CAM); camera_update(pad); PROF_END(PROF_T_CAM); }
     read_move(pad, &myaw, &mmag);
@@ -703,7 +773,7 @@ static void simulate(u32 pad)
     }
     level_think(pl.x, pl.y, pl.z, keys);               /* doors and lifts move first: she rides them */
     PROF_END(PROF_T_LOCK); }
-    { PROF_BEGIN(PROF_T_PLAYER); player_update(&pl, pad, myaw, mmag); PROF_END(PROF_T_PLAYER); }
+    if (!dead_t) { PROF_BEGIN(PROF_T_PLAYER); player_update(&pl, pad, myaw, mmag); PROF_END(PROF_T_PLAYER); }
     if (was_grounded && !pl.grounded && pl.vy < -600) snd_play(SFX_JUMP, 3000, 0, 3800 + rnd(600));
     was_grounded = pl.grounded;
     if (pl.atk_event >= 1 && pl.atk_event <= 3)                               /* swing: whoosh + the saw screams */
@@ -736,7 +806,8 @@ static void simulate(u32 pad)
     }                                             /* chain idles, revs when she runs */
     {   /* her full pose (FK, foot IK, skeleton) only matters when a frame gets drawn: a console
            catch-up tick runs the motion (springs, timers) and leaves the bones for the drawn tick */
-        if (eng_catchup) player_pose_begin(&pl); else player_pose(&pl, &demon);
+        if (dead_t) death_tick();
+        else if (eng_catchup) player_pose_begin(&pl); else player_pose(&pl, &demon);
     }
     {   /* pickups: keycards and soul shards */
         int arg, k = level_pickup(pl.x, pl.y, pl.z, &arg);
@@ -760,7 +831,7 @@ static void simulate(u32 pad)
     }
     player_tgt.x = pl.x; player_tgt.y = pl.y; player_tgt.z = pl.z;
     { PROF_BEGIN(PROF_T_ENEMY); enemy_update(&pl, 0); PROF_END(PROF_T_ENEMY); }
-    saw_combat();
+    if (!dead_t) saw_combat();
     fatal_ready = php > 0 ? enemy_fatality_target(&pl) : -1;
     if (fatal_ready >= 0 && use_press && pl.grounded) cine_start(fatal_ready);
     else if (use_press && near_generator()) core_start();          /* A at the generator: the ending */
@@ -985,7 +1056,7 @@ static void draw_world(FrameBuf *fb, PROJ *pr)
     MATRIX view, rx, ry, cam[DEMON_NBONES];
     SVECTOR tgt; VECTOR tv;
     DrawCtx ctx;
-    s32 want_d = 2900, want_h = 1750, want_s = 0;
+    s32 want_d = dead_t ? 3900 : 2900, want_h = dead_t ? 900 : 1750, want_s = 0;   /* dead: pulls back, looking down at her */
     s32 rxv, rzv;
     int b, sx = 0, sy = 0;
 
@@ -1003,7 +1074,12 @@ static void draw_world(FrameBuf *fb, PROJ *pr)
     }
 
     if (cine.active) { cine_view(&view, sx, sy); goto have_view; }
-    mat_rot_x(&rx, 150); mat_rot_y(&ry, -cam_yaw - (debug_side_cam ? 1024 : 0)); mat_mul(&rx, &ry, &view);
+    {   /* dead: the camera tilts down onto her body */
+        static s32 pitch = 150;
+        pitch += ((dead_t ? 420 : 150) - pitch) / 10;
+        mat_rot_x(&rx, pitch);
+    }
+    mat_rot_y(&ry, -cam_yaw - (debug_side_cam ? 1024 : 0)); mat_mul(&rx, &ry, &view);
     /* look-at point: chest height */
     rxv = (icos(cam_yaw) * cam_side) >> 12; rzv = (-isin(cam_yaw) * cam_side) >> 12;
     {
@@ -1264,8 +1340,11 @@ static void app_draw(FrameBuf *fb)
         { PROF_BEGIN(PROF_HUD); draw_hud(fb); PROF_END(PROF_HUD); }
         if (hurt_flash > 0) quad_g(fb, 0, 0, SCREEN_W, 240, RGB(hurt_flash * 9, 0, 0), RGB(hurt_flash * 5, 0, 0), SEMI_ADD, 3);
         if (dead_t) {
-            quad_g(fb, 0, 0, SCREEN_W, 240, RGB(dead_t, dead_t + 10, dead_t + 10), RGB(dead_t, dead_t + 10, dead_t + 10), SEMI_SUB, 3);
-            text_hell(fb, "YOU DIED", SCREEN_W / 2, 100, 3, frame_count, 1);
+            /* she falls in full view, then the screen goes dark */
+            int f = dead_t < 50 ? dead_t / 2 : dead_t - 25;
+            if (f > 200) f = 200;
+            quad_g(fb, 0, 0, SCREEN_W, 240, RGB(f, f + 10, f + 10), RGB(f, f + 10, f + 10), SEMI_SUB, 3);
+            if (dead_t > 45) text_hell(fb, "YOU DIED", SCREEN_W / 2, 100, 3, frame_count, 1);
         }
         if (fatal_ready >= 0 && !dead_t && gs == GS_PLAY) {             /* the prompt */
             static const char *how[3] = { "PRESS CROSS", "PRESS A    KEY E", "TAP THE SIGIL" };

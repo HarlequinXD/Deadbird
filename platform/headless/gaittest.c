@@ -15,6 +15,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "combat.h"
+#include "ragdoll.h"
 #include "draw2d.h"
 
 #define COLS 8
@@ -143,6 +144,39 @@ int main(int argc, char **argv)
         printf("%s: speed %d u/f, phase %d, run %d amp %d\n", row == 2 ? "run, from behind, curving right" : row ? "run" : "walk", (int)pl.speed, pl.phase, pl.runw, pl.amp);
     }
 
+    if (getenv("RAG")) {   /* RAG=1: rows 4-5 Deadbird going limp (shot from the front), rows 6-7 a trooper (hit from behind) */
+        static Ragdoll r;
+        Model sm = asset_soldier;
+        int a, who, k, bad = 0;
+        sm.bones = (const DBONE *)soldier_bones; sm.nbones = SOLDIER_NBONES;
+        for (a = 0; a < level_area_count(); a++) if (!strcmp(level_area(a)->name, "Turbine Hall")) break;
+        fixcam = getenv("FRONT") ? 2048 + 1024 : 2048;
+        for (who = 0; who < 2; who++) {
+            const Model *mm = who ? &sm : &m;
+            const LabArea *ar = level_area(a);
+            s32 px, py, pz, fl;
+            player_reset(&pl, ar->x0 + 3000, (ar->z0 + ar->z1) / 2, 1024);      /* facing +x */
+            for (i = 0; i < 20; i++) { player_update(&pl, 0, 1024, who ? 2600 : 0); player_pose(&pl, mm); }
+            rag_start(&r, mm, pl.world, who ? pl.vx >> 4 : 0, -3, 0, who ? 4096 * 2 : -4096 * 3, 0);
+            for (k = 0; k < 2 * COLS; k++) {
+                int n;
+                for (n = 0; n < (k < 8 ? 3 : 8); n++) rag_step(&r);
+                rag_bones(&r, pl.world);
+                rag_pelvis(&r, &px, &py, &pz);
+                pl.x = px; pl.z = pz;
+                shot(mm, 3 + who * 2 + k / COLS, k % COLS, 0);
+            }
+            for (k = 0; k < 400 && rag_step(&r); k++) ;
+            rag_bones(&r, pl.world);
+            rag_pelvis(&r, &px, &py, &pz);
+            fl = level_ground(px, pz, py);
+            printf("%s ragdoll: settled after %d more ticks (frozen %d), pelvis %d above the floor, head %d\n",
+                   who ? "trooper" : "Deadbird", k, r.frozen, (int)(fl - py), (int)(fl - pl.world[3].t[1]));
+            for (k = 0; k < RAG_NP; k++)
+                if ((r.p[k][1] >> 4) > level_ground(r.p[k][0] >> 4, r.p[k][2] >> 4, r.p[k][1] >> 4) + 4) bad++;
+            if (!r.frozen || fl - py < 0 || fl - py > 500 || bad) { printf("FAIL: ragdoll (%d points under the floor)\n", bad); return 1; }
+        }
+    } else
     if (getenv("FATAL")) {   /* FATAL=1: rows 4-5 = her fatality clip, frames 0..150, seen from the front-left */
         static const int F[16] = { 0, 6, 12, 20, 26, 30, 33, 56, 80, 84, 92, 106, 120, 130, 134, 150 };
         int k;

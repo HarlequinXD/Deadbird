@@ -98,6 +98,30 @@ int main(int argc, char **argv)
     run(PAD_CROSS, 1); run(0, 10);
     run(PAD_CROSS, 1); run(0, 40);                                      /* PLAY (menu resets to the top) */
     if (game_phase() != GS_PLAY) { printf("FAIL: not in play mode\n"); return 1; }
+    if (getenv("RAGTEST")) {   /* RAGTEST=1: a trooper chainsawed to death, then Deadbird shot dead */
+        int k;
+        game_debug_setup_duel(0, -3 * 1024, -2 * 1024, 3800, 0);
+        run(0, 40);
+        for (k = 0; k < 20 && game_debug_enemy_state(0) / 1000 != E_DEAD; k++) {
+            game_debug_near_enemy(0, 950);
+            run(BTN_ATTACK, 1); run(0, 5); run(BTN_ATTACK, 1); run(0, 8); run(BTN_ATTACK, 1); run(0, 12);
+        }
+        printf("trooper state %d after %d combos\n", game_debug_enemy_state(0) / 1000, k);
+        if (game_debug_enemy_state(0) / 1000 != E_DEAD) { printf("FAIL: the trooper didn't die\n"); return 1; }
+        game_debug_side_cam(1);
+        for (k = 0; k < 16; k++) {
+            if (k == 1) game_debug_near_enemy(0, 2600);      /* step back to watch him */
+            sprintf(name, "rag_trooper_%02d", k); write_bmp(out, name); run(0, k < 6 ? 3 : 8);
+        }
+        game_debug_side_cam(0);
+        game_debug_kill_player(0, 4096);
+        for (k = 0; k < 24; k++) { sprintf(name, "rag_deadbird_%02d", k); write_bmp(out, name); run(0, 5); }
+        run(0, 120);
+        printf("after death: phase %d hp %d\n", game_phase(), game_debug_player_hp());
+        if (game_phase() != GS_PLAY || game_debug_player_hp() != 100) { printf("FAIL: no restart after her death\n"); return 1; }
+        printf("ragdoll test passed\n");
+        return 0;
+    }
     eng_set_touch_ui(1);
     run(0, 20);
     write_bmp(out, "03_idle");

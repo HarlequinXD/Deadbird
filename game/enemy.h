@@ -30,6 +30,8 @@ typedef struct {
     s32 shake_x, shake_z;           /* which way the hit shoves him (4096 = 1) */
     int phase, amp, stagger_t, stagger_w, fall_t, wob;
     int hurt_t;                   /* frames since last hurt (hit flash) */
+    int rag;                      /* dead: his ragdoll's slot (-1 none) */
+    int ragged;                   /* dead: world[] is the ragdoll's (live or settled), not posed */
     /* fatality / cut in half */
     int flail;                    /* 0..4096 flailing while the saw grinds */
     int cut, cut_t;

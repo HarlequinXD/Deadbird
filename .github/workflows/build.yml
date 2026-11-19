@@ -18,6 +18,8 @@ jobs:
           mkdir -p frames
           ./platform/headless/deadbird_headless frames
           ./platform/headless/gaittest frames/gait_walk_run.bmp
+          RAG=1 ./platform/headless/gaittest frames/ragdolls.bmp
+          mkdir -p frames/rag && RAGTEST=1 ./platform/headless/deadbird_headless frames/rag
           ./platform/headless/stresstest
           MAP=test ./platform/headless/stresstest
           ./platform/headless/combattest
