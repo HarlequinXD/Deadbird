@@ -108,6 +108,7 @@ static void place(s32 x, s32 z, int yaw)
     e->x = x; e->z = z; e->y = level_ground(x, z, 0); e->yaw = yaw & 4095;
     e->alive = 1; e->state = E_IDLE; e->shoot_cd = 60 + rnd(60); e->strafe = 1;
     player_reset(&e->body, x, z, yaw);
+    e->body.saw = 0;
     e->y = e->body.y;
     e->home_x = x; e->home_z = z; e->patrol_wait = 60 + rnd(120); e->patrol_yaw = yaw & 4095;
     e->tgt.x = x; e->tgt.y = e->y; e->tgt.z = z; e->tgt.radius = E_RADIUS; e->tgt.height = E_HEIGHT;

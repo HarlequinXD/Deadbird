@@ -31,25 +31,34 @@
 #define STRIKE_DIST 880            /* locked on, each swing slides her to this far from him */
 typedef struct { int len, lunge_at, lunge, strike, chain, live0, live1; } Swing;
 static const Swing SWINGS[3] = {
-    { 26, 5, 50 * SUB, 9, 13, 6, 13 },    /* 1: horizontal slash, right to left */
-    { 26, 5, 50 * SUB, 9, 13, 6, 13 },    /* 2: backhand, left to right */
-    { 40, 9, 80 * SUB, 15, 99, 12, 19 },  /* 3: overhead slam (ends the combo) */
+    { 26, 5, 50 * SUB, 9, 15, 7, 13 },    /* 1: forehand slash, right to left */
+    { 26, 5, 50 * SUB, 9, 15, 6, 12 },    /* 2: backhand, left to right */
+    { 40, 9, 80 * SUB, 15, 99, 12, 18 },  /* 3: leaping overhead slam (ends the combo) */
 };
 
 /* full-body footwork for each swing (model units; fwd + = ahead of her, out + = away from her centre,
    lift + = foot up, pel + = pelvis down / - = up). Swing 1 steps in with the left hoof, swing 2
    drives the right hoof through, swing 3 loads, hops and comes down in a deep split for the slam. */
 typedef struct { u8 t; s16 lf, lo, lh, rf, ro, rh, pel; } Step;
-static const Step STEPS1[] = {
-    { 0, 60, 0, 0, -50, 0, 0, 20 },   { 3, 90, 0, 60, -80, 0, 0, -10 },  { 7, 250, 10, 40, -170, 0, 0, 70 },
-    { 9, 290, 30, 0, -200, 10, 25, 140 }, { 16, 290, 30, 0, -200, 10, 10, 130 }, { 26, 230, 20, 0, -170, 0, 0, 80 } };
-static const Step STEPS2[] = {
-    { 0, 230, 20, 0, -170, 0, 0, 80 },  { 3, 220, 20, 0, -100, 0, 75, 30 },  { 7, 120, 10, 0, 200, 10, 35, 100 },
-    { 9, 40, 0, 20, 270, 30, 0, 150 },  { 16, 40, 0, 10, 270, 30, 0, 140 },  { 26, 10, 0, 0, 220, 20, 0, 80 } };
-static const Step STEPS3[] = {
-    { 0, 10, 0, 0, 220, 20, 0, 80 },    { 5, 30, 10, 0, 150, 10, 0, 170 },   { 9, 110, 0, 130, 90, 0, 120, -130 },
-    { 12, 200, 20, 80, -110, 20, 70, -60 }, { 15, 280, 60, 0, -200, 40, 0, 290 }, { 24, 280, 60, 0, -200, 40, 0, 275 },
-    { 40, 60, 0, 0, -50, 0, 0, 20 } };
+/* her fighting stance (idle): left hoof forward, right back, both out a little, knees bent */
+#define ST_LF 150
+#define ST_RF -110
+#define ST_OUT 40
+#define ST_PEL 80
+static const Step STEPS1[] = {         /* forehand: weight back, a long step in on the left hoof, drive off the right */
+    { 0, ST_LF, ST_OUT, 0, ST_RF, ST_OUT, 0, ST_PEL },  { 3, 130, 40, 50, -140, 60, 0, 70 },
+    { 5, 170, 40, 80, -160, 60, 0, 90 },  { 8, 360, 60, 0, -190, 60, 0, 200 },
+    { 11, 380, 60, 0, -250, 70, 50, 230 }, { 15, 380, 60, 0, -250, 70, 35, 220 }, { 26, 300, 50, 0, -190, 60, 0, 150 } };
+static const Step STEPS2[] = {         /* backhand: pivots on the left, the right hoof swings round and plants ahead */
+    { 0, 300, 50, 0, -190, 60, 0, 150 },  { 4, 290, 50, 0, -140, 40, 120, 120 },
+    { 7, 250, 50, 0, 160, 70, 70, 170 },  { 10, 210, 40, 40, 330, 80, 0, 230 },
+    { 15, 200, 40, 20, 330, 80, 0, 220 }, { 26, 190, 40, 0, 260, 70, 0, 150 } };
+static const Step STEPS3[] = {         /* slam: sinks, springs up, comes down in a deep split behind the saw */
+    { 0, 190, 40, 0, 260, 70, 0, 150 },   { 4, 130, 40, 0, 140, 40, 0, 230 },
+    { 7, 120, 30, 140, 60, 30, 150, -160 }, { 10, 180, 30, 170, 0, 30, 170, -190 },
+    { 13, 280, 50, 60, -170, 40, 70, 0 },  { 15, 330, 80, 0, -260, 60, 0, 360 },
+    { 24, 330, 80, 0, -260, 60, 0, 340 },  { 32, 260, 60, 0, -200, 50, 0, 220 },
+    { 40, ST_LF, ST_OUT, 0, ST_RF, ST_OUT, 0, ST_PEL } };
 /* 4: the FATALITY (cutscene): steps in with the left hoof, braces wide and sinks while the saw
    grinds, the right hoof steps through as she rips it out, then she straightens up over him */
 static const Step STEPS4[] = {
@@ -58,7 +67,7 @@ static const Step STEPS4[] = {
     { 79, 305, 52, 0, -215, 32, 0, 175 }, { 84, 300, 50, 0, -60, 20, 95, 125 },  { 92, 300, 50, 0, 120, 30, 0, 110 },
     { 120, 200, 40, 0, 100, 20, 0, 70 },  { 140, 90, 10, 0, -20, 0, 0, 30 },     { 160, 60, 0, 0, -50, 0, 0, 20 } };
 static const Step *const STEPS[4] = { STEPS1, STEPS2, STEPS3, STEPS4 };
-static const int NSTEPS[4] = { 6, 6, 7, 12 };
+static const int NSTEPS[4] = { 7, 6, 9, 12 };
 
 static void footwork(int stage, int t, s32 *out)
 {
@@ -110,6 +119,7 @@ void player_reset(Player *p, s32 x, s32 z, int yaw)
     p->yaw = yaw & 4095;
     p->grounded = 1;
     p->land_t = 99;
+    p->saw = 1;                /* Deadbird (troopers clear it) */
 }
 
 /* ---------------------------------------------------------------- physics (Slayer Player.java) */
@@ -457,7 +467,7 @@ static void mocap_layer(Player *p, FKPose *o)
 {
     /* spring groups: 1 pelvis + torso (stiff), 2 head (steady), 3 arms (loose, the saw arm heavy) */
     static const u8 GRP[FK_COUNT] = { 0, 1, 1, 1, 1, 1, 1, 2, 2, 3, 3, 3, 4, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 4 };
-    static const s16 K[5] = { 0, 1229, 1100, 700, 560 }, D[5] = { 0, 2540, 2780, 1760, 1640 };
+    static const s16 K[5] = { 0, 1229, 1100, 1150, 760 }, D[5] = { 0, 2540, 2780, 2500, 2000 };
     int t = p->idle_t, still = (4096 - p->amp) * (4096 - p->atk_w) >> 12, c;
     int stiff = p->atk_w > p->rollw ? p->atk_w : p->rollw;      /* swings and rolls stay on their keys */
     if (p->roll_t || !p->grounded) still = 0;
@@ -516,7 +526,7 @@ static void build_pose(Player *p)
     s32 t = ((p->phase + 32768) & 65535) >> 2;   /* clips: left foot lands at frame 0 */
     int w;
 
-    fk_sample(&clip_idle, (s32)p->idle_t << 8, o);
+    fk_sample(p->saw ? &clip_ready : &clip_idle, (s32)p->idle_t << 8, o);   /* Deadbird: her fighting stance */
     fk_sample(&clip_walk, t, &a);
     fk_sample(&clip_run, t, &b);
     fk_blend(&a, &b, p->runw, &tmp);
@@ -637,7 +647,8 @@ static void place_feet(Player *p, const Model *m)
             if (sp < 4096) lift += (70 * sinpi(sp) >> 12) * p->shuffle_amp >> 12;
         }
         /* idle stance: left foot a touch forward; the chainsaw lunge splits the hooves wide */
-        fwd = (sg > 0 ? 60 : -50) * (4096 - amp) >> 12;
+        fwd = (sg > 0 ? (p->saw ? ST_LF : 60) : (p->saw ? ST_RF : -50)) * (4096 - amp) >> 12;
+        if (p->saw) an[si].vx += sg * ((ST_OUT * (4096 - amp) >> 12) * (4096 - p->atk_w) >> 12);   /* stance: hooves apart */
         if (p->atk_w > 0) {                          /* combo footwork: step in, plant, push off */
             const s32 *L = &p->atk_leg[si == 0 ? 0 : 3];
             fwd = mixi(fwd, L[0], p->atk_w);
@@ -685,7 +696,7 @@ static void place_feet(Player *p, const Model *m)
         int h = ph12 & 2047;
         if (h < 760) bob -= (s32)(mixi(26, 44, run) * isin(h * 2048 / 760) >> 12) * amp >> 12;
     }
-    dz = 12 + p->roll_py + p->drop_extra + (60 * run >> 12) * amp / 4096 - bob + (170 * p->landw >> 12) - (20 * air >> 12) + (p->atk_leg[6] * p->atk_w >> 12);
+    dz = 12 + p->roll_py + p->drop_extra + (p->saw ? (ST_PEL * (4096 - amp) >> 12) * (4096 - p->atk_w) >> 12 : 0) + (60 * run >> 12) * amp / 4096 - bob + (170 * p->landw >> 12) - (20 * air >> 12) + (p->atk_leg[6] * p->atk_w >> 12);
     lat = (-34 * icos((ph12 - mid) & 4095) >> 12) * amp / 4096 * (4096 - run * 6 / 10) / 4096;   /* weight rolls side to side */
     {
         MATRIX R;

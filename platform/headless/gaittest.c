@@ -15,6 +15,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "combat.h"
+#include "fkclips.h"
 #include "ragdoll.h"
 #include "draw2d.h"
 
@@ -27,25 +28,27 @@ static unsigned char sheet[CH * ROWS][CW * COLS][3];
 static Player pl;
 static Model saw_body, saw_chain;
 static int fixcam = -1;               /* >= 0: camera yaw fixed (moves sheet) */
+static int zoom = 300, cam_pitch = 40;
+static unsigned char *big_out;          /* KEYS: 4 x n frames of 320x240 */
 
 static void shot(const Model *m, int row, int col, int behind)
 {
     MATRIX view, rx, ry, cam[DEMON_NBONES];
     SVECTOR t; VECTOR tv;
     DrawCtx ctx;
-    RECT r = { 0, 0, 320, 240 };
+    RECT r = { FB_X, 0, 320, 240 };   /* (the frame buffer: the skins are at x 64..191) */
     const u16 *v = gpu_vram();
     int b, x, y;
-    mat_rot_x(&rx, 40); mat_rot_y(&ry, -(fixcam >= 0 ? fixcam : pl.yaw + (behind ? 0 : 1024))); mat_mul(&rx, &ry, &view);
+    mat_rot_x(&rx, cam_pitch); mat_rot_y(&ry, -(fixcam >= 0 ? fixcam : pl.yaw + (behind ? 0 : 1024))); mat_mul(&rx, &ry, &view);
     t.vx = (s16)-pl.x; t.vy = 1100; t.vz = (s16)-pl.z;
     view.t[0] = view.t[1] = view.t[2] = 0;
     mat_apply(&view, &t, &tv);
     view.t[0] = tv.vx; view.t[1] = tv.vy; view.t[2] = tv.vz + 3500;
-    ctx.proj.h = 300; ctx.proj.ofx = 160; ctx.proj.ofy = 120; ctx.proj.near_z = 100;
+    ctx.proj.h = zoom; ctx.proj.ofx = 160; ctx.proj.ofy = 120; ctx.proj.near_z = 100;
     ctx.ot_shift = 4; ctx.cull_sign = 1; ctx.r = ctx.g = ctx.b = 128;
     gpu_fill(&r, 40, 12, 14);
     ot_clear(&fb);
-    gpu_set_draw_env(0, 0, 320, 240, 0, 0, 1);
+    gpu_set_draw_env(FB_X, 0, 320, 240, FB_X, 0, 1);
     /* (no level geometry: the camera sits outside the arena walls) */
     for (b = 0; b < DEMON_NBONES; b++) mat_mul(&view, &pl.world[b], &cam[b]);
     model_draw_mats(m, cam, &ctx, &fb);
@@ -97,9 +100,18 @@ static void shot(const Model *m, int row, int col, int behind)
         }
     }
     gpu_draw_ot(&fb);
+    if (big_out) {   /* KEYS: whole 320x240 frames into their own sheet */
+        for (y = 0; y < 240; y++)
+            for (x = 0; x < 320; x++) {
+                u16 p = v[y * VRAM_W + FB_X + x];
+                unsigned char *d = &big_out[((row * 240 + y) * 4 * 320 + col * 320 + x) * 3];
+                d[0] = (unsigned char)(((p >> 10) & 31) << 3); d[1] = (unsigned char)(((p >> 5) & 31) << 3); d[2] = (unsigned char)((p & 31) << 3);
+            }
+        return;
+    }
     for (y = 0; y < CH; y++)
         for (x = 0; x < CW; x++) {
-            u16 p = v[(y + 2) * VRAM_W + x + 85];
+            u16 p = v[(y + 2) * VRAM_W + FB_X + x + 85];
             unsigned char *d = sheet[row * CH + y][col * CW + x];
             d[0] = (unsigned char)(((p >> 10) & 31) << 3);
             d[1] = (unsigned char)(((p >> 5) & 31) << 3);
@@ -115,8 +127,8 @@ int main(int argc, char **argv)
     FILE *f;
 
     gpu_init();
-    level_init();
     assets_init();
+    level_init();
     m = asset_demon;
     m.bones = (const DBONE *)demon_bones; m.nbones = DEMON_NBONES;
     {
@@ -144,6 +156,69 @@ int main(int argc, char **argv)
         printf("%s: speed %d u/f, phase %d, run %d amp %d\n", row == 2 ? "run, from behind, curving right" : row ? "run" : "walk", (int)pl.speed, pl.phase, pl.runw, pl.amp);
     }
 
+    if (getenv("ANIM")) {   /* ANIM=dir: the ready stance then the whole combo, every frame, as BMPs (ANIM_YAW: the camera) */
+        int f, n = 0, stage = 0;
+        char path[256];
+        big_out = calloc(240 * 320 * 4 * 3, 1);
+        zoom = 330; cam_pitch = 70; fixcam = getenv("ANIM_YAW") ? atoi(getenv("ANIM_YAW")) : 4096 - 500;
+        player_reset(&pl, 0, 0, 0);
+        for (f = 0; f < 200; f++) {
+            u32 pad = 0;
+            if (f == 30 || (stage && pl.atk == stage && pl.atk_t == 14 && stage < 3)) { pad = BTN_ATTACK; }
+            player_update(&pl, pad, 0, 0); player_pose(&pl, &m);
+            if (pl.atk > stage) stage = pl.atk;
+            if (f >= 20) {
+                FILE *bf;
+                int W2 = 320, H2 = 240, size = 54 + W2 * H2 * 3, yy;
+                unsigned char h[54] = { 'B', 'M' };
+                shot(&m, 0, 0, 0);
+                sprintf(path, "%s/f%03d.bmp", getenv("ANIM"), n++);
+                bf = fopen(path, "wb");
+                h[2] = size & 255; h[3] = (size >> 8) & 255; h[4] = (size >> 16) & 255; h[10] = 54; h[14] = 40;
+                h[18] = W2 & 255; h[19] = W2 >> 8; h[22] = H2 & 255; h[26] = 1; h[28] = 24;
+                fwrite(h, 1, 54, bf);
+                for (yy = H2 - 1; yy >= 0; yy--) fwrite(&big_out[(size_t)yy * 4 * 320 * 3], 1, (size_t)W2 * 3, bf);
+                fclose(bf);
+            }
+            if (stage == 3 && !pl.atk && pl.atk_w < 100) break;
+        }
+        printf("anim: %d frames\n", n);
+        return 0;
+    }
+    if (getenv("KEYS")) {   /* KEYS=atk1 (etc): each key pose of a clip, big, from behind-right / her right / the front */
+        static const FKClip *const C[] = { &clip_idle, &clip_ready, &clip_atk1, &clip_atk2, &clip_atk3, &clip_walk, &clip_run, &clip_fatal, &clip_roll };
+        const FKClip *c = 0;
+        int k, v;
+        for (k = 0; k < (int)(sizeof(C) / sizeof(C[0])); k++) if (!strcmp(C[k]->name, getenv("KEYS"))) c = C[k];
+        if (!c) { printf("no clip %s\n", getenv("KEYS")); return 1; }
+        zoom = 380; cam_pitch = 50;
+        big_out = calloc((size_t)c->nkeys * 240 * 320 * 4 * 3, 1);
+        for (k = 0; k < c->nkeys; k++) {
+            for (v = 0; v < 4; v++) {
+                static const int VIEW[4] = { 4096 - 350, 1024, 2048, 2048 + 700 };   /* behind (the game's camera), side, front, front 3/4 */
+                player_reset(&pl, 0, 0, 0);
+                for (i = 0; i < 8; i++) { player_update(&pl, 0, 0, 0); player_pose(&pl, &m); }
+                player_pose_begin(&pl);
+                memcpy(pl.pose.v, c->keys[k].v, sizeof(pl.pose.v));
+                pl.pose.v[FK_PY] = 0;
+                player_pose_end(&pl, &m);
+                fixcam = VIEW[v];
+                shot(&m, k, v, 0);
+            }
+            printf("key %d: frame %d\n", k, c->keys[k].frame);
+        }
+        {
+            FILE *kf = fopen(out, "wb");
+            int W2 = 4 * 320, H2 = c->nkeys * 240, size = 54 + W2 * H2 * 3;
+            unsigned char h[54] = { 'B', 'M' };
+            h[2] = size & 255; h[3] = (size >> 8) & 255; h[4] = (size >> 16) & 255; h[5] = (size >> 24) & 255;
+            h[10] = 54; h[14] = 40; h[18] = W2 & 255; h[19] = W2 >> 8; h[22] = H2 & 255; h[23] = H2 >> 8; h[26] = 1; h[28] = 24;
+            fwrite(h, 1, 54, kf);
+            for (y = H2 - 1; y >= 0; y--) fwrite(&big_out[(size_t)y * W2 * 3], 1, (size_t)W2 * 3, kf);
+            fclose(kf);
+        }
+        return 0;
+    } else
     if (getenv("RAG")) {   /* RAG=1: rows 4-5 Deadbird going limp (shot from the front), rows 6-7 a trooper (hit from behind) */
         static Ragdoll r;
         Model sm = asset_soldier;

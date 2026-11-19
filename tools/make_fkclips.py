@@ -114,38 +114,70 @@ land = oneshot("land", [
              LSD=56, LSS=24, LEL=46, RSD=62, RSS=32, REL=44, TRZ=5)),
 ])
 
-# --- chainsaw combo (upper body; her legs brace in a lunge stance and slide, see player.c)
-# 1: horizontal slash right to left   2: backhand left to right   3: overhead slam
+# --- ready: Deadbird's fighting stance (her idle; the troopers keep "idle" above). Knees bent and
+# hooves split (player.c: the stance footing), hips turned a little, hunched over the saw: the saw arm
+# held forward with the bar raised at the enemy, the free fist up in a guard by her chest. Slow breaths.
+READY = dict(PRX=-4, PRY=-10, PRZ=0, TRX=-12, TRY=12, TRZ=2, HRX=10, HRY=-4,
+             RSD=84, RSS=34, REL=82, LSD=84, LSS=38, LEL=104, RFR=0)
+def ready_at(**kw):
+    v = dict(READY); v.update(kw); return v
+ready = dict(name="ready", length=96, loop=1, contact=(0,0), liftoff=(0,0), keys=[
+    (0,  pose(**ready_at())),
+    (48, pose(**ready_at(TRX=-9, HRX=8, RSS=30, REL=86, LSS=36, LEL=100))),
+    (96, pose(**ready_at())),
+])
+# --- chainsaw combo, full body (the legs step and plant in player.c's footwork tables, timed to these):
+# 1: forehand slash right to left   2: backhand left to right   3: leaping overhead slam into the floor
+# Each swing: a slow wind-up (the body coils, the saw is drawn back, her weight loads onto the back
+# hoof), a short violent strike led by the hips then the shoulders then the arm, a follow-through that
+# overshoots and hangs under the saw's weight, then a slow recovery. The free arm stays compact: it
+# counter-swings for balance and tucks to her ribs on the strike, it never flies up.
 # RFR rolls the forearm so the chain edge, not the flat of the bar, leads each cut
 # (values solved by platform/headless/rolltest.c from the swing paths)
-HOLD = dict(RSD=72, RSS=18, REL=36)
 def atk(name, keys):
-    return oneshot(name, [(f, pose(**{**HOLD, **k})) for f, k in keys])
-
+    return oneshot(name, [(f, pose(**{**READY, **k})) for f, k in keys])
 atk1 = atk("atk1", [
     (0,  dict(RFR=0)),
-    (4,  dict(TRY=-34, PRY=-22, PRZ=4, TRX=-2, HRY=10, RSD=80, RSS=25, REL=70, LSD=60, LSS=30, LEL=40, RFR=-100)),
-    (9,  dict(TRY=36, PRY=28, PRZ=-5, TRX=-14, HRY=-10, RSD=88, RSS=95, REL=8, LSD=70, LSS=-20, LEL=30, RFR=-58)),
-    (14, dict(TRY=42, PRY=30, PRZ=-5, TRX=-12, HRY=-12, RSD=92, RSS=110, REL=15, LSD=70, LSS=-24, LEL=30, RFR=-56)),
-    (26, dict(TRY=20, PRY=8, TRX=-8, RSD=80, RSS=60, REL=30, LSD=70, LSS=0, LEL=24, RFR=-56)),
+    (5,  dict(PRY=-40, TRY=-34, TRX=-6, PRX=2, PRZ=8, TRZ=-6, HRY=36, HRX=8,             # coiled: arm out to her right,
+              RSD=24, RSS=80, REL=4, LSD=84, LSS=40, LEL=96, RFR=-84)),             # the bar pointing back past her hip
+    (8,  dict(PRY=22, TRY=-6, TRX=-12, PRX=-4, PRZ=0, HRY=8, RSD=60, RSS=84, REL=12,               # hips then shoulders unwind
+              LSD=86, LSS=14, LEL=100, RFR=-84)),
+    (11, dict(PRY=42, TRY=30, TRX=-14, PRX=-8, PRZ=-8, HRY=-16, RSD=112, RSS=80, REL=10,  # through him, arm straight
+              LSD=86, LSS=-18, LEL=106, RFR=-112)),
+    (15, dict(PRY=46, TRY=40, TRX=-16, PRX=-10, PRZ=-8, HRY=-22, RSD=126, RSS=66, REL=16,  # the saw drags her round and down
+              LSD=86, LSS=-20, LEL=104, RFR=-124)),
+    (26, dict(PRY=20, TRY=30, TRX=-14, HRY=-10, RSD=118, RSS=62, REL=40,          # recovered, already coiled for the backhand
+              LSD=84, LSS=16, LEL=102, RFR=-124)),
 ])
 atk2 = atk("atk2", [
-    (0,  dict(TRY=20, PRY=8, TRX=-8, RSD=80, RSS=60, REL=30, LSD=70, LEL=24, RFR=-34)),
-    (4,  dict(TRY=42, PRY=24, PRZ=-4, TRX=-6, HRY=-10, RSD=92, RSS=84, REL=55, LSD=64, LSS=-10, LEL=34, RFR=-64)),
-    (9,  dict(TRY=-38, PRY=-28, PRZ=5, TRX=-14, HRY=12, RSD=82, RSS=86, REL=5, LSD=62, LSS=30, LEL=40, RFR=-78)),
-    (14, dict(TRY=-46, PRY=-30, PRZ=5, TRX=-12, HRY=14, RSD=72, RSS=70, REL=10, LSD=62, LSS=34, LEL=40, RFR=-60)),
-    (26, dict(TRY=-20, PRY=-8, TRX=-8, RSD=70, RSS=60, REL=30, LSD=70, LSS=10, LEL=24, RFR=-76)),
+    (0,  dict(PRY=20, TRY=30, TRX=-14, HRY=-10, RSD=118, RSS=62, REL=40, LSD=84, LSS=16, LEL=102, RFR=-124)),
+    (4,  dict(PRY=42, TRY=40, TRX=-10, PRZ=-7, HRY=-34, HRX=6,                     # wound up: the saw across her chest,
+              RSD=136, RSS=80, REL=22, LSD=84, LSS=6, LEL=100, RFR=-100)),            # the bar pointing back past her left side
+    (7,  dict(PRY=-12, TRY=18, TRX=-14, PRX=-4, PRZ=0, HRY=-6, RSD=96, RSS=86, REL=12,
+              LSD=86, LSS=26, LEL=100, RFR=-84)),
+    (10, dict(PRY=-42, TRY=-28, TRX=-14, PRX=-8, PRZ=8, HRY=16, RSD=40, RSS=82, REL=8,    # whipped out to her right
+              LSD=86, LSS=26, LEL=102, RFR=-64)),
+    (15, dict(PRY=-46, TRY=-38, TRX=-16, PRX=-10, PRZ=8, HRY=24, RSD=26, RSS=66, REL=12,
+              LSD=86, LSS=28, LEL=98, RFR=-52)),
+    (26, dict(PRY=-14, TRY=-22, TRX=-14, HRY=8, RSD=60, RSS=60, REL=50,
+              LSD=84, LSS=34, LEL=102, RFR=-60)),
 ])
 atk3 = atk("atk3", [
-    (0,  dict(TRY=-20, PRY=-8, TRX=-8, RSD=70, RSS=60, REL=30, LSD=70, LEL=24, RFR=-36)),
-    (5,  dict(TRY=-14, TRX=-12, PRX=-8, HRX=6, RSD=80, RSS=110, REL=50, LSD=60, LSS=30, LEL=50, RFR=-6)),
-    (9,  dict(TRY=-10, TRX=12, PRX=6, HRX=10, RSD=90, RSS=175, REL=40, LSD=50, LSS=50, LEL=50, RFR=10)),
-    (12, dict(TRY=-8, TRX=14, PRX=5, HRX=12, RSD=90, RSS=185, REL=36, LSD=46, LSS=46, LEL=54, RFR=0)),
-    (15, dict(TRY=0, TRX=-36, PRX=-18, HRX=-20, RSD=90, RSS=40, REL=0, LSD=80, LSS=20, LEL=30, RFR=0)),
-    (24, dict(TRY=0, TRX=-34, PRX=-17, HRX=-18, RSD=90, RSS=38, REL=0, LSD=80, LSS=18, LEL=30, RFR=56)),
-    (40, dict(TRX=-6, HRX=-2, RFR=0)),
+    (0,  dict(PRY=-14, TRY=-22, TRX=-14, HRY=8, RSD=60, RSS=60, REL=50, LSD=84, LSS=34, LEL=102, RFR=-60)),
+    (6,  dict(PRY=-8, TRY=-12, PRX=10, TRX=14, HRX=-4, HRY=6,                       # rears up, back arched,
+              RSD=88, RSS=205, REL=86, LSD=84, LSS=30, LEL=92, RFR=0)),          # the saw cocked behind her head
+    (10, dict(PRY=-4, TRY=-6, PRX=2, TRX=10, HRX=-2, RSD=88, RSS=200, REL=84,      # (airborne: hangs at the top)
+              LSD=84, LSS=28, LEL=92, RFR=0)),
+    (13, dict(PRY=0, TRY=0, PRX=-14, TRX=-24, HRX=8, RSD=90, RSS=130, REL=20,      # the chop: everything comes down
+              LSD=84, LSS=16, LEL=96, RFR=0)),
+    (15, dict(PRY=0, TRY=0, PRX=-26, TRX=-36, HRX=30, RSD=92, RSS=76, REL=0,      # into the floor ahead of her
+              LSD=82, LSS=-16, LEL=70, RFR=0)),
+    (24, dict(PRY=0, TRY=2, PRX=-25, TRX=-35, HRX=28, RSD=92, RSS=74, REL=0,      # grinding it, weight on it
+              LSD=82, LSS=-12, LEL=74, RFR=-16)),
+    (32, dict(PRY=-4, TRY=6, PRX=-10, TRX=-24, HRX=14, RSD=88, RSS=60, REL=40,    # hauls it out
+              LSD=84, LSS=20, LEL=96, RFR=0)),
+    (40, dict(RFR=0)),
 ])
-
 # --- dodge roll: a heavy shoulder roll along the floor, not a flip. She plants and dips, reaches
 # for the floor with her free hand, tucks her chin and folds up, rolls diagonally over her left
 # shoulder and back (the root rotation and floor contact are done in player.c), opens out onto
@@ -177,7 +209,8 @@ roll = oneshot("roll", [
 # shoulder with her free hand (low and close, it pulls him onto the saw), coils the saw back with her whole trunk, drives it into his side,
 # leans her weight into it while it grinds (a shudder is added in code), heaves it through and out
 # the far side, follows through, then stands over him, shoulders heaving, and flicks the blood off.
-fatal = atk("fatal", [
+HOLD = dict(RSD=72, RSS=18, REL=36)
+fatal = oneshot("fatal", [(f, pose(**{**HOLD, **k})) for f, k in [
     (0,   dict(TRX=-6, HRX=-2)),
     (6,   dict(PY=40, TRY=-8, PRY=-4, TRX=-8, HRY=6, LSD=72, LSS=30, LEL=34, RSD=74, RSS=10, REL=50, RFR=-10)),
     (12,  dict(PY=60, TRY=-26, PRY=-12, TRX=-10, HRY=16, HRX=-4, LSD=68, LSS=52, LEL=36, RSD=78, RSS=-24, REL=92, RFR=-30)),
@@ -195,9 +228,9 @@ fatal = atk("fatal", [
     (134, dict(PY=44, TRY=12, TRX=-11, HRY=6, HRX=-8, LSD=72, LSS=4, LEL=26, RSD=78, RSS=4, REL=24, RFR=10)),
     (140, dict(PY=30, TRY=4, TRX=-8, HRY=2, HRX=-4, LSD=73, LSS=6, LEL=24, RSD=74, RSS=16, REL=34, RFR=0)),
     (160, dict(TRX=-4, HRX=-2)),
-])
+]])
 
-clips = [walk, run, idle, air, land, atk1, atk2, atk3, roll, fatal]
+clips = [walk, run, idle, ready, air, land, atk1, atk2, atk3, roll, fatal]
 out = ["/* generated by tools/make_fkclips.py - edit the script, not this file */",
        '#include "fk.h"', "#include \"fkclips.h\"", ""]
 for c in clips:

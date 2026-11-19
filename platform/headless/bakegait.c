@@ -57,6 +57,7 @@ int main(int argc, char **argv)
         int n = 0, b;
         s32 spd = 0;
         player_reset(&pl, 0, 0, 0);
+        pl.saw = 0;                        /* one table for her and the troopers: their plain stance */
         for (i = 0; i < HOLD[s]; i++) { player_update(&pl, PAD[s], 0, MAG[s]); player_pose(&pl, &m); }
         /* record two strides (or a while, standing) */
         for (i = 0; i < MAXS; i++) {

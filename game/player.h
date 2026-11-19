@@ -67,6 +67,7 @@ typedef struct {
     s32 lock_x, lock_z;        /* ... where he stands: each swing slides her in to striking distance */
     int shake;                 /* 0..4096: whole-body strain tremor (cutscenes: the saw grinding) */
     s32 drop_extra;            /* extra crouch (others' knees buckling) */
+    int saw;                   /* Deadbird: the fighting-stance idle (troopers: 0) */
     /* secondary motion: the upper body follows the keyframes through springs (mass, lag, overshoot) */
     s32 spx[FK_COUNT], spv[FK_COUNT];
     int sp_init, sp_kick_half;
