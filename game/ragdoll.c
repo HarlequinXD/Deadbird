@@ -9,20 +9,20 @@
 enum { P_PELVIS = 0, P_TORSO = 1, P_NECK = 2, P_HEAD = 3, P_UARM_L = 4, P_FORE_L = 5, P_FIST_L = 6,
        P_UARM_R = 7, P_FORE_R = 8, P_FIST_R = 9, P_THIGH_L = 10, P_CALF_L = 11, P_HOOF_L = 12,
        P_THIGH_R = 13, P_CALF_R = 14, P_HOOF_R = 15,
-       P_HEAD_END = 16, P_FIST_L_END = 17, P_FIST_R_END = 18, P_HOOF_L_END = 19, P_HOOF_R_END = 20 };
+       P_HEAD_END = 16, P_FIST_L_END = 17, P_FIST_R_END = 18, P_HOOF_L_END = 19, P_HOOF_R_END = 20,
+       P_HIPS = 21 /* where the torso joint was, braced to the pelvis and hips: the pelvis's own frame */ };
 
 static const u8 LEAF[5] = { P_HEAD, P_FIST_L, P_FIST_R, P_HOOF_L, P_HOOF_R };
 
 /* each bone's frame: the point it points at, and a second point off to one side */
 static const u8 REF[16][2] = {
-    { P_TORSO, P_THIGH_L }, { P_NECK, P_UARM_L }, { P_HEAD, P_UARM_L }, { P_HEAD_END, P_UARM_L },
+    { P_HIPS, P_THIGH_L }, { P_NECK, P_UARM_L }, { P_HEAD, P_UARM_L }, { P_HEAD_END, P_UARM_L },
     { P_FORE_L, P_UARM_R }, { P_FIST_L, P_UARM_R }, { P_FIST_L_END, P_UARM_R },
     { P_FORE_R, P_UARM_L }, { P_FIST_R, P_UARM_L }, { P_FIST_R_END, P_UARM_L },
     { P_CALF_L, P_THIGH_R }, { P_HOOF_L, P_THIGH_R }, { P_HOOF_L_END, P_THIGH_R },
     { P_CALF_R, P_THIGH_L }, { P_HOOF_R, P_THIGH_L }, { P_HOOF_R_END, P_THIGH_L },
 };
 
-static u8 stick_a[RAG_NS], stick_b[RAG_NS];     /* the same sticks for every body */
 
 #define GRAVITY 45                 /* 2.8 units a tick squared (9.8 m/s^2 at 1024 units a metre), x16 */
 #define FLOOR_GAP 24               /* how far a point stays off the floor: a limb's half thickness */
@@ -44,7 +44,7 @@ static s32 dist(const s32 *a, const s32 *b)       /* x16 units in, world units o
 static int add(Ragdoll *r, int a, int b, int kind, s32 len)
 {
     if (r->ns >= RAG_NS) return 0;
-    stick_a[r->ns] = (u8)a; stick_b[r->ns] = (u8)b;
+    r->sa[r->ns] = (u8)a; r->sb[r->ns] = (u8)b;
     r->kind[r->ns] = (u8)kind;
     r->len[r->ns] = (u16)(len > 65535 ? 65535 : len);
     r->ns++;
@@ -94,6 +94,7 @@ void rag_start(Ragdoll *r, const Model *m, const MATRIX *world, s32 vx, s32 vy, 
         mat_apply(&world[LEAF[i]], &s, &w);
         r->p[16 + i][0] = w.vx << 4; r->p[16 + i][1] = w.vy << 4; r->p[16 + i][2] = w.vz << 4;
     }
+    r->p[P_HIPS][0] = r->p[P_TORSO][0]; r->p[P_HIPS][1] = r->p[P_TORSO][1]; r->p[P_HIPS][2] = r->p[P_TORSO][2];
     /* moving: everything at (vx, vy, vz), the upper body thrown along (tx, tz) the higher it is */
     py = r->p[P_PELVIS][1];
     for (i = 0; i < RAG_NP; i++) {
@@ -117,6 +118,9 @@ void rag_start(Ragdoll *r, const Model *m, const MATRIX *world, s32 vx, s32 vy, 
                                     { P_THIGH_L, P_CALF_L, P_HOOF_L, 60 }, { P_THIGH_R, P_CALF_R, P_HOOF_R, 60 } };
         for (i = 0; i < 7; i++) for (j = i + 1; j < 7; j++) add(r, T[i], T[j], 0, dist(r->p[T[i]], r->p[T[j]]));
         for (i = 0; i < 6; i++) add(r, H[i][0], H[i][1], 0, dist(r->p[H[i][0]], r->p[H[i][1]]));
+        add(r, P_HIPS, P_PELVIS, 0, dist(r->p[P_HIPS], r->p[P_PELVIS]));
+        add(r, P_HIPS, P_THIGH_L, 0, dist(r->p[P_HIPS], r->p[P_THIGH_L]));
+        add(r, P_HIPS, P_THIGH_R, 0, dist(r->p[P_HIPS], r->p[P_THIGH_R]));
         for (b = 1; b < 16; b++) {
             int par = m->bones[b].parent;
             if (par >= 0 && b != P_NECK && b != P_UARM_L && b != P_UARM_R && b != P_THIGH_L && b != P_THIGH_R)
@@ -161,7 +165,7 @@ int rag_step(Ragdoll *r)
     }
     for (it = 0; it < ITER; it++) {                 /* pull the sticks back to length */
         for (i = 0; i < r->ns; i++) {
-            s32 *a = r->p[stick_a[i]], *b = r->p[stick_b[i]];
+            s32 *a = r->p[r->sa[i]], *b = r->p[r->sb[i]];
             s32 dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2];
             s32 l = (s32)isqrt((u32)((dx >> 4) * (dx >> 4) + (dy >> 4) * (dy >> 4) + (dz >> 4) * (dz >> 4))) << 4;   /* x16 units */
             s32 want = (s32)r->len[i] << 4, e;
@@ -219,6 +223,31 @@ void rag_bones(Ragdoll *r, MATRIX *world)
         } else *M = r->last[b];
         M->t[0] = r->p[b][0] >> 4; M->t[1] = r->p[b][1] >> 4; M->t[2] = r->p[b][2] >> 4;
     }
+}
+
+int rag_upper(int i)
+{
+    return (i >= P_TORSO && i <= P_FIST_R) || (i >= P_HEAD_END && i <= P_FIST_R_END);
+}
+
+void rag_split(Ragdoll *r, s32 vx, s32 vy, s32 vz, s32 tx, s32 tz)
+{
+    int i, n = 0;
+    s32 wy = r->p[P_TORSO][1];
+    for (i = 0; i < r->ns; i++)            /* keep only the sticks within a half */
+        if (rag_upper(r->sa[i]) == rag_upper(r->sb[i])) {
+            r->sa[n] = r->sa[i]; r->sb[n] = r->sb[i]; r->len[n] = r->len[i]; r->kind[n] = r->kind[i]; n++;
+        }
+    r->ns = n;
+    for (i = 0; i < RAG_NP; i++) {
+        s32 up, k;
+        if (!rag_upper(i)) continue;
+        up = (wy - r->p[i][1]) >> 4; k = up > 0 ? up : 0;   /* above the cut */
+        r->o[i][0] = r->p[i][0] - ((vx + (tx * k >> 12) / 60) << 4);
+        r->o[i][1] = r->p[i][1] - (vy << 4);
+        r->o[i][2] = r->p[i][2] - ((vz + (tz * k >> 12) / 60) << 4);
+    }
+    r->still = 0; r->frozen = 0;
 }
 
 void rag_pelvis(const Ragdoll *r, s32 *x, s32 *y, s32 *z)

@@ -176,6 +176,30 @@ int main(int argc, char **argv)
                 if ((r.p[k][1] >> 4) > level_ground(r.p[k][0] >> 4, r.p[k][2] >> 4, r.p[k][1] >> 4) + 4) bad++;
             if (!r.frozen || fl - py < 0 || fl - py > 500 || bad) { printf("FAIL: ragdoll (%d points under the floor)\n", bad); return 1; }
         }
+        {   /* row 8: a trooper cut in half (the fatality): the top half thrown back, the legs crumple */
+            const LabArea *ar = level_area(a);
+            s32 tx, ty, tz;
+            player_reset(&pl, ar->x0 + 3000, (ar->z0 + ar->z1) / 2, 1024);
+            for (i = 0; i < 20; i++) { player_update(&pl, 0, 1024, 0); player_pose(&pl, &sm); }
+            rag_start(&r, &sm, pl.world, 0, 0, 0, 0, 0);
+            rag_split(&r, -9, -16, 0, -4096 * 3, 0);
+            for (k = 0; k < COLS; k++) {
+                int n;
+                for (n = 0; n < (k < 4 ? 5 : 12); n++) rag_step(&r);
+                rag_bones(&r, pl.world);
+                shot(&sm, 7, k, 0);
+            }
+            for (k = 0; k < 400 && rag_step(&r); k++) ;
+            rag_bones(&r, pl.world);
+            tx = pl.world[1].t[0]; ty = pl.world[1].t[1]; tz = pl.world[1].t[2];
+            bad = 0;
+            for (k = 0; k < RAG_NP; k++)
+                if ((r.p[k][1] >> 4) > level_ground(r.p[k][0] >> 4, r.p[k][2] >> 4, r.p[k][1] >> 4) + 4) bad++;
+            printf("cut in half: settled %d, the halves %d apart, top half %d above the floor\n", r.frozen,
+                   (int)isqrt((u32)((tx - pl.world[0].t[0]) * (tx - pl.world[0].t[0]) + (tz - pl.world[0].t[2]) * (tz - pl.world[0].t[2]))),
+                   (int)(level_ground(tx, tz, ty) - ty));
+            if (!r.frozen || bad) { printf("FAIL: cut ragdoll\n"); return 1; }
+        }
     } else
     if (getenv("FATAL")) {   /* FATAL=1: rows 4-5 = her fatality clip, frames 0..150, seen from the front-left */
         static const int F[16] = { 0, 6, 12, 20, 26, 30, 33, 56, 80, 84, 92, 106, 120, 130, 134, 150 };

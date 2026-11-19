@@ -14,14 +14,15 @@
 #include "gte.h"
 #include "model.h"
 
-#define RAG_NP 21                    /* 16 joints + head, fist and hoof ends */
-#define RAG_NS 64
+#define RAG_NP 22                    /* 16 joints + head, fist and hoof ends + a point braced to the hips */
+#define RAG_NS 72
 
 typedef struct {
     s32 p[RAG_NP][3], o[RAG_NP][3];  /* position and last tick's, world units x 16 */
     s16 lb[16][3][3];                /* each bone's frame from its two reference points, in its own space */
     u16 len[RAG_NS];                 /* stick rest lengths (world units) */
     u8  kind[RAG_NS];                /* 0 rigid, 1 "at least this long" */
+    u8  sa[RAG_NS], sb[RAG_NS];      /* the points each stick joins */
     int ns;
     int still;                       /* ticks it has barely moved */
     int frozen;
@@ -32,6 +33,10 @@ typedef struct {
 /* goes limp from the skeleton `world` (the model gives the head / fist / hoof ends), moving at
    (vx, vy, vz) world units a tick, the upper body thrown along (tx, tz) (4096 = a hard shove) */
 void rag_start(Ragdoll *r, const Model *m, const MATRIX *world, s32 vx, s32 vy, s32 vz, s32 tx, s32 tz);
+/* cut in two at the waist (a fatality): the upper body (torso, arms, head) is let go of the legs
+   and thrown at (vx, vy, vz), its top along (tx, tz) more, so it tumbles */
+void rag_split(Ragdoll *r, s32 vx, s32 vy, s32 vz, s32 tx, s32 tz);
+int  rag_upper(int point);                 /* 1: a point of the upper half */
 int  rag_step(Ragdoll *r);                 /* one tick; returns 0 once it has settled (frozen) */
 void rag_bones(Ragdoll *r, MATRIX *world); /* the 16 bone matrices from the points */
 void rag_pelvis(const Ragdoll *r, s32 *x, s32 *y, s32 *z);

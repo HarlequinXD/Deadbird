@@ -214,7 +214,7 @@ static void enemy_skeleton(Enemy *e)
     MATRIX root, ry, fall;
     VECTOR off;
     e->posed = 1; e->pose_x = e->x; e->pose_y = e->y; e->pose_z = e->z;
-    if (e->state == E_DEAD && e->ragged) return;    /* the ragdoll has his bones */
+    if ((e->state == E_DEAD || e->state == E_CUT) && e->ragged) return;    /* the ragdoll has his bones */
     if (e->state != E_DEAD) {               /* alive (or being cut): the full locomotion rig */
         e->body.yaw = e->yaw;
         player_pose_begin(&e->body);
@@ -347,7 +347,7 @@ void enemy_update(Player *pl, int frozen)
         d = len2(dx, dz);
         level_hint(&e->body.sec_hint);
         e->dist = d;
-        if (e->state != E_DEAD && (e->rag >= 0 || e->ragged)) {             /* brought back (tests) */
+        if (e->state != E_DEAD && e->state != E_CUT && (e->rag >= 0 || e->ragged)) {             /* brought back (tests) */
             if (e->rag >= 0) rag_owner[e->rag] = 0;
             e->rag = -1; e->ragged = 0;
         }
@@ -522,12 +522,65 @@ void enemy_cut(Enemy *e, s32 dir_x, s32 dir_z)
     e->up_vx = dir_x * 9 >> 12; e->up_vz = dir_z * 9 >> 12; e->up_vy = -16;
     e->up_rot = 0; e->up_rv = 34; e->lo_rot = 0; e->lo_rv = 0;
     e->up_landed = e->lo_landed = 0;
+    {   /* a ragdoll if one's free: the legs crumple, the upper half tumbles off along the swing */
+        int k;
+        e->rag = -1; e->ragged = 0;
+        for (k = 0; k < RAG_POOL; k++) if (!rag_owner[k]) break;
+        if (k == RAG_POOL)               /* all busy: the oldest falling trooper settles where he is */
+            for (k = 0; k < RAG_POOL; k++) if (rag_owner[k] && rag_owner[k]->state == E_DEAD) {
+                    Enemy *o = rag_owner[k];
+                    int n;
+                    for (n = 0; n < 240 && rag_step(&rags[k]); n++) ;   /* fast-forward him onto the floor */
+                    rag_bones(&rags[k], o->world);
+                    o->rag = -1; rag_owner[k] = 0; break;
+                }
+        if (k < RAG_POOL) {
+            rag_owner[k] = e; e->rag = k; e->ragged = 1;
+            rag_start(&rags[k], &soldier, e->world, 0, 0, 0, 0, 0);
+            rag_split(&rags[k], dir_x * 9 >> 12, -16, dir_z * 9 >> 12, dir_x * 3, dir_z * 3);
+        }
+    }
+}
+
+/* the cut halves as ragdolls: blood from both, a wet thud when the top half lands */
+static void cut_rag_step(Enemy *e)
+{
+    Ragdoll *r = &rags[e->rag];
+    s32 px, py, pz;
+    int live, *oh = level_hint(&e->body.sec_hint);
+    live = rag_step(r);
+    level_hint(oh);
+    rag_bones(r, e->world);
+    rag_pelvis(r, &px, &py, &pz);
+    e->up_x = e->world[DEMON_BONE_TORSO].t[0]; e->up_y = e->world[DEMON_BONE_TORSO].t[1]; e->up_z = e->world[DEMON_BONE_TORSO].t[2];
+    e->cut_px = px; e->cut_py = py; e->cut_pz = pz;
+    if (r->impact > 10 && e->cut_t > 8) {
+        if (!e->up_landed) {                                   /* the first hit: the top half */
+            e->up_landed = 1;
+            fx_blood_pool(e->up_x, e->y, e->up_z, 640);
+            { VECTOR a; a.vx = e->up_x; a.vy = e->up_y; a.vz = e->up_z; fx_spray(&a, 4, 18, 0, -16, 0, 30); }
+            sound(SFX_LAND, 4096, e->up_x, e->up_z, 3000);
+            sound(SFX_GORE, 3600, e->up_x, e->up_z, 3300);
+        } else if (!e->lo_landed && e->cut_t > 30) {          /* then the legs */
+            e->lo_landed = 1;
+            fx_blood_pool(px, e->y, pz, 480);
+            sound(SFX_LAND, 3600, px, pz, 3600);
+        }
+    }
+    if (e->cut_t < 90 && (e->cut_t & 1)) {                      /* both halves keep pumping blood */
+        VECTOR a; a.vx = e->up_x; a.vy = e->up_y + 60; a.vz = e->up_z;
+        fx_spray(&a, 4, e->cut_t < 30 ? 4 : 2, 0, -8, 0, 14);
+        a.vx = px; a.vy = py - 120; a.vz = pz; fx_spray(&a, 4, 2, 0, -18, 0, 12);
+    }
+    e->posed = 1; e->pose_x = e->x; e->pose_y = e->y; e->pose_z = e->z;
+    if (!live) { rag_owner[e->rag] = 0; e->rag = -1; }          /* both halves still: let the slot go */
 }
 
 void enemy_cut_step(Enemy *e)
 {
     s32 floor = e->y;
     e->cut_t++;
+    if (e->ragged) { if (e->rag >= 0) cut_rag_step(e); return; }
     if (!e->up_landed) {
         e->up_x += e->up_vx; e->up_z += e->up_vz;
         e->up_vy += 5; e->up_y += e->up_vy;
@@ -662,7 +715,7 @@ void enemy_draw(FrameBuf *fb, const MATRIX *view, const DrawCtx *ctx)
             dc.r = 240; dc.g = 220; dc.b = 200;
             ox += e->shake_x * a >> 12; oz += e->shake_z * a >> 12;
         } else if (e->state != E_CUT && e->hurt_t < 6) { dc.r = 200; dc.g = 110; dc.b = 110; }   /* hit flash */
-        if (e->state == E_CUT) {
+        if (e->state == E_CUT && !e->ragged) {
             half_xform(e, -e->up_rot, e->cut_px, e->cut_py, e->cut_pz, e->up_x, e->up_y, e->up_z, &up);
             half_xform(e, e->lo_rot, e->x, e->y, e->z, e->x, e->y, e->z, &lo);
             for (b = 0; b < SOLDIER_NBONES; b++) {
