@@ -115,15 +115,15 @@ land = oneshot("land", [
 ])
 
 # --- ready: Deadbird's fighting stance (her idle; the troopers keep "idle" above). Knees bent and
-# hooves split (player.c: the stance footing), hips turned a little, hunched over the saw: the saw arm
-# held forward with the bar raised at the enemy, the free fist up in a guard by her chest. Slow breaths.
-READY = dict(PRX=-4, PRY=-10, PRZ=0, TRX=-12, TRY=12, TRZ=2, HRX=10, HRY=-4,
-             RSD=84, RSS=34, REL=82, LSD=84, LSS=38, LEL=104, RFR=0)
+# hooves split (player.c: the stance footing), hips turned a little, leaning over the saw: the saw arm
+# low and a little forward, the bar angled down at the floor ahead, the free arm loose at her side. Slow breaths.
+READY = dict(PRX=-4, PRY=-10, PRZ=0, TRX=-10, TRY=10, TRZ=2, HRX=8, HRY=-4,
+             RSD=80, RSS=20, REL=44, LSD=82, LSS=10, LEL=30, RFR=0)
 def ready_at(**kw):
     v = dict(READY); v.update(kw); return v
 ready = dict(name="ready", length=96, loop=1, contact=(0,0), liftoff=(0,0), keys=[
     (0,  pose(**ready_at())),
-    (48, pose(**ready_at(TRX=-9, HRX=8, RSS=30, REL=86, LSS=36, LEL=100))),
+    (48, pose(**ready_at(TRX=-7, HRX=6, RSS=18, REL=48, LSS=12, LEL=34))),
     (96, pose(**ready_at())),
 ])
 # --- chainsaw combo, full body (the legs step and plant in player.c's footwork tables, timed to these):
