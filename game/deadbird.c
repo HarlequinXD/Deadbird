@@ -100,8 +100,8 @@ static void touch_layout(void)
     touch_buttons[3].x = (s16)(W - 118); touch_buttons[3].y = 134;
     touch_buttons[4].x = (s16)(W - 42);  touch_buttons[4].y = 124;
 }
-#define STICK_HOME_X 74
-#define STICK_HOME_Y 172
+#define STICK_HOME_X 92                  /* in from the corner, where the thumb rests */
+#define STICK_HOME_Y 158
 
 static u32 touch_hit(int x, int y)
 {

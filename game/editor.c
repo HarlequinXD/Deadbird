@@ -2206,7 +2206,7 @@ static void draw_tool_rail(void)
 
 static void draw_dpad(void)
 {
-    int cx = MAP_X0 + 32, cy = EU_H - 34, k;
+    int cx = MAP_X0 + 50, cy = EU_H - 52, k;     /* in from the corner */
     static const int DX[4] = { 0, 1, 0, -1 }, DY[4] = { -1, 0, 1, 0 };
     /* the touch stick's forged ring (ui atlas) round a dark face */
     eu_disc(cx, cy, 24, RGB(40, 46, 46), SEMI_SUB, L_POP_BG + 3);
