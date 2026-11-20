@@ -185,17 +185,17 @@ int main(int argc, char **argv)
         expect(ns > 10, "the Geometry tab opens Deadbird's level editor on the project's level");
         tap(FX(30), FY(61));                                  /* the tool rail: RECT */
         cx0 = ed_cx;
-        ptr(EV_DOWN, FX(60 + 32), FY(SCREEN_H - 34 - 17));    /* hold the d-pad's up arrow: off the lift, into the bay */
+        ptr(EV_DOWN, FX(60 + 50), FY(SCREEN_H - 52 - 17));    /* hold the d-pad's up arrow: off the lift, into the bay */
         run(40);
-        ptr(EV_UP, FX(60 + 32), FY(SCREEN_H - 34 - 17)); frame();
+        ptr(EV_UP, FX(60 + 50), FY(SCREEN_H - 52 - 17)); frame();
         tap(FX(SCREEN_W - 38), FY(44));                       /* X: one corner */
-        ptr(EV_DOWN, FX(60 + 32 - 17), FY(SCREEN_H - 34));    /* left */
+        ptr(EV_DOWN, FX(60 + 50 - 17), FY(SCREEN_H - 52));    /* left */
         run(30);
-        ptr(EV_UP, FX(60 + 32 - 17), FY(SCREEN_H - 34)); frame();
+        ptr(EV_UP, FX(60 + 50 - 17), FY(SCREEN_H - 52)); frame();
         expect(ed_cx < cx0, "the d-pad moves the cursor");
-        ptr(EV_DOWN, FX(60 + 32), FY(SCREEN_H - 34 + 17));    /* down */
+        ptr(EV_DOWN, FX(60 + 50), FY(SCREEN_H - 52 + 17));    /* down */
         run(15);
-        ptr(EV_UP, FX(60 + 32), FY(SCREEN_H - 34 + 17)); frame();
+        ptr(EV_UP, FX(60 + 50), FY(SCREEN_H - 52 + 17)); frame();
         shot("st_09_rect");
         tap(FX(SCREEN_W - 38), FY(44));                       /* X: the other corner */
         run(2);

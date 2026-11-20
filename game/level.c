@@ -182,6 +182,13 @@ static s32 plane_h(const LabPlane *p, s32 x, s32 z)
 static s32 floor_up(int si, s32 x, s32 z) { const LabSec *s = &lab_secs[si]; return plane_h(&s->f, x, z) + (s->kind == 2 ? sec_dyn[si] : 0); }
 static s32 ceil_up(int si, s32 x, s32 z) { const LabSec *s = &lab_secs[si]; return plane_h(&s->c, x, z) + (s->kind == 1 ? sec_dyn[si] : 0); }
 s32 level_sector_floor(int si, s32 x, s32 z) { return -floor_up(si, x, z); }
+int level_on_lift(s32 x, s32 z)
+{
+    int si;
+    if (flat || !LAB_NSECS) return 0;
+    si = level_sector_at(x, z, sec_hint);
+    return si >= 0 && lab_secs[si].kind == 2;
+}
 s32 level_sector_ceil(int si, s32 x, s32 z) { return -ceil_up(si, x, z); }
 
 /* (n << 12) / d in 32 bits: a 64-bit divide is a library call costing thousands of cycles on the

@@ -321,7 +321,9 @@ static void player_update_(Player *p, u32 pad, int input_yaw, int input_mag)
         gy = level_ground(p->x, p->z, p->y);
         /* stairs and small drops: stay glued to the ground; only a real ledge makes you fall */
         if (gy > p->y + STEP_DOWN) { p->grounded = 0; p->vy = 0; p->air_t = 0; }
-        else if (gy != p->y) {
+        else if (gy != p->y && level_on_lift(p->x, p->z)) {
+            p->y = gy; p->y16 = gy * SUB;          /* a lift carries her: no step to ease, no crouch */
+        } else if (gy != p->y) {
             s32 h = p->y - gy;
             p->step_off += h;
             /* a flight of stairs: the rise over the run since the last step, so her body can

@@ -1,0 +1,96 @@
+# made with Deadbird Studio
+game "HELL GATE"
+camera first
+player walk 44 run 80 jump 72 gravity 5 eye 1450 hp 100 turn 70
+weapon hitscan 22000 damage 12 rate 10
+level shooter2.map
+
+type imp
+  color 210 60 30
+  shape pillar
+  size 640 radius 320 height 1600 hp 36 speed 34
+  flags solid gravity visible
+  tags enemy
+  thing trooper
+  fsm imp_ai
+end
+
+type fireball
+  color 255 120 30
+  shape orb
+  size 260 radius 80 height 200 damage 8 life 200
+  flags visible projectile
+  tags shot
+end
+
+type exit
+  color 60 255 120
+  shape orb
+  size 900 radius 600 height 1500
+  flags visible pickup
+  thing exit
+  fsm exit_logic
+end
+
+fsm imp_ai
+  state idle at 20 20
+    every Wander 30
+    every IfSeePlayer 9000 SEEN
+    on SEEN alert
+    on HIT alert
+    on DIED dead
+    on FINISHED claw
+  state alert at 170 20
+    do PlaySound ALERT 3000
+    do FacePlayer 0
+    do Wait 20
+    on FINISHED chase
+    on DIED dead
+  state chase at 320 20
+    every IfPlayerNear 1300 CLOSE
+    every IfRandom 2 RANGED
+    every MoveForward 30
+    on CLOSE claw
+    on RANGED fireball
+    on HIT hurt
+    on DIED dead
+  state claw at 470 20
+    do FacePlayer 0
+    do Wait 12
+    do Melee 1200 7
+    do Wait 45
+    on FINISHED chase
+    on HIT hurt
+    on DIED dead
+  state fireball at 470 94
+    do FacePlayer 0
+    do SetColor 255 140 60
+    do Wait 18
+    do ShootAtPlayer fireball 90 8
+    do SetColor 210 60 30
+    do Wait 20
+    on FINISHED chase
+    on DIED dead
+  state hurt at 470 168
+    do FleePlayer 40
+    do Wait 10
+    on FINISHED chase
+    on DIED dead
+  state dead at 95 262
+    do AddScore 100
+    do Wait 180
+    do Destroy
+  state state at 128 157
+end
+
+fsm exit_logic
+  state waiting at 20 20
+    every Spin 30
+    every IfPlayerNear 900 REACHED
+    on REACHED done
+  state done at 95 114
+    do Message "YOU ESCAPED THE PLANT" 300
+    do PlaySound PICKUP 4000
+    do Flash 60 255 120
+    do WinGame
+end

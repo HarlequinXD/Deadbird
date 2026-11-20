@@ -1,0 +1,849 @@
+# Deadbird level, saved by the in-game editor. Format: tools/make_map.py
+name UNTITLED
+
+room bay Arrival Bay
+room checkpoint Security Checkpoint
+room hall Pump Hall
+room sump The Sump
+room cells Cell Block
+room office Overseer's Office
+room cooling Cooling Hall
+room corridor Generator Corridor
+room generator Generator
+
+sector bay room bay floor 0 ceil 8
+    pts -8,-30 4,-30 4,-26 8,-26 8,-20 4,-20 4,-19.375 2,-19.375 -2,-19.375 -4,-19.375 -4,-20 -8,-20 -8,-24 -8,-26
+    ftex FLOOR_DOCK
+    frule FLOOR_HAZARD 99,1 0,0
+    ctex CEILING_PANEL
+    crule CEILING_LIGHT 2,2 0,0
+    walls BASE_PLAIN BASE_PIPES BASE_PLAIN BASE_VENT / DOCK_PLATE / DOCK_PLATE / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / DOCK_PLATE / DOCK_PLATE
+    wall 5,9 DARK_METAL
+    wall 11,13 BASE_PLAIN / DOCK_PLATE / DOCK_PLATE / top TOP_BEAM
+    wall 0 cell 4,1 DOCK_NUMBER
+    wall 3 cell 1,1 MID_POSTER_DANGER
+    wall 11 cell 1,1 MID_AUTHORIZED
+
+sector bay_lift room bay floor 8 ceil 16 lift 0 8
+    pts 4,-30 8,-30 8,-26 4,-26
+    ftex FLOOR_HAZARD
+    ctex CEILING_PANEL
+    walls BASE_HAZARD / DARK_METAL / DARK_METAL / HAZARD / top BEAM
+    lows HAZARD / DARK_METAL / DARK_METAL / DARK_METAL
+
+sector bay_secret room bay floor 0 door 4 secret
+    pts -8.25,-26 -8,-26 -8,-24 -8.25,-24
+    ftex FLOOR_PLATE
+    ctex CEILING_PANEL
+    walls DARK_METAL
+    wall 1,3 BASE_PLAIN / DOCK_PLATE
+
+sector bay_store room bay floor 0 ceil 4
+    pts -12,-28 -8.25,-28 -8.25,-26 -8.25,-24 -8.25,-22 -12,-22
+    ftex FLOOR_GRATE
+    ctex DARK_METAL
+    walls DARK_METAL / top BEAM
+
+sector bay_door_ra room bay floor 0 ceil 4
+    pts -2,-19.375 2,-19.375 2,-19.125 -2,-19.125
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
+    walls DARK_METAL
+
+sector bay_door room bay floor 0 door 4
+    pts -2,-19.125 2,-19.125 2,-18.875 -2,-18.875
+    ftex FLOOR_HAZARD
+    ctex CEILING_PANEL
+    walls DARK_METAL
+    wall 0,2 BULKHEAD
+
+sector bay_door_rb room checkpoint floor 0 ceil 4
+    pts -2,-18.875 2,-18.875 2,-18.625 -2,-18.625
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
+    walls DARK_METAL
+
+sector checkpoint room checkpoint floor 0 ceil 6
+    pts -4,-18 -4,-18.625 -2,-18.625 2,-18.625 4,-18.625 4,-18 6,-18 6,-10 4,-10 4,-9.375 2,-9.375 0,-9.375 -2,-9.375 -2,-10 -6,-10 -6,-18
+    ftex FLOOR_PLATE
+    frule FLOOR_STRIP 99,1 0,0
+    ctex CEILING_PANEL
+    crule CEILING_LIGHT 2,2 0,0
+    walls BASE_PLAIN BASE_VENT / MID_VPIPES MID_PANEL / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM
+    wall 0,4,8,12 DARK_METAL
+    wall 14 cell 1,1 CHECKPOINT_PANEL
+    wall 6 cell 1,1 WALL_GRAPH
+    wall 6 cell 3,1 MID_AUTHORIZED
+
+sector hall_door_ra room checkpoint floor 0 ceil 4
+    pts 0,-9.375 2,-9.375 2,-9.125 0,-9.125
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
+    walls DARK_METAL
+
+sector hall_door room checkpoint floor 0 door 4
+    pts 0,-9.125 2,-9.125 2,-8.875 0,-8.875
+    ftex FLOOR_HAZARD
+    ctex CEILING_PANEL
+    walls DARK_METAL
+    wall 0,2 BULKHEAD
+
+sector hall_door_rb room hall floor 0 ceil 4
+    pts 0,-8.875 2,-8.875 2,-8.625 0,-8.625
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
+    walls DARK_METAL
+
+sector hall room hall floor 0 ceil 12
+    pts -2,-8 -2,-8.625 0,-8.625 2,-8.625 4,-8.625 4,-8 10,-8 10,-4 10.625,-4 10.625,-2 10.625,2 10.625,4 10,4 10,12 4,12 4,12.625 2,12.625 -2,12.625 -4,12.625 -4,12 -6,12 -10,12 -10,10 -10.625,10 -10.625,8 -10.625,4 -10.625,2 -10,2 -10,0 -10,-4 -10,-8
+    ftex FLOOR_PLATE
+    frule FLOOR_GRATE 2,2 0,0
+    ctex CEILING_CABLES
+    crule CEILING_LIGHT 3,3 0,0
+    walls BASE_PLAIN BASE_PIPES BASE_VENT BASE_PLAIN / MID_VPIPES MID_PANEL / TOP_CIRCUIT / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows BASE_PLAIN / MID_VPIPES
+    ups TOP_BEAM / HALL_WALL_TOP / HALL_WALL / TOP_CIRCUIT
+    wall 0,4,7,11,14,18,22,26 DARK_METAL
+    wall 30 cell 2,1 EXTRACTION_PANEL
+    wall 5 cell 1,1 EXTRACTION_PANEL
+    wall 6 cell 1,1 WALL_VITALS
+    wall 12 cell 2,1 MID_POSTER_POWER
+    wall 13 cell 1,1 MID_POSTER_DANGER
+    wall 29 cell 0,1 WALL_GRAPH
+
+sector ledge room office floor 4 ceil 8
+    pts -10,12 -6,12 -6,18 -10,18
+    ftex FLOOR_GRATE
+    ctex CEILING_PANEL
+    walls LAB_PANEL / top TOP_BEAM
+    lows PLATE_SIDE / PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL_TOP
+
+sector sump_stairs_0 room sump floor -0.2 ceil 4
+    pts -10.3,-4 -10,-4 -10,0 -10.3,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_1 room sump floor -0.4 ceil 4
+    pts -10.6,-4 -10.3,-4 -10.3,0 -10.6,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_2 room sump floor -0.6 ceil 4
+    pts -10.9,-4 -10.6,-4 -10.6,0 -10.9,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_3 room sump floor -0.8 ceil 4
+    pts -11.2,-4 -10.9,-4 -10.9,0 -11.2,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_4 room sump floor -1 ceil 4
+    pts -11.5,-4 -11.2,-4 -11.2,0 -11.5,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_5 room sump floor -1.2 ceil 4
+    pts -11.8,-4 -11.5,-4 -11.5,0 -11.8,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_6 room sump floor -1.4 ceil 4
+    pts -12.1,-4 -11.8,-4 -11.8,0 -12.1,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_7 room sump floor -1.6 ceil 4
+    pts -12.4,-4 -12.1,-4 -12.1,0 -12.4,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_8 room sump floor -1.8 ceil 4
+    pts -12.7,-4 -12.4,-4 -12.4,0 -12.7,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_9 room sump floor -2 ceil 4
+    pts -13,-4 -12.7,-4 -12.7,0 -13,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_10 room sump floor -2.2 ceil 4
+    pts -13.3,-4 -13,-4 -13,0 -13.3,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_11 room sump floor -2.4 ceil 4
+    pts -13.6,-4 -13.3,-4 -13.3,0 -13.6,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_12 room sump floor -2.6 ceil 4
+    pts -13.9,-4 -13.6,-4 -13.6,0 -13.9,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_13 room sump floor -2.8 ceil 4
+    pts -14.2,-4 -13.9,-4 -13.9,0 -14.2,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_14 room sump floor -3 ceil 4
+    pts -14.5,-4 -14.2,-4 -14.2,0 -14.5,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_15 room sump floor -3.2 ceil 4
+    pts -14.8,-4 -14.5,-4 -14.5,0 -14.8,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_16 room sump floor -3.4 ceil 4
+    pts -15.1,-4 -14.8,-4 -14.8,0 -15.1,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_17 room sump floor -3.6 ceil 4
+    pts -15.4,-4 -15.1,-4 -15.1,0 -15.4,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_18 room sump floor -3.8 ceil 4
+    pts -15.7,-4 -15.4,-4 -15.4,0 -15.7,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump_stairs_19 room sump floor -4 ceil 4
+    pts -16,-4 -15.7,-4 -15.7,0 -16,0
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / HALL_WALL
+
+sector sump room sump floor -4 ceil 2
+    pts -28,-16 -24,-16 -22,-16 -16,-16 -16,-4 -16,0 -28,0
+    ftex FLOOR_PLATE
+    frule FLOOR_GRATE 1,99 0,94
+    ctex CEILING_PANEL
+    crule CEILING_LIGHT 3,3 1,1
+    walls BASE_PIPES BASE_PLAIN BASE_VENT / MID_VPIPES / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM
+    wall 0,2 BASE_PLAIN / MID_VPIPES / top TOP_BEAM
+    wall 6 cell 3,1 PROCESSING_PANEL
+    wall 3 cell 3,1 MID_POSTER_DANGER
+    wall 5 cell 3,1 WALL_VITALS
+
+sector sump_secret room sump floor -4 door 4 secret
+    pts -24,-16.25 -22,-16.25 -22,-16 -24,-16
+    ftex FLOOR_PLATE
+    ctex CEILING_PANEL
+    walls DARK_METAL
+    wall 0,2 BASE_PLAIN / MID_VPIPES
+
+sector sump_drain room sump floor -4 ceil 0
+    pts -26,-20 -20,-20 -20,-16.25 -22,-16.25 -24,-16.25 -26,-16.25
+    ftex FLOOR_DRAIN
+    ctex DARK_METAL
+    walls DARK_METAL / top BEAM
+
+sector cyan_door_ra room cells floor 0 ceil 4
+    pts -11.375,4 -11.125,4 -11.125,8 -11.375,8
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
+    walls DARK_METAL
+
+sector cyan_door room cells floor 0 door 4 lock cyan
+    pts -11.125,4 -10.875,4 -10.875,8 -11.125,8
+    ftex FLOOR_HAZARD
+    ctex CEILING_PANEL
+    walls DARK_METAL
+    wall 1,3 BULKHEAD
+
+sector cyan_door_rb room hall floor 0 ceil 4
+    pts -10.875,4 -10.625,4 -10.625,8 -10.875,8
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
+    walls DARK_METAL
+
+sector cells room cells floor 0 ceil 6
+    pts -24,2 -12,2 -11.375,2 -11.375,4 -11.375,8 -11.375,10 -12,10 -12,14 -20,14 -24,14
+    ftex FLOOR_CELL
+    frule FLOOR_DRAIN 5,3 2,1
+    ctex CEILING_PANEL
+    crule CEILING_LIGHT 3,3 1,1
+    walls CELL_WALL / CELL_WALL / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM / CELL_WALL
+    wall 1,5 DARK_METAL
+    wall 9 cell 2,1 CELL_WARNING
+    wall 7 cell 2,1 CELL_WARNING
+
+sector cells_lift room cells floor 0 ceil 10 lift 0 4
+    pts -24,14 -20,14 -20,18 -24,18
+    ftex FLOOR_HAZARD
+    ctex CEILING_PANEL
+    walls BASE_HAZARD / DARK_METAL / DARK_METAL / top BEAM
+    lows HAZARD / DARK_METAL
+
+sector office room office floor 4 ceil 8
+    pts -24,18 -20,18 -10,18 -6,18 -6,24 -24,24
+    ftex FLOOR_LAB
+    ctex CEILING_PANEL
+    crule CEILING_LIGHT 2,2 0,0
+    walls LAB_PANEL / top TOP_BEAM
+    lows PLATE_SIDE
+    ups TOP_BEAM
+    wall 4 cell 3,0 LAB_POSTER
+    wall 4 cell 6,0 WALL_VITALS
+    wall 1 cell 1,0 WALL_GRAPH
+
+sector amber_door_ra room hall floor 0 ceil 4
+    pts 10.625,-2 10.875,-2 10.875,2 10.625,2
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
+    walls DARK_METAL
+
+sector amber_door room hall floor 0 door 4 lock amber
+    pts 10.875,-2 11.125,-2 11.125,2 10.875,2
+    ftex FLOOR_HAZARD
+    ctex CEILING_PANEL
+    walls DARK_METAL
+    wall 1,3 BULKHEAD
+
+sector amber_door_rb room cooling floor 0 ceil 4
+    pts 11.125,-2 11.375,-2 11.375,2 11.125,2
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
+    walls DARK_METAL
+
+sector cooling room cooling floor 0 ceil 10
+    pts 12,-12 14,-12 16,-12 18,-12 18,-8 18,-6 24,-6 24,6 12,6 12,4 11.375,4 11.375,2 11.375,-2 11.375,-4 12,-4
+    ftex FLOOR_PLATE
+    frule FLOOR_GRATE 3,1 1,0
+    ctex CEILING_CABLES
+    crule CEILING_LIGHT 3,3 1,1
+    walls BASE_PIPES BASE_HAZARD BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows HAZARD / PLATE_SIDE
+    ups TOP_BEAM / TOP_CIRCUIT / GALLERY_PIPES / GALLERY_PIPES
+    wall 0,2 BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    wall 9,13 DARK_METAL
+    wall 7 cell 0,1 TURBINE_PANEL
+    wall 7 cell 5,1 TURBINE_PANEL
+    wall 14 cell 1,1 MID_POSTER_DANGER
+
+sector cool_stairs_0 room cooling floor 0.2 ceil 10
+    pts 18,-12 18.3,-12 18.3,-8 18,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_1 room cooling floor 0.4 ceil 10
+    pts 18.3,-12 18.6,-12 18.6,-8 18.3,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_2 room cooling floor 0.6 ceil 10
+    pts 18.6,-12 18.9,-12 18.9,-8 18.6,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_3 room cooling floor 0.8 ceil 10
+    pts 18.9,-12 19.2,-12 19.2,-8 18.9,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_4 room cooling floor 1 ceil 10
+    pts 19.2,-12 19.5,-12 19.5,-8 19.2,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_5 room cooling floor 1.2 ceil 10
+    pts 19.5,-12 19.8,-12 19.8,-8 19.5,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_6 room cooling floor 1.4 ceil 10
+    pts 19.8,-12 20.1,-12 20.1,-8 19.8,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_7 room cooling floor 1.6 ceil 10
+    pts 20.1,-12 20.4,-12 20.4,-8 20.1,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_8 room cooling floor 1.8 ceil 10
+    pts 20.4,-12 20.7,-12 20.7,-8 20.4,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_9 room cooling floor 2 ceil 10
+    pts 20.7,-12 21,-12 21,-8 20.7,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_10 room cooling floor 2.2 ceil 10
+    pts 21,-12 21.3,-12 21.3,-8 21,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_11 room cooling floor 2.4 ceil 10
+    pts 21.3,-12 21.6,-12 21.6,-8 21.3,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_12 room cooling floor 2.6 ceil 10
+    pts 21.6,-12 21.9,-12 21.9,-8 21.6,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_13 room cooling floor 2.8 ceil 10
+    pts 21.9,-12 22.2,-12 22.2,-8 21.9,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_14 room cooling floor 3 ceil 10
+    pts 22.2,-12 22.5,-12 22.5,-8 22.2,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_15 room cooling floor 3.2 ceil 10
+    pts 22.5,-12 22.8,-12 22.8,-8 22.5,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_16 room cooling floor 3.4 ceil 10
+    pts 22.8,-12 23.1,-12 23.1,-8 22.8,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_17 room cooling floor 3.6 ceil 10
+    pts 23.1,-12 23.4,-12 23.4,-8 23.1,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_18 room cooling floor 3.8 ceil 10
+    pts 23.4,-12 23.7,-12 23.7,-8 23.4,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector cool_stairs_19 room cooling floor 4 ceil 10
+    pts 23.7,-12 24,-12 24,-8 23.7,-8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls BASE_PLAIN / GALLERY_PIPES / GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows PLATE_SIDE
+
+sector gantry room cooling floor 4 ceil 10
+    pts 24,-12 28,-12 28,6 24,6 24,-6 24,-8
+    ftex FLOOR_GRATE
+    ctex CEILING_CABLES
+    walls GALLERY_PIPES / TOP_CIRCUIT / top TOP_BEAM
+    lows HAZARD / PLATE_SIDE
+    ups TOP_BEAM
+    wall 2 cell 0,0 TURBINE_PANEL
+
+sector cool_secret room cooling floor 0 door 4 secret
+    pts 14,-12.25 16,-12.25 16,-12 14,-12
+    ftex FLOOR_PLATE
+    ctex CEILING_PANEL
+    walls DARK_METAL
+    wall 0,2 BASE_PLAIN / GALLERY_PIPES
+
+sector cool_store room cooling floor 0 ceil 4
+    pts 12,-16 18,-16 18,-12.25 16,-12.25 14,-12.25 12,-12.25
+    ftex FLOOR_GRATE
+    ctex DARK_METAL
+    walls DARK_METAL / top BEAM
+
+sector crimson_door_ra room hall floor 0 ceil 4
+    pts -2,12.625 2,12.625 2,12.875 -2,12.875
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
+    walls DARK_METAL
+
+sector crimson_door room hall floor 0 door 4 lock crimson
+    pts -2,12.875 2,12.875 2,13.125 -2,13.125
+    ftex FLOOR_HAZARD
+    ctex CEILING_PANEL
+    walls DARK_METAL
+    wall 0,2 BULKHEAD
+
+sector crimson_door_rb room corridor floor 0 ceil 4
+    pts -2,13.125 2,13.125 2,13.375 -2,13.375
+    ftex FLOOR_HAZARD
+    ctex DARK_METAL
+    walls DARK_METAL
+
+sector corridor room corridor floor 0 ceil 6
+    pts -2,13.375 2,13.375 2,16 -2,16
+    ftex FLOOR_HAZARD
+    ctex CEILING_CABLES
+    walls HALL_WALL / HALL_WALL / top TOP_BEAM
+    ups TOP_BEAM
+
+sector gen_stairs_0 room corridor floor -0.2 ceil 6
+    pts -2,16 2,16 2,16.4 -2,16.4
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / top TOP_BEAM
+    ups TOP_BEAM
+
+sector gen_stairs_1 room corridor floor -0.4 ceil 6
+    pts -2,16.4 2,16.4 2,16.8 -2,16.8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / top TOP_BEAM
+    ups TOP_BEAM
+
+sector gen_stairs_2 room corridor floor -0.6 ceil 6
+    pts -2,16.8 2,16.8 2,17.2 -2,17.2
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / top TOP_BEAM
+    ups TOP_BEAM
+
+sector gen_stairs_3 room corridor floor -0.8 ceil 6
+    pts -2,17.2 2,17.2 2,17.6 -2,17.6
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / top TOP_BEAM
+    ups TOP_BEAM
+
+sector gen_stairs_4 room corridor floor -1 ceil 6
+    pts -2,17.6 2,17.6 2,18 -2,18
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / top TOP_BEAM
+    ups TOP_BEAM
+
+sector gen_stairs_5 room corridor floor -1.2 ceil 6
+    pts -2,18 2,18 2,18.4 -2,18.4
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / top TOP_BEAM
+    ups TOP_BEAM
+
+sector gen_stairs_6 room corridor floor -1.4 ceil 6
+    pts -2,18.4 2,18.4 2,18.8 -2,18.8
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / top TOP_BEAM
+    ups TOP_BEAM
+
+sector gen_stairs_7 room corridor floor -1.6 ceil 6
+    pts -2,18.8 2,18.8 2,19.2 -2,19.2
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / top TOP_BEAM
+    ups TOP_BEAM
+
+sector gen_stairs_8 room corridor floor -1.8 ceil 6
+    pts -2,19.2 2,19.2 2,19.6 -2,19.6
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / top TOP_BEAM
+    ups TOP_BEAM
+
+sector gen_stairs_9 room corridor floor -2 ceil 6
+    pts -2,19.6 2,19.6 2,20 -2,20
+    ftex STAIR_TREAD
+    ctex CEILING_PANEL
+    walls HALL_WALL / HALL_WALL / top TOP_BEAM
+    ups TOP_BEAM
+
+sector generator room generator floor -2 ceil 10
+    pts -4,20 -2,20 2,20 16,20 16,30 -4,30
+    ftex FLOOR_REACTOR
+    frule FLOOR_HAZARD 99,1 0,0
+    ctex CEILING_CABLES
+    crule CEILING_LIGHT 2,2 0,0
+    walls REACTOR_PLATE BASE_HAZARD / REACTOR_PLATE / TOP_CIRCUIT / HALL_WALL / HALL_WALL_TOP / top TOP_BEAM
+    lows REACTOR_PLATE
+    ups TOP_BEAM / HALL_WALL_TOP / HALL_WALL / TOP_CIRCUIT
+    wall 5 cell 2,1 REACTOR_WARNING
+    wall 3 cell 2,1 REACTOR_WARNING
+    wall 4 cell 4,1 WALL_VITALS
+    wall 4 cell 5,1 WALL_GRAPH
+
+lightgrid -8,-30 8,-20 5.5 4 1 1.05 1.15 8
+light 6,-26.5,6 1.3 0.15 0.1 4
+light -10,-25,3 0.5 0.35 0.6 3.5
+light 0,-18.5,4.4 0.9 0.3 0.15 3
+lightgrid -6,-18 6,-10 4.5 4 0.8 0.85 0.9 5.5
+light 1,-8.5,4.4 0.9 0.3 0.15 3
+light 0,2,4 0.35 1.1 1.4 15
+light 0,2,0.6 0.25 0.8 1 6
+lightgrid -10,-8 10,12 7 5 0.8 0.82 0.9 10
+light -8,-6,9 0.8 0.75 0.6 12
+light 8,-6,9 0.8 0.75 0.6 12
+light -8,10,9 0.7 0.7 0.75 12
+light 8,10,9 0.7 0.7 0.75 12
+light -10.5,6,4.4 0.2 0.8 1 3.5
+light 10.5,0,4.4 1 0.6 0.1 3.5
+light 0,12.5,4.4 1.1 0.15 0.1 3.5
+lightgrid -28,-16 -16,0 0.5 4 0.9 0.78 0.6 7
+light -13,-2,3 0.6 0.6 0.7 5
+light -23,-18,-1 0.5 0.35 0.7 3.5
+lightgrid -24,2 -12,14 4.5 4 0.6 0.65 0.75 6.5
+light -22,16,6 0.9 0.6 0.2 4
+lightgrid -24,18 -6,24 7 4 0.85 0.9 0.95 6.5
+light -8,15,7 0.7 0.75 0.8 5
+lightgrid 12,-12 28,6 7 4 0.9 0.86 0.72 8.5
+light 16,4,0.3 0.2 0.9 0.7 4
+light 21,4,0.3 0.2 0.9 0.7 4
+light 26,0,8 0.6 0.6 0.55 7
+light 15,-14,2.5 0.5 0.35 0.6 3.5
+light 0,15,4.5 1 0.5 0.25 5
+light 0,19,3 0.8 0.5 0.3 5
+lightgrid -4,20 16,30 7 5 0.7 0.6 0.5 9
+light 6,25,0 1.6 0.8 0.3 17
+light 6,25,7 0.9 0.55 0.3 11
+light -2,22,4 0.8 0.55 0.4 7
+light 14,22,4 0.8 0.55 0.4 7
+light 14,28,4 0.8 0.55 0.4 7
+light -2,28,4 0.8 0.55 0.4 7
+sprite 6,-26.2,6.2 0.26 255 40 30 5
+prop crate -6.5,-28.5 0.8 0.8
+prop crate -5.6,-28.6 0.8 0.8
+prop crate -6.1,-28.4 0.8 1.6
+prop crate 6.6,-21.5 0.7 0.7
+prop crate -6.8,-21.4 0.8 0.8
+prop can 2.6,-29.2
+prop can 3.2,-29.4
+prop can -3.5,-21
+prop machine 6.8,-22 8,-20 2.2 w
+prop console 4,-16.6 w graph
+prop console -4,-11 s vitals
+prop box -6,-12 -5.2,-10 0 3.4 DARK_METAL HAZARD cell 0.9
+prop box 4.4,-12 6,-11.2 0 1.1 DARK_METAL MACHINE_PANEL cell 0.9
+prop tank 0,2
+prop pillar -6,-4 12
+prop pillar 6,-4 12
+prop pillar -6,8 12
+prop pillar 6,8 12
+prop console -7,-7.2 n graph
+prop console 7,-7.2 n vitals
+prop rail -9,12 -6,12 4
+prop pod -25,-12 e 3
+prop pod -25,-6 e 4
+prop pod -19,-12 w 3
+prop pod -19,-6 w 4
+prop console -22,-1 s vitals
+prop can -17,-15
+prop can -17.6,-15.3
+prop cell -22,2.8 n
+prop cell -19.5,2.8 n
+prop cell -17,2.8 n
+prop cell -17,13.2 s
+prop cell -14.5,13.2 s
+prop can -13,2.6
+prop crate -23.3,12.5 0.7 0.7
+prop box -15,22.2 -13,23.6 4 4.8 DARK_METAL MACHINE_PANEL cell 0.8
+prop box -14.8,22.6 -13.9,23.1 4.8 4.95 SHINI_BODY SHINI_BODY cell 0.9
+prop console -20,23.4 s graph
+prop console -22.5,23.4 s vitals
+prop rack -6.6,22 w
+prop rack -6.6,20.5 w
+prop cyl -9.4,23,4.8 0.19 0.56 6 GLASS add anim 2
+prop cyl -8.6,23,4.8 0.19 0.56 6 GLASS add anim 2
+prop box -9.8,22.2 -8.2,23.6 4 4.8 DARK_METAL MACHINE_PANEL cell 0.8
+prop box 14,2 18,5.5 0 3.4 DARK_METAL MACHINE_BASE cell 1
+prop fan 16,5.51,1.7 1.1 1
+prop box 19,2 23,5.5 0 3.4 DARK_METAL MACHINE_BASE cell 1
+prop fan 21,5.51,1.7 1.1 -1
+prop rail 24,-6 24,-2 4
+prop console 27.4,-4 w graph
+prop crate 13,-15 0.7 0.7
+prop core 6,25
+prop console -3.2,22 e graph
+prop console -3.2,28 e vitals
+prop console 15.2,22 w vitals
+prop console 15.2,28 w graph
+
+thing start 6,-28
+thing trooper -4,-24 yaw 90
+thing trooper 2,-22 yaw 180
+thing trooper -4,-12 yaw 180
+thing trooper 4,-14 yaw 270
+thing trooper -6,6 yaw 135
+thing trooper 4,-2 yaw 270
+thing trooper 6,10 yaw 200.04
+thing trooper -20,-6 yaw 90
+thing trooper -24,-12 yaw 45
+thing trooper -26,-4 yaw 119.97
+thing trooper -16,10 yaw 90
+thing trooper -20,6 yaw 119.97
+thing trooper -14,4 yaw 60.03
+thing trooper -12,22 yaw 270
+thing trooper -18,20 yaw 90
+thing trooper 16,0 yaw 270
+thing trooper 20,-2 yaw 200.04
+thing trooper 14,-8
+thing trooper 26,-8
+thing trooper 0,24 yaw 159.96
+thing trooper 12,23 yaw 200.04
+thing trooper 1,28 yaw 135
+thing trooper 12,28 yaw 225
+thing key cyan -22,-14
+thing key amber -20,22
+thing key crimson 26,4
+thing shard -8,16
+thing shard 27,-10
+thing shard 13,4
+thing shard -10.5,-25 secret
+thing shard -23,-18.5 secret
+thing shard 15,-14.5 secret
+thing exit 6,25
+thing way 6,-28
+thing way 6,-24
+thing way 0,-22
+thing way 0,-19
+thing way 0,-14
+thing way 1,-11
+thing way 1,-9
+thing way 1,-6
+thing way -6,-2
+thing way -13,-2
+thing way -18,-2
+thing way -22,-4
+thing way -22,-14
+thing way -22,-4
+thing way -18,-2
+thing way -13,-2
+thing way -6,-2
+thing way -8,6
+thing way -11,6
+thing way -14,6
+thing way -18,10
+thing way -22,12
+thing way -22,16
+thing way -22,20
+thing way -20,22
+thing way -12,20
+thing way -9.3,20
+thing way -9.3,15
+thing way -9.3,13
+thing way -9.3,10
+thing way -6,2
+thing way 3,-4
+thing way 8,0
+thing way 11,0
+thing way 14,0
+thing way 15,-4
+thing way 15,-10
+thing way 21,-10
+thing way 26,-10
+thing way 26,4
+thing way 25,0
+thing way 22,0
+thing way 16,0
+thing way 11,0
+thing way 6,4
+thing way 0,10
+thing way 0,13
+thing way 0,15
+thing way 0,18
+thing way 0,22
+thing way 2,24

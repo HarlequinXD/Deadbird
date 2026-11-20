@@ -21,7 +21,8 @@
 
 #define STEP_HEIGHT 512          /* tallest ledge you can walk up without jumping: 16 texels (a texture tile
                                     is 64 texels over 2 m), half a metre */
-#define STEP_DOWN   220          /* drops up to this keep her glued to the ground; deeper ones she falls */
+#define STEP_DOWN   STEP_HEIGHT  /* drops up to this keep her glued to the ground (she walks down any step
+                                    she could walk up); deeper ones she falls */
 
 typedef struct { s16 x, y, z; } LabVert;
 typedef struct { u16 v[4]; u8 uv[8]; u8 rgb[12]; u8 page, flags, anim, pal; } LabFace;   /* pal: extra CLUT + 1 */
@@ -94,6 +95,7 @@ void level_think(s32 px, s32 py, s32 pz, u32 keys);
 void level_set_use_mode(int on);          /* doors and lifts wait for level_use (else they work by themselves) */
 enum { LU_NONE, LU_DOOR, LU_SECRET, LU_LOCKED, LU_LIFT };
 int  level_use(s32 px, s32 py, s32 pz, u32 keys);    /* the interact button: opens / calls / starts (LU_*) */
+int  level_on_lift(s32 x, s32 z);                     /* standing on a lift's deck: it carries her (no step easing) */
 int  level_can_use(s32 px, s32 py, s32 pz);          /* what A would do here (no effect; secret doors: LU_NONE) */
 /* a pickup she's touching (taken once): returns its LabThing type or -1, its arg in *arg */
 int  level_pickup(s32 px, s32 py, s32 pz, int *arg);
