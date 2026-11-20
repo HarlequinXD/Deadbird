@@ -63,6 +63,8 @@ static s32 exit_x, exit_z; static int has_exit;
 static Player pl;
 static int gs, gs_t, frame_count, shake, rumble;
 static s32 cam_yaw, cam_dist, cam_h, cam_side, cam_clip = 2900;
+static s32 cam_vyaw, cam_goal_last;              /* the yaw the camera actually shows: eases after cam_yaw */
+static s32 cam_px, cam_pz, cam_fvx, cam_fvz;       /* the point it actually follows: a spring after her */
 static s32 cam_fy; static int cam_fy_ok;          /* the height the camera follows: her height, smoothed (stairs don't jolt it) */
 static u32 prev_pad, cur_pad;
 static int stick_on, stick_ox, stick_oy, stick_x, stick_y;   /* floating touch stick (screen px) */
@@ -304,6 +306,31 @@ static void app_init(void)
 }
 
 /* ------------------------------------------------------------------ simulation */
+static s32 clamp(s32 v, s32 lo, s32 hi) { return v < lo ? lo : (v > hi ? hi : v); }
+
+/* smooth follow: the camera's yaw and the point it looks at trail cam_yaw and Deadbird on
+   critically damped springs, so lunges, knockback, hit-stops and quick turns are eased instead of
+   jerking the whole screen. A little look-ahead along her velocity cancels the lag while she runs
+   steadily, so she stays centred. Teleports (spawns, cutscenes, a jump in cam_yaw) snap. */
+static void camera_follow(void)
+{
+    s32 dyaw = ((cam_yaw - cam_vyaw + 2048) & 4095) - 2048, gyaw = ((cam_yaw - cam_goal_last + 2048) & 4095) - 2048;
+    s32 tx = pl.x + clamp((pl.vx >> 4) * 10, -1100, 1100), tz = pl.z + clamp((pl.vz >> 4) * 10, -1100, 1100);
+    s32 dx = tx - cam_px, dz = tz - cam_pz;
+    cam_goal_last = cam_yaw;
+    if (!cam_fy_ok || gyaw > 300 || gyaw < -300) cam_vyaw = cam_yaw;      /* set outright: snap */
+    else cam_vyaw = (cam_vyaw + dyaw / 5 + (dyaw > 0) - (dyaw < 0)) & 4095;
+    if (!cam_fy_ok || dx > 3000 || dx < -3000 || dz > 3000 || dz < -3000) {
+        cam_px = tx; cam_pz = tz; cam_fvx = cam_fvz = 0;
+        return;
+    }
+    /* spring: stiffness 1/25, critically damped (2/5), settles in about a third of a second;
+       velocity x16. Its steady lag (10 ticks of her speed) is what the look-ahead cancels. */
+    cam_fvx += dx * 16 / 25 - cam_fvx * 2 / 5;
+    cam_fvz += dz * 16 / 25 - cam_fvz * 2 / 5;
+    cam_px += cam_fvx / 16; cam_pz += cam_fvz / 16;
+}
+
 static void camera_update(u32 pad)
 {
     /* MediEvil-style follow camera: L1/R1 (or the < > touch buttons) swing it round; while you
@@ -315,6 +342,7 @@ static void camera_update(u32 pad)
     if (!(pad & (BTN_CAM_L | BTN_CAM_R)) && !an_rx && pl.speed > 4 && dyaw > -1300 && dyaw < 1300)
         cam_yaw += dyaw / (pl.speed > 40 ? 28 : 48);
     cam_yaw &= 4095;
+    camera_follow();
 }
 
 /* stick or d-pad -> world heading + push amount, relative to where the camera looks right now
@@ -339,14 +367,13 @@ static void read_move(u32 pad, int *yaw, int *mag)
         if (dx || dz) *mag = 2600;                        /* d-pad walks; hold run to sprint */
     }
     if (!*mag) { *yaw = pl.yaw; return; }
-    *yaw = (cam_yaw + player_input_angle(dx, dz)) & 4095;
+    *yaw = (cam_vyaw + player_input_angle(dx, dz)) & 4095;    /* relative to what's on screen */
 }
 
 /* ------------------------------------------------------------------ sound */
 static int amb_timer = 120, was_grounded = 1;
 /* per combo swing: damage, knockback (1/16 u/frame), stagger frames */
 static const int SAW_DMG[3] = { 26, 30, 52 }, SAW_KNOCK[3] = { 0, 0, 60 * 16 }, SAW_STAGGER[3] = { 28, 30, 40 };   /* 1-2 hold him in place for the next */
-static s32 clamp(s32 v, s32 lo, s32 hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 static int rnd(int n) { return (int)(fx_rand() % (u32)n); }
 
@@ -355,7 +382,7 @@ static int pan_of(s32 x, s32 z)
 {
     s32 dx = x - pl.x, dz = z - pl.z, d = (s32)isqrt((u32)((dx >> 4) * (dx >> 4) + (dz >> 4) * (dz >> 4))) << 4;
     if (d < 64) return 0;
-    return (int)((dx * -icos(cam_yaw) + dz * isin(cam_yaw)) / d) * 3 / 4;
+    return (int)((dx * -icos(cam_vyaw) + dz * isin(cam_vyaw)) / d) * 3 / 4;
 }
 
 /* loops and ambience, once per 60 Hz tick */
@@ -1079,15 +1106,15 @@ static void draw_world(FrameBuf *fb, PROJ *pr)
         pitch += ((dead_t ? 420 : 150) - pitch) / 10;
         mat_rot_x(&rx, pitch);
     }
-    mat_rot_y(&ry, -cam_yaw - (debug_side_cam ? 1024 : 0)); mat_mul(&rx, &ry, &view);
+    mat_rot_y(&ry, -cam_vyaw - (debug_side_cam ? 1024 : 0)); mat_mul(&rx, &ry, &view);
     /* look-at point: chest height */
-    rxv = (icos(cam_yaw) * cam_side) >> 12; rzv = (-isin(cam_yaw) * cam_side) >> 12;
+    rxv = (icos(cam_vyaw) * cam_side) >> 12; rzv = (-isin(cam_vyaw) * cam_side) >> 12;
     {
         s32 want = pl.y + pl.step_off, d = want - cam_fy;
         if (!cam_fy_ok || d > 3000 || d < -3000) { cam_fy = want; cam_fy_ok = 1; }
         else cam_fy += pl.grounded ? d / 6 : d / 3;     /* steps glide; a jump is followed closely */
     }
-    tgt.vx = (s16)(-(pl.x + rxv) + sx); tgt.vy = (s16)(-(cam_fy - cam_h + 300) + sy); tgt.vz = (s16)(-(pl.z + rzv));
+    tgt.vx = (s16)(-(cam_px + rxv) + sx); tgt.vy = (s16)(-(cam_fy - cam_h + 300) + sy); tgt.vz = (s16)(-(cam_pz + rzv));
     view.t[0] = view.t[1] = view.t[2] = 0;
     mat_apply(&view, &tgt, &tv);
     {
@@ -1097,8 +1124,8 @@ static void draw_world(FrameBuf *fb, PROJ *pr)
         int f;
         off.vx = 0; off.vy = 300; off.vz = cam_dist;
         mat_rot_tapply(&view, &off, &back);
-        campos.vx = (pl.x + rxv) - back.vx; campos.vy = (cam_fy - cam_h + 300) - back.vy; campos.vz = (pl.z + rzv) - back.vz;
-        head.vx = pl.x; head.vy = cam_fy - 1500; head.vz = pl.z;
+        campos.vx = (cam_px + rxv) - back.vx; campos.vy = (cam_fy - cam_h + 300) - back.vy; campos.vz = (cam_pz + rzv) - back.vz;
+        head.vx = cam_px; head.vy = cam_fy - 1500; head.vz = cam_pz;
         f = level_clip_segment(&head, &campos, 160);
         d = cam_dist * f / 4096 - 120;
         if (d < 450) d = 450;
