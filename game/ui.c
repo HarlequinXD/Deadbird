@@ -93,6 +93,21 @@ void ui_kit(FrameBuf *fb, int cell, int x, int y, int r, int g, int b, int ot)
     if (!kit_cell(cell, &tp, &cl, &u, &v, &w, &h, &add)) return;
     ui_kit_part(fb, cell, x, y, x + w, y + h, 0, 0, w, h, r, g, b, 0, ot);
 }
+/* a piece of a kit cell repeated at its own size across a box (never stretched: stretched pixel
+   art smears), the last copy cut short */
+static void kit_tile(FrameBuf *fb, int cell, int x0, int y0, int x1, int y1, int u0, int v0, int u1, int v1, int bright, int ot)
+{
+    int tw = u1 - u0, th = v1 - v0, x, y;
+    if (tw <= 0 || th <= 0) return;
+    for (y = y0; y < y1; y += th) {
+        int h = y1 - y < th ? y1 - y : th;
+        for (x = x0; x < x1; x += tw) {
+            int w = x1 - x < tw ? x1 - x : tw;
+            ui_kit_part(fb, cell, x, y, x + w, y + h, u0, v0, u0 + w, v0 + h, bright, bright, bright, 0, ot);
+        }
+    }
+}
+
 int ui_nine(FrameBuf *fb, int cell, int x0, int y0, int x1, int y1, int bright, int ot)
 {
     /* corner sizes (x, y) per cell */
@@ -120,7 +135,10 @@ int ui_nine(FrameBuf *fb, int cell, int x0, int y0, int x1, int y1, int bright, 
                        RGB(f[3] * bright >> 7, f[4] * bright >> 7, f[5] * bright >> 7), NO_SEMI, ot);
             continue;
         }
-        ui_kit_part(fb, cell, xs[i], ys[j], xs[i + 1], ys[j + 1], us[i], vs[j], us[i + 1], vs[j + 1], bright, bright, bright, 0, ot);
+        if (i == 1 || j == 1)           /* edges (and a row's middle): tiled */
+            kit_tile(fb, cell, xs[i], ys[j], xs[i + 1], ys[j + 1], us[i], vs[j], us[i + 1], vs[j + 1], bright, ot);
+        else                            /* corners: 1:1 */
+            ui_kit_part(fb, cell, xs[i], ys[j], xs[i + 1], ys[j + 1], us[i], vs[j], us[i + 1], vs[j + 1], bright, bright, bright, 0, ot);
     }
     return 1;
 }
@@ -149,7 +167,13 @@ void ui_plate(FrameBuf *fb, int cx, int y, int w, int lit, int t, int ot)
     int x0 = cx - w / 2, x1 = cx + w / 2, cu = lit ? 40 : 0, mu = lit ? 64 : 24;
     int b = lit ? 112 + (isin(t * 150) * 16 >> 12) : 128;
     ui_sprite(fb, x0, y, 24, 32, cu, 208, 24, 32, b, b, b, 0, 0, ot);                 /* left cap: horn points left */
-    ui_sprite(fb, x0 + 24, y, w - 48, 32, mu, 208, 16, 32, b, b, b, 0, 0, ot);        /* stretched middle */
+    {   /* the middle: the 16-pixel strip repeated at its own size, not stretched */
+        int x;
+        for (x = x0 + 24; x < x1 - 24; x += 16) {
+            int n = x1 - 24 - x < 16 ? x1 - 24 - x : 16;
+            ui_sprite(fb, x, y, n, 32, mu, 208, n, 32, b, b, b, 0, 0, ot);
+        }
+    }
     ui_sprite(fb, x1 - 24, y, 24, 32, cu, 208, 24, 32, b, b, b, 0, 1, ot);            /* right cap, mirrored */
     if (lit) {
         int d = isin(t * 120) * 3 >> 12;
@@ -158,26 +182,29 @@ void ui_plate(FrameBuf *fb, int cx, int y, int w, int lit, int t, int ot)
     }
 }
 
+/* the touch buttons and stick: their pixel art at its own size, 1:1 (scaled to a radius it went
+   2.6 or 1.3 times, and every pixel came out uneven: smeared, stretched-looking). Pressed, a
+   button burns and sinks a pixel instead of growing. */
 void ui_button(FrameBuf *fb, int cx, int cy, int r, int icon, int lit, int t)
 {
     static const u8 iu[6] = { 0, 32, 64, 96, 0, 0 }, iv[6] = { 112, 112, 112, 112, 144, 176 };
-    int s = (r + 7) * 2 + (lit ? 4 : 0), is = s * 3 / 4;
-    int b = lit ? 128 : 112;
+    int b = lit ? 128 : 112, dy = lit ? 1 : 0;
+    (void)r;
     if (lit) {
         int g = 110 + (isin(t * 200) * 30 >> 12);
-        ui_sprite(fb, cx - s, cy - s, s * 2, s * 2, 32, 144, 32, 32, g, g / 2, g / 3, 1, 0, 2);
-    }
-    if (lit) ui_sprite(fb, cx - s / 2, cy - s / 2 - 2, s, s, 0, 64, 48, 48, 255, 150, 90, 0, 0, 1);      /* burning */
-    else ui_sprite(fb, cx - s / 2, cy - s / 2 - 2, s, s, 0, 64, 48, 48, b, b, b, 0, 0, 1);
-    if (icon >= 0 && icon < 6) ui_sprite(fb, cx - is / 2, cy - is / 2, is, is, iu[icon], iv[icon], 32, 32, lit ? 128 : 100, lit ? 128 : 92, lit ? 128 : 88, 0, 0, 0);
+        ui_sprite(fb, cx - 32, cy - 32, 64, 64, 32, 144, 32, 32, g, g / 2, g / 3, 1, 0, 2);            /* glow (soft: 2x is fine) */
+        ui_sprite(fb, cx - 24, cy - 26 + dy, 48, 48, 0, 64, 48, 48, 255, 150, 90, 0, 0, 1);          /* burning */
+    } else ui_sprite(fb, cx - 24, cy - 26, 48, 48, 0, 64, 48, 48, b, b, b, 0, 0, 1);
+    if (icon >= 0 && icon < 6) ui_sprite(fb, cx - 16, cy - 16 + dy, 32, 32, iu[icon], iv[icon], 32, 32, lit ? 128 : 100, lit ? 128 : 92, lit ? 128 : 88, 0, 0, 0);
 }
 
 void ui_stick(FrameBuf *fb, int ox, int oy, int kx, int ky, int radius, int active, int t)
 {
-    int size = radius * 2 * 32 / 23, b = active ? 128 : 80, rb = active ? 150 : 60;
-    ui_sprite_rot(fb, ox, oy, size * 52 / 64, 64, 144, 64, 64, -t * 6, rb / 3, rb / 6, rb / 8, 1, 3);      /* sigil */
-    ui_sprite_rot(fb, ox, oy, size, 64, 0, 64, 64, t * 9, rb, rb * 2 / 3, rb / 2, 1, 2);                  /* runes */
-    ui_sprite(fb, ox - size / 2, oy - size / 2, size, size, 0, 0, 64, 64, b, b, b, 0, 0, 2);               /* frame */
-    if (active) ui_sprite(fb, kx - 26, ky - 26, 52, 52, 32, 144, 32, 32, 150, 70, 40, 1, 0, 1);
-    ui_sprite(fb, kx - 17, ky - 17, 34, 34, 96, 64, 32, 32, b, b, b, 0, 0, 0);                            /* the eye */
+    int b = active ? 128 : 80, rb = active ? 150 : 60;
+    (void)radius;
+    ui_sprite_rot(fb, ox, oy, 52, 64, 144, 64, 64, -t * 6, rb / 3, rb / 6, rb / 8, 1, 3);      /* sigil */
+    ui_sprite_rot(fb, ox, oy, 64, 64, 0, 64, 64, t * 9, rb, rb * 2 / 3, rb / 2, 1, 2);         /* runes */
+    ui_sprite(fb, ox - 32, oy - 32, 64, 64, 0, 0, 64, 64, b, b, b, 0, 0, 2);                      /* frame, 1:1 */
+    if (active) ui_sprite(fb, kx - 32, ky - 32, 64, 64, 32, 144, 32, 32, 150, 70, 40, 1, 0, 1);
+    ui_sprite(fb, kx - 16, ky - 16, 32, 32, 96, 64, 32, 32, b, b, b, 0, 0, 0);                   /* the eye, 1:1 */
 }

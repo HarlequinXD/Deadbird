@@ -35,6 +35,7 @@ static struct {
     int vx, vy, vw, vh;          /* where the frame lands on the screen (it fills it) */
     int quad_w;                  /* the frame width the quad's texture coordinates were made for */
     GLuint prog, tex, vbo;
+    GLuint sprog; GLint su_ts, su_k, su_max;   /* the frame's "sharp bilinear" upscale */
     int ready;
     /* full-resolution / pixel-art UI (App.hires): its shader, atlas, and the canvas it's drawn on */
     GLuint hprog, hatlas, hfbo, hcanvas;
@@ -119,6 +120,23 @@ static void gl_setup(void)
     glBindAttribLocation(G.prog, 0, "p");
     glBindAttribLocation(G.prog, 1, "t");
     glLinkProgram(G.prog);
+    {   /* the frame onto the screen: each PS1 pixel a crisp block, but the screen's ~4.5 pixels per
+           frame pixel can't all be whole, so instead of nearest (some blocks 4 wide, some 5: sprites
+           and text look uneven and stretched) the one screen pixel on a block's edge is blended */
+        static const char *sfs =
+            "#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n"
+            "varying vec2 v; uniform sampler2D s; uniform vec2 ts; uniform vec2 k; uniform vec2 mx;"
+            "void main(){ vec2 t = v * ts; vec2 i = floor(t); vec2 c = i + 0.5 + clamp((t - i - 0.5) * k, -0.5, 0.5);"
+            " gl_FragColor = texture2D(s, min(c, mx) / ts); }";
+        G.sprog = glCreateProgram();
+        glAttachShader(G.sprog, shader(GL_VERTEX_SHADER, vs));
+        glAttachShader(G.sprog, shader(GL_FRAGMENT_SHADER, sfs));
+        glBindAttribLocation(G.sprog, 0, "p");
+        glBindAttribLocation(G.sprog, 1, "t");
+        glLinkProgram(G.sprog);
+        { GLint ok = 0; glGetProgramiv(G.sprog, GL_LINK_STATUS, &ok); if (!ok) { LOG("sharp shader failed: nearest"); G.sprog = 0; } }
+        if (G.sprog) { G.su_ts = glGetUniformLocation(G.sprog, "ts"); G.su_k = glGetUniformLocation(G.sprog, "k"); G.su_max = glGetUniformLocation(G.sprog, "mx"); }
+    }
 
     glGenTextures(1, &G.tex);
     glBindTexture(GL_TEXTURE_2D, G.tex);
@@ -203,7 +221,7 @@ static void present_hires(const HrList *l)
         const HrCmd *c = &l->cmd[i];
         const HrVert *v = l->v + c->first;
         if (!c->count) continue;
-        if (c->tex == HR_TEX_FRAME) { glBindTexture(GL_TEXTURE_2D, G.tex); glUniform2f(G.hu_uv, (float)SCREEN_W / TEX_W, (float)SCREEN_H / TEX_H); }
+        if (c->tex == HR_TEX_FRAME) { glBindTexture(GL_TEXTURE_2D, G.tex); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST); glUniform2f(G.hu_uv, (float)SCREEN_W / TEX_W, (float)SCREEN_H / TEX_H); }
         else { glBindTexture(GL_TEXTURE_2D, G.hatlas); glUniform2f(G.hu_uv, 1, 1); }
         if (c->clip[2] > c->clip[0]) { glEnable(GL_SCISSOR_TEST); glScissor(c->clip[0], ch - c->clip[3], c->clip[2] - c->clip[0], c->clip[3] - c->clip[1]); }
         else glDisable(GL_SCISSOR_TEST);
@@ -327,7 +345,15 @@ static void present(void)
     glClearColor(0, 0, 0, 1);
     glClear(GL_COLOR_BUFFER_BIT);
     glViewport(G.vx, G.vy, G.vw, G.vh);
-    glUseProgram(G.prog);
+    glBindTexture(GL_TEXTURE_2D, G.tex);
+    if (G.sprog) {
+        glUseProgram(G.sprog);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glUniform2f(G.su_ts, (float)TEX_W, (float)TEX_H);
+        glUniform2f(G.su_k, (float)G.vw / SCREEN_W, (float)G.vh / SCREEN_H);
+        glUniform2f(G.su_max, SCREEN_W - 0.5f, SCREEN_H - 0.5f);
+    } else glUseProgram(G.prog);
     glBindBuffer(GL_ARRAY_BUFFER, G.vbo);
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);

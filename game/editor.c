@@ -2213,7 +2213,7 @@ static void draw_dpad(void)
     if (eu_hires) {                                   /* the Studio: a clean ring in its own look */
         eu_ring(cx, cy, 28, RGB(150, 70, 40), L_POP_BG + 2);
         eu_ring(cx, cy, 26, RGB(70, 30, 22), L_POP_BG + 2);
-    } else ui_sprite(eu_fb(), cx - 31, cy - 31, 62, 62, 0, 0, 64, 64, 128, 128, 128, 0, 0, L_POP_BG + 2);
+    } else ui_sprite(eu_fb(), cx - 32, cy - 32, 64, 64, 0, 0, 64, 64, 128, 128, 128, 0, 0, L_POP_BG + 2);
     for (k = 0; k < 4; k++) {
         int bx = cx + DX[k] * 17, by = cy + DY[k] * 17;
         u32 lit = (touch_hold == (k == 0 ? PAD_UP : k == 1 ? PAD_RIGHT : k == 2 ? PAD_DOWN : PAD_LEFT));
