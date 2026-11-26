@@ -120,6 +120,40 @@ jobs:
           make -C platform/windows DeadbirdStudio.exe CC=x86_64-w64-mingw32-gcc STUDIO_CFLAGS="-O2 -std=c99 -Wall -Wextra -Wno-unused-parameter -Werror"
           ls -la platform/windows/DeadbirdStudio.exe
 
+  linux:
+    name: Linux (SDL2)
+    runs-on: ubuntu-22.04        # an older glibc: the binary runs on Mint 21+, Ubuntu 22.04+, Debian 12+, Fedora, Arch
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install SDL2
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
+      - name: Build deadbird and deadbird-studio
+        run: make -C platform/linux deadbird deadbird-studio CFLAGS="-O2 -std=c99 -Wall -Wextra -Wno-unused-parameter -Werror"
+      - name: Smoke test (no screen: SDL's offscreen driver, a few seconds of each)
+        run: |
+          mkdir -p shots
+          for d in offscreen dummy; do
+            SDL_VIDEODRIVER=$d SDL_AUDIODRIVER=dummy ENGINE_FRAMES=240 ENGINE_SHOT=shots/deadbird.bmp ENGINE_FILES=$PWD/t1 timeout 120 ./platform/linux/deadbird && break
+          done
+          for d in offscreen dummy; do
+            SDL_VIDEODRIVER=$d SDL_AUDIODRIVER=dummy ENGINE_FRAMES=120 ENGINE_SHOT=shots/studio.bmp ENGINE_FILES=$PWD/t2 timeout 120 ./platform/linux/deadbird-studio && break
+          done
+          ls -la shots
+      - name: Package
+        run: |
+          mkdir -p Deadbird-linux
+          cp platform/linux/deadbird platform/linux/deadbird-studio platform/linux/README.txt Deadbird-linux/
+          strip Deadbird-linux/deadbird Deadbird-linux/deadbird-studio
+          tar czf Deadbird-linux.tar.gz Deadbird-linux
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Deadbird-linux
+          path: Deadbird-linux.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-smoke-shots
+          path: shots
+
   ps1:
     name: PS1 disc image
     runs-on: ubuntu-latest

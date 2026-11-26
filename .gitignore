@@ -20,3 +20,5 @@ platform/headless/rolltest
 platform/headless/edtest
 platform/headless/edittest
 platform/headless/levels/
+platform/linux/deadbird
+platform/linux/deadbird-studio
