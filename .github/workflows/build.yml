@@ -129,7 +129,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
       - name: Build deadbird and deadbird-studio
         run: make -C platform/linux deadbird deadbird-studio CFLAGS="-O2 -std=c99 -Wall -Wextra -Wno-unused-parameter -Werror"
-      - name: Smoke test (no screen: SDL's offscreen driver, a few seconds of each)
+      - name: "Smoke test (no screen: SDL's offscreen driver, a few seconds of each)"
         run: |
           mkdir -p shots
           for d in offscreen dummy; do
